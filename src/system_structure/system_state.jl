@@ -404,6 +404,14 @@ function pulley_sum_len(r)
     return sum(something(segments[idx].rest_length, 0.0) for idx in r.segments)
 end
 
+"""Winch record `r`'s column `column`, else the run's setting `setting`, else `NaN`."""
+function winch_setting(r, column, setting)
+    value = getproperty(getfield(r, :row), column)
+    isnothing(value) || return value
+    set = getfield(run_state(r), :set)
+    return isnothing(set) ? NaN : getproperty(set, setting)
+end
+
 """Write station record `r`'s aerodynamic moment [N·m] where its run reads it."""
 function station_aero_moment!(r, value)
     run_state(r).station_aero_moment[index(r)] = value
@@ -603,6 +611,15 @@ A winch of a run's state: its reel-out speed, its setpoint and the forces on it.
     speed_controlled => (run_value(r, :speed_controlled,
                                    something(r.row.speed_controlled, false)),
                          set_run_value!(r, :speed_controlled, value))
+    coulomb_friction => (run_value(r, :coulomb_friction,
+                                   winch_setting(r, :coulomb_friction, :f_coulomb)),
+                         set_run_value!(r, :coulomb_friction, value))
+    viscous_coefficient => (run_value(r, :viscous_coefficient,
+                                      winch_setting(r, :viscous_coefficient, :c_vf)),
+                            set_run_value!(r, :viscous_coefficient, value))
+    inertia_total => (run_value(r, :inertia_total,
+                                winch_setting(r, :inertia_total, :inertia_total)),
+                      set_run_value!(r, :inertia_total, value))
 end
 
 """The collection of a run's state a record is one of, as a parameter path names it."""

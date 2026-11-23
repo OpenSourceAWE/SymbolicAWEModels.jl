@@ -178,11 +178,11 @@ environment:
     # Test 1: Brake holds tether velocity at zero
     # ============================================================
     @testset "Brake holds" begin
+        place!(sam)
+        test_init!(sam; prn=false)
         winch.coulomb_friction = 0.0
         winch.viscous_coefficient = 0.0
         winch.inertia_total = 0.1
-        place!(sam)
-        test_init!(sam; prn=false)
         winch.brake = true
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
@@ -201,14 +201,14 @@ environment:
     # Expected: a = (r/n) * tau_motor / I
     # ============================================================
     @testset "Acceleration vs inertia" begin
-        winch.coulomb_friction = 0.0
-        winch.viscous_coefficient = 0.0
         tau_motor = 1.0
 
         for I_test in [0.1, 0.5, 1.0]
-            winch.inertia_total = I_test
             place!(sam)
             test_init!(sam; prn=false)
+            winch.coulomb_friction = 0.0
+            winch.viscous_coefficient = 0.0
+            winch.inertia_total = I_test
             winch.brake = false
             seg.unit_stiffness = 0.0
             seg.unit_damping = 0.0
@@ -235,16 +235,16 @@ environment:
     #   a = (r/n)/I * (tau_motor - coulomb_friction * r/n)
     # ============================================================
     @testset "Acceleration vs Coulomb friction" begin
-        winch.viscous_coefficient = 0.0
         winch.model.friction_epsilon = 0.01
-        winch.inertia_total = 0.1
         tau_motor = 1.0
-        I = winch.inertia_total
+        I = 0.1
 
         for f_c in [0.5, 2.0, 5.0]
-            winch.coulomb_friction = f_c
             place!(sam)
             test_init!(sam; prn=false)
+            winch.viscous_coefficient = 0.0
+            winch.inertia_total = 0.1
+            winch.coulomb_friction = f_c
             winch.brake = false
             seg.unit_stiffness = 0.0
             seg.unit_damping = 0.0
@@ -280,16 +280,16 @@ environment:
     # Expected: v_term = tau_motor * n / (viscous_coefficient * r)
     # ============================================================
     @testset "Terminal velocity vs viscous friction" begin
-        winch.coulomb_friction = 0.0
         winch.model.friction_epsilon = 6.0
-        winch.inertia_total = 0.01  # Small I for fast settling
         tau_motor = 1.0
-        I = winch.inertia_total
+        I = 0.01
 
         for viscous_test in [50.0, 100.0, 200.0]
-            winch.viscous_coefficient = viscous_test
             place!(sam)
             test_init!(sam; prn=false)
+            winch.coulomb_friction = 0.0
+            winch.inertia_total = 0.01  # Small I for fast settling
+            winch.viscous_coefficient = viscous_test
             winch.brake = false
             seg.unit_stiffness = 0.0
             seg.unit_damping = 0.0
@@ -317,15 +317,15 @@ environment:
     # Exact: extension = m*g*l0 / (unit_stiffness - m*g)
     # ============================================================
     @testset "Steady-state tether stretch" begin
-        winch.coulomb_friction = 1.0
-        winch.viscous_coefficient = 0.5
         winch.model.friction_epsilon = 6.0
-        winch.inertia_total = 0.1
 
         unit_k = 50000.0  # Low but not too low [N]
         unit_d = unit_k * 0.01  # Damping for settling
         place!(sam)
         test_init!(sam; prn=false)
+        winch.coulomb_friction = 1.0
+        winch.viscous_coefficient = 0.5
+        winch.inertia_total = 0.1
         winch.brake = true
         seg.unit_stiffness = unit_k
         seg.unit_damping = unit_d
@@ -362,14 +362,14 @@ environment:
     # the motor torque we are applying.
     # ============================================================
     @testset "calc_steady_torque at terminal velocity" begin
-        winch.coulomb_friction = 0.0
         winch.model.friction_epsilon = 6.0
-        winch.inertia_total = 0.01
-        winch.viscous_coefficient = 100.0
 
         # Stiff tether to transmit gravity force
         place!(sam)
         test_init!(sam; prn=false)
+        winch.coulomb_friction = 0.0
+        winch.inertia_total = 0.01
+        winch.viscous_coefficient = 100.0
         winch.brake = false
         seg.unit_stiffness = 120000.0
         seg.unit_damping = 500.0

@@ -233,24 +233,26 @@ $(TYPEDFIELDS)
     speed_controlled::Union{Nothing, Bool} = nothing
     "Friction smoothing width [m/s]."
     friction_epsilon::Union{Nothing, Float64} = nothing
+    "Coulomb friction force [N]."
+    coulomb_friction::Union{Nothing, Float64} = nothing
+    "Viscous friction coefficient [N·s/m]."
+    viscous_coefficient::Union{Nothing, Float64} = nothing
+    "Total rotational inertia [kg·m²]."
+    inertia_total::Union{Nothing, Float64} = nothing
     "Index in the structure's winches."
     idx::Int64 = 0
-    "Coulomb friction force [N]."
-    coulomb_friction::SimFloat = NaN
-    "Viscous friction coefficient [N·s/m]."
-    viscous_coefficient::SimFloat = NaN
-    "Total rotational inertia [kg·m²]."
-    inertia_total::SimFloat = NaN
     "Motor dynamics."
     dynamics::W
 end
 
-WinchModel(init_vel, brake, speed_controlled, friction_epsilon) =
-    WinchModel(; init_vel, brake, speed_controlled, friction_epsilon,
-               dynamics=torque_winch(friction_epsilon))
+WinchModel(init_vel, brake, speed_controlled, friction_epsilon, coulomb_friction,
+           viscous_coefficient, inertia_total) =
+    WinchModel(; init_vel, brake, speed_controlled, friction_epsilon, coulomb_friction,
+               viscous_coefficient, inertia_total, dynamics=torque_winch(friction_epsilon))
 
 KiteGeometry.model_columns(::Type{<:WinchModel}) =
-    (:init_vel, :brake, :speed_controlled, :friction_epsilon)
+    (:init_vel, :brake, :speed_controlled, :friction_epsilon, :coulomb_friction,
+     :viscous_coefficient, :inertia_total)
 
 @inline function Base.getproperty(model::WinchModel{W}, property::Symbol) where {W}
     (hasfield(W, property) || !hasfield(WinchModel{W}, property)) &&
@@ -356,7 +358,8 @@ function register_definition_models()
                     ("-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
                     default=true)
     register_model!(:tethers, "sam_tether", TetherModel, (); default=true)
-    register_model!(:winches, "sam_winch", WinchModel, ("m/s", "-", "-", "m/s");
+    register_model!(:winches, "sam_winch", WinchModel,
+                    ("m/s", "-", "-", "m/s", "N", "N*s/m", "kg*m^2");
                     default=true)
     register_model!(:tubes, "timoshenko", TimoshenkoTubeModel,
                     ("N", "N", "N*m^2", "N*m^2", "N*m^2", "-", "s", "m", "m");

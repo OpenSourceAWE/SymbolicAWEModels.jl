@@ -153,9 +153,6 @@ leaves unset and its friction and inertia from `set`."""
 function definition_winch(winch, set)
     winch.gear_ratio = something(getfield(winch, :gear_ratio), set.gear_ratio)
     winch.drum_radius = something(getfield(winch, :drum_radius), set.drum_radius)
-    winch.coulomb_friction = set.f_coulomb
-    winch.viscous_coefficient = set.c_vf
-    winch.inertia_total = set.inertia_total
     return winch
 end
 
