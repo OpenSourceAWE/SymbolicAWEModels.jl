@@ -86,8 +86,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -143,9 +141,9 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     set = Settings("system.yaml")
 
     # Build SAM once (expensive) and reuse
-    sys1 = load_sys_struct_from_yaml(
+    sys1, transforms = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_1", set=set)
-    sam = SymbolicAWEModel(set, sys1)
+    sam = SymbolicAWEModel(set, sys1; transforms)
     test_init!(sam)
 
     # Build SysLog with a few frames
@@ -156,28 +154,29 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     lg2 = build_test_syslog(sam, sys1, 5, 0.05)
 
     # Second SystemStructure for multi-system tests
-    sys2 = load_sys_struct_from_yaml(
+    sys2, _ = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_2", set=set)
 
     # Reset sys structs to first frame for plotting
-    update_from_sysstate!(sys1, lg1.syslog[1])
-    update_from_sysstate!(sys2, lg2.syslog[1])
+    state1, state2 = SystemState(sys1), SystemState(sys2)
+    update_from_sysstate!(state1, lg1.syslog[1])
+    update_from_sysstate!(state2, lg2.syslog[1])
 
     # ================================================================
     # Test 1: Multi-system plot creates vector-typed colors
     # ================================================================
     @testset "Multi-system plot vector colors" begin
-        scene = MakieControlPlots.plot([sys1, sys2]; use_observables=true)
+        scene = MakieControlPlots.plot([state1, state2]; use_observables=true)
         @test scene isa GLMakie.Scene
     end
 
     @testset "segment_color takes one colour per segment, or a function of it" begin
         red, blue = GLMakie.to_color(:red), GLMakie.to_color(:blue)
-        plots = GLMakie.plot!(GLMakie.Scene(), sys1; segment_color=[:red, :blue])
+        plots = GLMakie.plot!(GLMakie.Scene(), state1; segment_color=[:red, :blue])
         @test plots[:segment_colors_obs][] == [red, blue]
-        plots = GLMakie.plot!(GLMakie.Scene(), sys1; segment_color=seg1_blue)
+        plots = GLMakie.plot!(GLMakie.Scene(), state1; segment_color=seg1_blue)
         @test plots[:segment_colors_obs][] == [blue, red]
-        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), sys1;
+        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), state1;
             segment_color=[:red])
     end
 
@@ -270,15 +269,16 @@ end
 @testset "panel_border_color colours the VSM and flat-plate panel borders" begin
     data_path = get_data_path()
     set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
-    vsm_sys = load_sys_struct_from_yaml(
+    vsm_sys, vsm_transforms = load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
         system_name="2plate_kite", set=Settings("system.yaml"),
         vsm_set=VortexStepMethod.VSMSettings(
             joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false))
     n_panels = length(vsm_sys.wings[1].vsm_aero.panels)
-    _, plate_sys = build_plate_kite(mktempdir())
+    _, plate_sys, plate_transforms = build_plate_kite(mktempdir())
 
-    for (sys, n_borders) in ((vsm_sys, n_panels), (plate_sys, 1))
+    for (sys, n_borders) in ((SystemState(vsm_sys; transforms=vsm_transforms), n_panels),
+                             (SystemState(plate_sys; transforms=plate_transforms), 1))
         @test border_lines(sys, :gray; panel_border_color=:gray) == n_borders
         @test border_lines(sys, :gray) == 0
     end

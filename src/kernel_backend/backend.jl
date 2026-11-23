@@ -6,7 +6,7 @@
 """
     build_prob!(::KernelBackend, sam; sparse=false, analytic_jacobian=true, prn=true)
 
-Assemble `sam.sys_struct` into a [`KernelModel`](@ref) and wrap its right-hand side as an
+Assemble `sam.state` into a [`KernelModel`](@ref) and wrap its right-hand side as an
 `ODEProblem`. The problem's parameter object is our own flat buffer plus the
 callable store, so `sync_params!` writes struct fields straight into it. `sparse`
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
@@ -40,13 +40,13 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
             rhs; mass_matrix = model.system.mass_matrix,
             jac_prototype = prototype, jac = jacobian),
         model.u0, (0.0, step), model.params)
-    sync_params!(model.param_sync, problem, sam.sys_struct)
+    sync_params!(model.param_sync, problem, sam.state)
     isnothing(jacobian) || check_jacobian_finite(jacobian, problem.u0, problem.p)
     sam.prob = ProbWithAttributes(; prob = problem,
         param_sync = model.param_sync, initial_sync = KernelInitialSync(model),
-        set_set_values = KernelControlSetter(model, sam.sys_struct),
+        set_set_values = KernelControlSetter(model, sam.state),
         get_set_values = nothing, get_aero_input = nothing,
-        get_all_state = KernelStateGetter(model, rhs, sam.sys_struct))
+        get_all_state = KernelStateGetter(model, rhs, sam.state))
     return true
 end
 
@@ -87,13 +87,13 @@ function init_backend!(::KernelBackend, sam, solver;
         adaptive = true, prn = true, remake_vsm = true,
         reset_integrator = true, vsm_min_wind = 0.5, lin_vsm = true,
         sparse = false, analytic_jacobian = true, remake = false, reload = false)
-    model_name = get_model_name(sam.set, sam.sys_struct; sparse, analytic_jacobian,
+    model_name = get_model_name(sam.set, sam.state; sparse, analytic_jacobian,
                                 backend = KernelBackend())
     model_path = joinpath(KiteUtils.get_data_path(), model_name)
     prn && @info "Model bin name: $model_name"
     loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
-    init_sys_struct!(sam.sys_struct, sam.set; remake_vsm, prn)
-    write_total_mass!(sam.sys_struct)
+    init_sys_struct!(sam.state, sam.set; remake_vsm, prn)
+    write_total_mass!(sam.state)
     if loaded && !isnothing(sam.prob)
         prn && @info "Reusing the assembled model, so no kernel is compiled here."
     else

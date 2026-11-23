@@ -176,7 +176,7 @@ function sim_reposition!(
     prn=true
 )
     # 1. --- Initialization ---
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     steps = Int(round(total_time / dt))
     reposition_interval_steps = Int(round(reposition_interval_s / dt))
     set_values = zeros(Float64, steps, length(sys_struct.winches))
@@ -208,12 +208,13 @@ function sim_reposition!(
             end
             
             # Update the transform with the new target pose
-            sys_struct.transforms[1].elevation = target_elevation
-            sys_struct.transforms[1].azimuth   = target_azimuth
-            sys_struct.transforms[1].heading   = target_heading
-            
+            transform = sam.transforms[1]
+            transform.elevation = target_elevation
+            transform.azimuth = target_azimuth
+            transform.heading = target_heading
+
             # Apply the transformation without changing velocities
-            SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
+            reposition!(sam.state)
             
             # Reinitialize the solver to handle the state discontinuity
             if sam.prob isa ProbWithAttributes

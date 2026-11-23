@@ -92,7 +92,7 @@ function run_saddle(; yaml_file)
 
     fixed = Set(i for (i, p) in enumerate(points)
                 if p.type == STATIC)
-    disp = [norm(sam.sys_struct.points[i].pos_w .-
+    disp = [norm(sam.state.points[i].pos_w .-
                  points[i].pos_ENU)
             for i in eachindex(points) if i ∉ fixed]
     avg = sum(disp) / length(disp)

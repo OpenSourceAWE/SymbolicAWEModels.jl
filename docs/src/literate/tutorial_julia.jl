@@ -17,7 +17,7 @@
 # The construction workflow has four steps:
 #
 # 1. **Define components** — create [`Point`](@ref), [`Segment`](@ref),
-#    [`Transform`](@ref), and optionally [`Tether`](@ref),
+#    a KiteGeometry `Transform`, and optionally [`Tether`](@ref),
 #    [`Winch`](@ref), [`Pulley`](@ref)
 # 2. **Assemble** — pass components to [`SystemStructure`](@ref), which
 #    resolves all symbolic references (`:anchor` → index 1) and
@@ -58,16 +58,15 @@ l_tether = 50.0
 
 points = Point[]
 
-push!(points, Point(:anchor, zeros(3), STATIC; transform=:tf))
+push!(points, Point(:anchor, zeros(3), STATIC))
 
 for i in 1:n_segments
     pos = [0.0, 0.0, i * l_tether / n_segments]
     if i < n_segments
-        push!(points, Point(Symbol("p_$i"), pos, DYNAMIC;
-            transform=:tf))
+        push!(points, Point(Symbol("p_$i"), pos, DYNAMIC))
     else
         push!(points, Point(:tip, pos, DYNAMIC;
-            extra_mass=1.0, transform=:tf))
+            extra_mass=1.0))
     end
 end
 
@@ -99,19 +98,19 @@ for i in 1:n_segments
             unit_stiffness, unit_damping, diameter))
 end
 
-# A [`Transform`](@ref) describes the initial orientation of the
+# Now assemble everything into a [`SystemStructure`](@ref).
+#
+# A KiteGeometry `Transform` describes the initial orientation of the
 # system using spherical coordinates (elevation, azimuth, heading)
-# relative to a base position.
+# relative to a base position. It names the base point, the point it
+# turns and the points it moves by their index; [`place!`](@ref) puts
+# the structure where it says. Then visualize it:
 
-transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
-    base_pos=[0.0, 0.0, 50.0],
-    base_point=:anchor, rot_point=:tip)]
-
-# Now assemble everything into a [`SystemStructure`](@ref) and
-# visualize it:
-
-sys_struct = SystemStructure("tether", set;
-    points, segments, transforms)
+sys_struct = SystemStructure("tether", set; points, segments)
+transforms = [Transform(; name=:tf, elevation=deg2rad(-80), azimuth=0.0,
+    heading=0.0, base_pos=[0.0, 0.0, 50.0], base_point=1,
+    rot_point=[length(points) => 1.0], points=collect(eachindex(points)))]
+place!(sys_struct, transforms)
 
 scene = plot(sys_struct)                                          #hide
 plot(sys_struct)
@@ -124,7 +123,7 @@ GLMakie.save(joinpath(ASSETS, "tether_sys_struct.png"), scene)    #hide
 
 using KiteUtils: init!, next_step!, update_sys_state!
 
-sam = SymbolicAWEModel(set, sys_struct)
+sam = SymbolicAWEModel(set, sys_struct; transforms)
 init!(sam; prn=false, remake=true)                                             #hide
 init!(sam)
 
@@ -171,8 +170,8 @@ winches = [Winch(:winch, [:main],
 
 # Build and simulate with a constant torque of -20 Nm:
 
-sys_struct = SystemStructure("winch", set;
-    points, segments, tethers, winches, transforms)
+sys_struct = SystemStructure("winch", set; points, segments, tethers, winches)
+place!(sys_struct, transforms)
 
 scene = plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "winch_sys_struct.png"), scene)     #hide
@@ -181,7 +180,7 @@ GLMakie.save(joinpath(ASSETS, "winch_sys_struct.png"), scene)     #hide
 
 using KiteUtils: init!, next_step!, update_sys_state!
 
-sam = SymbolicAWEModel(set, sys_struct)
+sam = SymbolicAWEModel(set, sys_struct; transforms)
 init!(sam; prn=false, remake=true)                                             #hide
 init!(sam)
 
@@ -239,14 +238,9 @@ segments = [
 
 pulleys = [Pulley(:pulley, :to_left, :to_right, DYNAMIC)]
 
-# Orient the system and build:
+# Build the system:
 
-transforms = [Transform(:tf, deg2rad(0.0), 0.0, 0.0;
-    base_pos=[1.0, 0.0, 4.0],
-    base_point=:left, rot_point=:right)]
-
-sys_struct = SystemStructure("pulley", set;
-    points, segments, pulleys, transforms)
+sys_struct = SystemStructure("pulley", set; points, segments, pulleys)
 
 scene = plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "pulley_sys_struct.png"), scene)    #hide
@@ -305,9 +299,6 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # ## Pulley references segments by name
 # Pulley(:pulley, :seg_a, :seg_b, DYNAMIC)
 #
-# ## Transform references points by name
-# Transform(:tf, 0.5, 0.0, 0.0; base_point=:anchor,
-#     rot_point=:tip, base_pos=[0, 0, 50])
 # ```
 #
 # The [`SystemStructure`](@ref) constructor resolves all names to
@@ -331,7 +322,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # | [`Station`](@ref) | `Station(name, points, type, frac; ...)` | Wing twist section |
 # | [`Body`](@ref) | `Body(name; extra_mass, inertia_principal, pos)` | Rigid body |
 # | [`Tube`](@ref) | `Tube(name, body_a, body_b; diameter, pressure, model)` | Inflated tube between bodies |
-# | [`Transform`](@ref) | `Transform(name, el, az, hdg; ...)` | Spherical positioning |
+# | KiteGeometry `Transform` | `Transform(; name, elevation, azimuth, heading, ...)` | Spherical positioning |
 #
 # See the [Types](exported_types.md) page for full constructor
 # documentation.

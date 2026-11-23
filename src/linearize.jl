@@ -21,7 +21,7 @@ equilibrium before starting a maneuver or analysis.
 """
 function find_steady_state!(sam::SymbolicAWEModel; 
                             t=2.0, dt=t/10, vsm_interval=1)
-    (; winches, wings) = sam.sys_struct
+    (; winches, wings) = sam.state
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
     [winch.brake=1.0 for winch in winches]
@@ -31,7 +31,7 @@ function find_steady_state!(sam::SymbolicAWEModel;
     end
     [winch.brake=old_brakes[winch.idx] for winch in winches]
     [wing.fix_sphere=old_fixes[wing.idx] for wing in wings]
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.state)
     return nothing
 end
 

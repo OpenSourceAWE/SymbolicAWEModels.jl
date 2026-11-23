@@ -4,7 +4,7 @@
 # test_deserialization.jl - Deserialization and settings sync tests
 #
 # Verifies that after loading a cached .bin model:
-# 1. sam.set === sam.sys_struct.set (reference identity)
+# 1. sam.set === sam.state.set (reference identity)
 # 2. Modified settings propagate through deserialized models
 
 using Pkg
@@ -48,8 +48,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 tether:
     cd_tether: 0.958
@@ -84,25 +82,49 @@ system:
 
     set_data_path(tmpdir)
 
-    @testset "sam.set delegates to sys_struct.set" begin
+    @testset "sam.set delegates to state.set" begin
         set = Settings("system.yaml")
-        sys = load_sys_struct_from_yaml(
+        sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set)
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         init!(sam; remake=true, prn=false)
 
         # sam.set must be the exact same object as
-        # sam.sys_struct.set
-        @test sam.set === sam.sys_struct.set
+        # sam.state.set
+        @test sam.set === sam.state.set
 
         # Mutating via sam.set should be visible via
-        # sys_struct.set
+        # state.set
         sam.set.g_earth = 3.14
-        @test sam.sys_struct.set.g_earth == 3.14
+        @test sam.state.set.g_earth == 3.14
 
         # Assigning sam.set = ... should error
         @test_throws ErrorException (sam.set = set)
+    end
+
+    @testset "two models on one structure keep their own run settings" begin
+        set_a, set_b = Settings("system.yaml"), Settings("system.yaml")
+        set_a.g_earth, set_a.v_wind = 0.0, 0.0
+        set_b.g_earth, set_b.v_wind = 9.81, 0.0
+        sys, transforms = load_sys_struct_from_yaml(
+            yaml_path; system_name="deser_test_1", set=set_a)
+        sam_a = SymbolicAWEModel(set_a, sys; transforms)
+        sam_b = SymbolicAWEModel(set_b, sys; transforms, wind_mode=PerPointWind())
+        @test sam_a.set === set_a
+        @test sam_b.set === set_b
+        @test sam_a.wind_mode isa ProfileWind
+        @test sam_b.wind_mode isa PerPointWind
+
+        fall_velocity = map((sam_a, sam_b)) do sam
+            init!(sam; prn=false)
+            for _ in 1:10
+                next_step!(sam; dt=0.01, vsm_interval=0)
+            end
+            sam.state.points[:test_point].vel_w[3]
+        end
+        @test abs(fall_velocity[1]) < 1e-6
+        @test fall_velocity[2] < -0.5
     end
 
     @testset "Deserialized model uses current settings" begin
@@ -110,9 +132,9 @@ system:
         set1 = Settings("system.yaml")
         set1.g_earth = 0.0
         set1.v_wind = 0.0
-        sys1 = load_sys_struct_from_yaml(
+        sys1, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set1)
-        sam1 = SymbolicAWEModel(set1, sys1)
+        sam1 = SymbolicAWEModel(set1, sys1; transforms)
         init!(sam1; remake=true, prn=false)
 
         # Simulate - no gravity, no wind → stationary
@@ -120,7 +142,7 @@ system:
             next_step!(sam1; dt=0.01, vsm_interval=0)
         end
         vel_no_grav = copy(
-            sam1.sys_struct.points[:test_point].vel_w)
+            sam1.state.points[:test_point].vel_w)
         @test norm(vel_no_grav) < 1e-6
 
         # Now create a new SAM with gravity enabled,
@@ -128,13 +150,13 @@ system:
         set2 = Settings("system.yaml")
         set2.g_earth = 9.81
         set2.v_wind = 0.0
-        sys2 = load_sys_struct_from_yaml(
+        sys2, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set2)
-        sam2 = SymbolicAWEModel(set2, sys2)
+        sam2 = SymbolicAWEModel(set2, sys2; transforms)
         # remake=false → loads from cache
         init!(sam2; remake=false, prn=false)
 
-        @test sam2.set === sam2.sys_struct.set
+        @test sam2.set === sam2.state.set
         @test sam2.set.g_earth == 9.81
 
         # Simulate - with gravity, point should accelerate
@@ -142,7 +164,7 @@ system:
             next_step!(sam2; dt=0.01, vsm_interval=0)
         end
         vel_with_grav = copy(
-            sam2.sys_struct.points[:test_point].vel_w)
+            sam2.state.points[:test_point].vel_w)
         # Z velocity should be negative (falling in NED)
         @test vel_with_grav[3] < -0.5
     end
@@ -160,11 +182,11 @@ system:
         function build_refine(; remake)
             set = Settings("system.yaml")
             set.g_earth = 0.0
-            sys = load_sys_struct_from_yaml(refine_yaml;
+            sys, transforms = load_sys_struct_from_yaml(refine_yaml;
                 system_name="deser_refine", set,
                 dynamics_type=PARTICLE_DYNAMICS, vsm_set)
             sys.winches[:main_winch].brake = true
-            sam = SymbolicAWEModel(set, sys)
+            sam = SymbolicAWEModel(set, sys; transforms)
             init!(sam; remake, remake_vsm=false, prn=false)
             for _ in 1:5
                 next_step!(sam; dt=0.05, vsm_interval=1)
@@ -175,7 +197,7 @@ system:
         sam_fresh = build_refine(; remake=true)    # builds + caches
         sam_cached = build_refine(; remake=false)  # loads from .bin
 
-        wpts(sam) = [p for p in sam.sys_struct.points if p.is_wing_node]
+        wpts(sam) = [p for p in sam.state.points if p.is_wing_node]
         fresh, cached = wpts(sam_fresh), wpts(sam_cached)
 
         # wind is on → aero is non-trivial (test is meaningful)

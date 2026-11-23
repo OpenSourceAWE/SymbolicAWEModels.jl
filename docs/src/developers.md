@@ -26,7 +26,7 @@ Before you begin, ensure you have the following software installed:
 - **Bash**: A Unix-like shell environment.
 - **Code editor**: Your preferred code editor with Julia support.
 
-For Windows or macOS, check [these](https://ufechner7.github.io/2024/08/09/installing-julia-with-juliaup.html) instructions.
+For Windows or macOS, check [these](https://ufechner7.github.io/2026/10/24/installing-julia-1.13-and-vscode.html) instructions.
 
 ---
 
@@ -382,7 +382,7 @@ its own job on Ubuntu with Julia 1.12.
 | `test_wing_dynamics` | [`Wing`](@ref AbstractWing) | Torque response, precession, angular momentum conservation |
 | `test_tether_winch` | [`Tether`](@ref), [`Winch`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
-| `test_transform` | [`Transform`](@ref) | Spherical coordinate positioning |
+| `test_transform` | KiteGeometry `Transform` | Spherical coordinate positioning |
 | `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
 | `test_quaternion_auto_groups` | [`Station`](@ref) | Twist DOFs on a rigid wing |
 | `test_static_twist` | [`Station`](@ref) | Prescribed (`STATIC`) twist |
@@ -472,7 +472,7 @@ The source code is organized into modular directories:
 
 - **`src/system_structure/`** — component types and assembly
   - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
-    [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref), [`Transform`](@ref)
+    [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref)
   - `wing.jl`: [`AbstractWing`](@ref)/[`Wing`](@ref) types and the
     [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
   - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
@@ -480,7 +480,6 @@ The source code is organized into modular directories:
   - `system_structure_core.jl`: [`SystemStructure`](@ref) constructor, reference
     resolution
   - `named_collection.jl`: Symbol-based indexing ([`NamedCollection`](@ref))
-  - `transforms.jl`: Spherical coordinate transforms
   - `utilities.jl`: Validation, tether creation, state management
 - **`src/aero_modes/`** — one file per [`AbstractAeroModel`](@ref)
   (`none`, `direct`, `linearized`, `continuous`, `pressure`, `plate`), plus
@@ -491,8 +490,9 @@ The source code is organized into modular directories:
   - `create_sys.jl`: Top-level orchestrator
   - `point_eqs.jl`, `segment_eqs.jl`, `wing_eqs.jl`, `rigid_body_eqs.jl`,
     `elastic_tube_eqs.jl`, etc.: per-subsystem equations
-- **`src/yaml_loader.jl`** — YAML configuration file parser
-  ([`load_sys_struct_from_yaml`](@ref))
+- **`src/definition_loader.jl`** — a structure from a KiteGeometry definition: the
+  authoring YAML KiteGeometry loads ([`load_sys_struct_from_yaml`](@ref)) and the
+  structure documents it reads and writes
 - **`src/obj_adapter.jl`** — `.obj` mesh mass properties (`ObjAdapter`)
 - **`src/linearize.jl`** — low-frequency aero refresh dispatch and
   state-space linearization ([`linearize!`](@ref))
