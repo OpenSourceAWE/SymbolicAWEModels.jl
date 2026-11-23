@@ -67,7 +67,7 @@ abstract type ComponentState end
 """
     SystemState{SS, ST}
 
-What a run holds of a [`SystemDefinition`](@ref). Its state is a KiteUtils `SysState` of
+What a run holds of a `SystemDefinition`. Its state is a KiteUtils `SysState` of
 `Float64`, `sysstate`, beside the integrator's parameters no column holds. Its
 `points`, `spanwise_stations`, `segments`, `pulleys`, `tethers`, `winches`, `bodies` and
 `wings`

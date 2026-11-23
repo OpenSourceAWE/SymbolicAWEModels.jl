@@ -467,6 +467,6 @@ rebuild with `init!(sam; remake=true)`.
 | **Material refs** | Built-in: reference by name | Manual: pass stiffness/damping directly |
 | **Version control** | Clean diffs for parameter changes | Code diffs mix logic and parameters |
 
-Both paths produce the same [`SystemDefinition`](@ref) type and are equally
+Both paths produce the same `SystemDefinition` type and are equally
 capable. They can be freely mixed — for example, load a YAML model and then
 modify component fields in Julia before simulation.

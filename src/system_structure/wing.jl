@@ -261,7 +261,7 @@ its [`VSMEngine`](@ref) from it.
 - `stations::Vector`: References to stations (names or indices).
 
 # Keyword Arguments
-- `Q_KA2ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemDefinition`](@ref)
+- `Q_KA2ENU`, `pos_ENU`, `inertia_diag`: Placeholders that `SystemDefinition`
   overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
   per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and

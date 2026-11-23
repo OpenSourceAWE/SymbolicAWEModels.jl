@@ -277,10 +277,7 @@ aero_hash_id(::AbstractAeroModel) = ()
     Point
 
 A point mass, a node of the mass-spring system: a KiteGeometry `points` row whose model is
-a [`PointModel`](@ref). Its properties are the row's fields and its model's, an unset
-column reading as its default ([`row_property`](@ref)); `wing_ref`, `body_ref` and
-`tube_ref` read the reference the row gives, `wing_idx`, `body_idx` and `tube_idx` the index
-the structure resolves it to, and `anchor_b` where it rides its body, given or derived.
+a [`PointModel`](@ref).
 """
 const Point = KiteGeometry.Point{PointModel}
 
@@ -393,10 +390,7 @@ axis_column(values::AbstractVector) = Vector{Float64}(values)
     Station
 
 A set of bridle lines that share the same twist angle and trailing edge angle: a
-KiteGeometry `spanwise_stations` row whose model is a [`StationModel`](@ref). `point_refs`,
-`wing_ref`, `body_refs`, `flap_body_refs` and `flap_point_refs` read the references the
-row gives, `point_idxs`, `wing_idx`, `body_idxs`, `flap_body_idxs` and `flap_point_idxs`
-the indices the structure resolves them to.
+KiteGeometry `spanwise_stations` row whose model is a [`StationModel`](@ref).
 """
 const Station = KiteGeometry.SpanwiseStation{StationModel}
 
@@ -786,8 +780,6 @@ end
 
 A pulley described by two segments with the common point of the segments being the
 pulley: a KiteGeometry `pulleys` row whose model is a [`PulleyModel`](@ref).
-`segment_refs` reads the segments the row gives, `segment_idxs` the indices they resolve
-to.
 """
 const Pulley = KiteGeometry.Pulley{PulleyModel}
 
@@ -994,8 +986,7 @@ abstract type AbstractWinchModel end
 
 A set of tethers (or a single tether) connected to a winch mechanism: a KiteGeometry
 `winches` row whose model is a [`WinchModel`](@ref) with motor dynamics `W`, reached as
-`winch.model.dynamics`. `tether_refs` and `winch_point_ref` read the tethers and ground
-point the row gives, `tether_idxs` and `winch_point_idx` the indices they resolve to.
+`winch.model.dynamics`.
 
 The winch has no length field of its own: its length is the mean of its tethers'
 unstretched lengths (`winch.len ~ mean(tether.len for tether in tethers)`) and

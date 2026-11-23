@@ -277,7 +277,7 @@ end
 """
     save_structure_document(path, sys::SystemDefinition)
 
-Write [`structure_document`](@ref)`(sys)` to `path`, as YAML for a `.yml` or `.yaml`
+Write `structure_document``(sys)` to `path`, as YAML for a `.yml` or `.yaml`
 extension and as JSON for `.json`.
 """
 function save_structure_document(path::AbstractString, sys::SystemDefinition)

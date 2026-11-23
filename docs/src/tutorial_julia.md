@@ -13,7 +13,7 @@ CurrentModule = SymbolicAWEModels
 
 This tutorial walks through building mechanical systems from scratch
 using Julia constructors. Each component is created with a symbolic
-name and assembled into a [`SystemDefinition`](@ref), which is then
+name and assembled into a `SystemDefinition`, which is then
 compiled into a simulation model.
 
 ## Overview
@@ -23,7 +23,7 @@ The construction workflow has four steps:
 1. **Define components** — create [`Point`](@ref), [`Segment`](@ref),
    a KiteGeometry `Transform`, and optionally [`Tether`](@ref),
    [`Winch`](@ref), [`Pulley`](@ref)
-2. **Assemble** — pass components to [`SystemDefinition`](@ref), which
+2. **Assemble** — pass components to `SystemDefinition`, which
    resolves all symbolic references (`:anchor` → index 1) and
    validates the structure
 3. **Compile** — wrap in [`SymbolicAWEModel`](@ref), which generates
@@ -31,7 +31,7 @@ The construction workflow has four steps:
 4. **Simulate** — call [`init!`](@ref) and [`next_step!`](@ref)
 
 All components use symbolic names (`:anchor`, `:spring`, etc.) and
-reference each other by name. The [`SystemDefinition`](@ref)
+reference each other by name. The `SystemDefinition`
 constructor resolves these references to numeric indices
 automatically. Integer indices are also supported for backwards
 compatibility.
@@ -104,7 +104,7 @@ for i in 1:n_segments
 end
 ```
 
-Now assemble everything into a [`SystemDefinition`](@ref).
+Now assemble everything into a `SystemDefinition`.
 
 A KiteGeometry `Transform` describes the initial orientation of the
 system using spherical coordinates (elevation, azimuth, heading)
@@ -285,7 +285,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct, "pulley_sim.gif")
 ## Step 4: wings
 
 Wings can be added via Julia constructors or YAML — both paths
-produce the same [`SystemDefinition`](@ref). See the
+produce the same `SystemDefinition`. See the
 [2-Plate Kite example](examples.md#plate-kite-2) for a complete
 wing system, and [VSM Coupling](vsm_coupling.md) for how
 aerodynamic forces are computed.
@@ -312,7 +312,7 @@ Pulley(:pulley, :seg_a, :seg_b, DYNAMIC)
 
 ```
 
-The [`SystemDefinition`](@ref) constructor resolves all names to
+The `SystemDefinition` constructor resolves all names to
 indices. After construction, you can access components by name:
 
 ```julia

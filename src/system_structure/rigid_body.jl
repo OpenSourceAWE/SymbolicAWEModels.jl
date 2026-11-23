@@ -340,7 +340,7 @@ the body where it is; unlike `type=STATIC` it is a parameter, so it can be
 toggled on a built model.
 
 `extra_mass`, `com_offset_b` and the inertia are the body's own, without the
-`BODY_STATIC` points riding it: [`SystemDefinition`](@ref) adds those. Supply the
+`BODY_STATIC` points riding it: `SystemDefinition` adds those. Supply the
 inertia about the body's own COM in one of two ways: `inertia_principal` (a length-3
 diagonal principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 `inertia` (a full 3×3 body-frame tensor). Give one, not both. Either is stored as a
@@ -598,9 +598,7 @@ end
 An inflated tube between two `Body`s: a KiteGeometry `tubes` row whose model is the
 structural element it is simulated as, a [`TimoshenkoTube`](@ref) beam element or a lumped
 [`ElasticTube`](@ref). Its ends sit at an anchor on each body, and the placed bodies fix its
-rest length. `law` reads the row's material, named after its stiffness law; `body_a_ref`
-and `body_b_ref` read the bodies the row gives, `body_a_idx` and `body_b_idx` the indices
-they resolve to; `idx`, `anchor_a_b` and `anchor_b_b` read its model.
+rest length. Its `material` names its stiffness law.
 """
 const Tube{M <: AbstractTubeModel} = KiteGeometry.Tube{M}
 

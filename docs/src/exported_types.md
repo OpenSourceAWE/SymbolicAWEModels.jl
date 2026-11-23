@@ -4,7 +4,7 @@ CurrentModule = SymbolicAWEModels
 
 ## Introduction
 
-The [`SystemDefinition`](@ref) provides a flexible framework for defining mechanical
+The `SystemDefinition` provides a flexible framework for defining mechanical
 systems using discrete mass-spring-damper models. It serves as input to the
 [`SymbolicAWEModel`](@ref), which automatically generates symbolic differential
 algebraic equations from the structural definition.
@@ -67,7 +67,6 @@ default_backend!
 ## System structure and components
 
 ```@docs
-SystemDefinition
 system_definition(::AbstractString, ::Any)
 Point
 Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)

@@ -477,7 +477,7 @@ The source code is organized into modular directories:
     [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
   - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
     [`ElasticTube`](@ref)
-  - `system_structure_core.jl`: [`SystemDefinition`](@ref) constructor, reference
+  - `system_structure_core.jl`: `SystemDefinition` constructor, reference
     resolution
   - `utilities.jl`: Validation, tether creation, state management
 - **`src/aero_modes/`** — one file per [`AbstractAeroModel`](@ref)

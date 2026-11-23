@@ -48,7 +48,7 @@ Alternatively, components can be parsed from a YAML file using
 
 ## Stage 2: SystemDefinition assembly
 
-The [`SystemDefinition`](@ref) constructor takes the component vectors and:
+The `SystemDefinition` constructor takes the component vectors and:
 
 1. **Assigns indices** — each component gets an `idx` based on its position in the
    vector (1, 2, 3, ...)
@@ -132,7 +132,7 @@ end
 ## Runtime parameter changes
 
 Numeric fields of the component structs are emitted as **flat MTK parameters** and
-synced from the live [`SystemDefinition`](@ref) once per step, so many parameters
+synced from the live `SystemDefinition` once per step, so many parameters
 can be changed at runtime without recompiling:
 
 - Winch parameters: `inertia_total`, `coulomb_friction`, `viscous_coefficient`, `gear_ratio`
@@ -151,4 +151,4 @@ Changes that **do** require recompilation (rebuilding the symbolic system):
 - Changing dynamics types (STATIC ↔ DYNAMIC)
 - Changing an aero mode, or any structural field it reports via `aero_hash_id`
 
-These require creating a new [`SystemDefinition`](@ref) and [`SymbolicAWEModel`](@ref).
+These require creating a new `SystemDefinition` and [`SymbolicAWEModel`](@ref).
