@@ -210,7 +210,7 @@ Base.setproperty!
 Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.InplaceGetter)
 ```
 
-## SystemStructure internals
+## SystemDefinition internals
 
 ```@docs
 SymbolicAWEModels.segment_initial_length

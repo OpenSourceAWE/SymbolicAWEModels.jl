@@ -185,7 +185,7 @@ end
 
 The main state container for a kite power system model, built using `ModelingToolkit.jl`.
 
-Holds the physical structure (`SystemStructure`), the compiled model
+Holds the physical structure (`SystemDefinition`), the compiled model
 (`SerializedModel`), the atmospheric model, and the ODE integrator. Interact with it
 through [`init!`](@ref) and [`next_step!`](@ref) rather than through its fields.
 
@@ -196,7 +196,8 @@ through [`init!`](@ref) and [`next_step!`](@ref) rather than through its fields.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SymbolicAWEModel{SS<:SystemStructure, SM<:SerializedModel} <: AbstractKiteModel
+@with_kw mutable struct SymbolicAWEModel{SS<:SystemDefinition, SM<:SerializedModel} <:
+        AbstractKiteModel
     "Reference to the point mass system with points, segments, pulleys and tethers"
     sys_struct::SS
     "What the run holds of each component of `sys_struct`"
@@ -268,19 +269,19 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
 end
 
 """
-    SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; transforms=Transform[],
+    SymbolicAWEModel(set::Settings, sys_struct::SystemDefinition; transforms=Transform[],
                      wind_mode=ProfileWind(), kwargs...)
 
-Constructs a `SymbolicAWEModel` from an existing `SystemStructure`, the KiteGeometry
+Constructs a `SymbolicAWEModel` from an existing `SystemDefinition`, the KiteGeometry
 `transforms` that place it and the run's settings, which the model holds: `sam.set`,
 its atmosphere `sam.am`, `sam.wind_mode` and `sam.transforms`.
 
-This is the primary inner constructor. It takes a `SystemStructure` that defines the
+This is the primary inner constructor. It takes a `SystemDefinition` that defines the
 physical layout of the kite system and prepares it for symbolic model generation.
 
 # Arguments
 - `set::Settings`: Configuration parameters.
-- `sys_struct::SystemStructure`: The physical system definition.
+- `sys_struct::SystemDefinition`: The physical system definition.
 - `transforms`: The KiteGeometry transforms placing `sys_struct`, as
   [`load_sys_struct_from_yaml`](@ref) returns them; their rates start the run moving.
 - `wind_mode::WindMode`: [`PerPointWind`](@ref) makes every point's `wind_vec` a
@@ -292,13 +293,13 @@ physical layout of the kite system and prepares it for symbolic model generation
 """
 function SymbolicAWEModel(
     set::Settings,
-    sys_struct::SystemStructure;
+    sys_struct::SystemDefinition;
     transforms=Transform[],
     vsm_set=nothing,
     wind_mode::WindMode=ProfileWind(),
     kwargs...
 )
-    set.physical_model = sys_struct.name
+    set.physical_model = sys_struct.metadata.name
     set_hash = get_set_hash(set)
     state = SystemState(sys_struct; set, transforms, vsm_set, wind_mode)
     sys_struct_hash = get_sys_struct_hash(state)
@@ -349,8 +350,9 @@ degrees) and computes derived values like AoA. Roll, pitch and yaw are
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     copy_run_columns!(ss, sam.state.sysstate)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, stations, winches, wings, tethers,
+    (; points, winches, wings, tethers,
        bodies) = sam.state
+    stations = sam.state.spanwise_stations
 
     for (ti, tether) in enumerate(tethers)
         ss.l_tether[ti] = tether.len
@@ -554,7 +556,7 @@ end
 
 Advance the simulation by one time step, optionally
 updating control inputs and re-linearizing the VSM
-model, then update the `SystemStructure` from the ODE
+model, then update the `SystemDefinition` from the ODE
 integrator. Errors on an unstable solver retcode.
 
 # Keyword Arguments
@@ -618,7 +620,7 @@ end
 """
     update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemState, integ=s.integrator)
 
-Update the high-level `SystemStructure` from the integrator state vector, through the
+Update the high-level `SystemDefinition` from the integrator state vector, through the
 generated getter functions.
 """
 function update_sys_struct!(prob::ProbWithAttributes,
@@ -628,7 +630,7 @@ function update_sys_struct!(prob::ProbWithAttributes,
 end
 
 """
-    get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
+    get_model_name(set::Settings, sys_struct::SystemDefinition; precompile=false,
                    sparse=false, analytic_jacobian=false, backend=MonolithBackend())
 
 Constructs a unique filename for the serialized model based on its configuration.
@@ -675,7 +677,7 @@ function get_model_name(set::Settings, sys_struct::SystemState; precompile=false
     # Count components
     n_points = length(sys_struct.points)
     n_segments = length(sys_struct.segments)
-    n_stations = length(sys_struct.stations)
+    n_stations = length(sys_struct.spanwise_stations)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
     n_bodies = length(sys_struct.bodies)

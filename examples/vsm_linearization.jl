@@ -58,7 +58,7 @@ wing = sam.state.wings[1]
 solver = wing.vsm_solver
 body_aero = wing.vsm_aero
 vsm_wing = wing.vsm_wing
-stations = sam.state.stations
+stations = sam.state.spanwise_stations
 
 @info "Solver" solver_type=solver.solver_type use_gamma_prev=solver.use_gamma_prev
 

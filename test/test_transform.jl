@@ -450,7 +450,7 @@ using LinearAlgebra
     # ================================================================
     @testset "Chained Transforms" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, Station, SystemStructure, create_plate_interpolations
+            PlateWing, Station, SystemDefinition, create_plate_interpolations
 
         # Use kps4 settings (2plate_kite has no tethers)
         kps4_data = joinpath(tmpdir, "kps4")
@@ -569,7 +569,7 @@ using LinearAlgebra
         azim = deg2rad(10.0)
         kite_angle = deg2rad(3.83)
 
-        sys_c = SystemStructure("chained_test", set_c;
+        sys_c = system_definition("chained_test", set_c;
             points=points_c, stations=stations_c,
             segments=segments_c,
             tethers=tethers_c, winches=winches_c,

@@ -84,26 +84,26 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         aero_mode::Union{Nothing, AbstractAeroModel}=nothing, prn::Bool=true)
     isnothing(set) && (set = load_settings("base"))
     definition, transforms = load_authoring(yaml_path; set, name=system_name, ignore_l0)
-    sys = SystemStructure(definition, set; dynamics_type, aero_mode, prn)
+    sys = system_definition(definition, set; dynamics_type, aero_mode, prn)
     return sys, transforms
 end
 
 """
-    SystemStructure(definition::SystemDefinition, set; dynamics_type=nothing,
+    system_definition(definition::SystemDefinition, set; dynamics_type=nothing,
                     aero_mode=nothing, prn=true)
 
 The structure of a KiteGeometry `definition`, in the pose the definition gives. Its
 components are read from the definition's rows and the models SymbolicAWEModels
 registers for them ([`register_definition_models`](@ref)).
 """
-function SystemStructure(definition::SystemDefinition, set::Settings;
+function system_definition(definition::SystemDefinition, set::Settings;
         dynamics_type=nothing, aero_mode=nothing, prn=true)
     n_wings = length(definition.wings)
     stations = Station[typed_row(station, "station")
                        for station in definition.spanwise_stations]
     wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
                  for w in 1:n_wings]
-    return SystemStructure(definition.metadata.name, set;
+    return system_definition(definition.metadata.name, set;
         points=Point[check_point_anchor(point) for point in definition.points],
         stations,
         segments=Segment[segment for segment in definition.segments],
@@ -265,22 +265,22 @@ unit_inertia_spec(value) = first(value) isa AbstractVector ?
 """
     sys_struct_from_document(document::AbstractDict; set=nothing, kwargs...)
 
-The `SystemStructure` of a parsed structure document, in the initial pose it gives. `set`
+The `SystemDefinition` of a parsed structure document, in the initial pose it gives. `set`
 falls back to the `base` settings; `kwargs` reach
-[`SystemStructure(::SystemDefinition, set)`](@ref).
+[`system_definition(::SystemDefinition, set)`](@ref).
 """
 function sys_struct_from_document(document::AbstractDict; set=nothing, kwargs...)
     isnothing(set) && (set = load_settings("base"))
-    return SystemStructure(SystemDefinition(document), set; kwargs...)
+    return system_definition(SystemDefinition(document), set; kwargs...)
 end
 
 """
-    save_structure_document(path, sys::SystemStructure)
+    save_structure_document(path, sys::SystemDefinition)
 
 Write [`structure_document`](@ref)`(sys)` to `path`, as YAML for a `.yml` or `.yaml`
 extension and as JSON for `.json`.
 """
-function save_structure_document(path::AbstractString, sys::SystemStructure)
+function save_structure_document(path::AbstractString, sys::SystemDefinition)
     for material in sys.materials
         material.law == "unit_stiffness" && error("material $(material.name) is a " *
             "nonlinear stiffness law, which a structure document cannot hold yet " *
@@ -295,7 +295,7 @@ end
 """
     load_structure_document(path; kwargs...)
 
-The `SystemStructure` of the structure document at `path`, YAML or JSON by extension;
+The `SystemDefinition` of the structure document at `path`, YAML or JSON by extension;
 `kwargs` reach [`sys_struct_from_document`](@ref).
 """
 function load_structure_document(path::AbstractString; kwargs...)

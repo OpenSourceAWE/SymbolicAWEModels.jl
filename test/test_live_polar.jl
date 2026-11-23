@@ -53,7 +53,7 @@ using LinearAlgebra
         @test mode.live isa LivePolarState
         state = mode.live
         stations = SymbolicAWEModels.station_control_points(
-            sys.stations, sys.points, wing)
+            sys.spanwise_stations, sys.points, wing)
         # Stations are read off the stations, not inferred from geometry.
         @test length(state.control_point) == length(stations)
         @test all(sort(a) == sort(b) for (a, b) in zip(state.control_point, stations))

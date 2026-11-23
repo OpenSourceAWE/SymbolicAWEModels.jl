@@ -4,7 +4,7 @@ CurrentModule = SymbolicAWEModels
 
 ## Introduction
 
-The [`SystemStructure`](@ref) provides a flexible framework for defining mechanical
+The [`SystemDefinition`](@ref) provides a flexible framework for defining mechanical
 systems using discrete mass-spring-damper models. It serves as input to the
 [`SymbolicAWEModel`](@ref), which automatically generates symbolic differential
 algebraic equations from the structural definition.
@@ -50,7 +50,7 @@ CascadedLengthWinch
 
 ```@docs
 SymbolicAWEModel
-SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
+SymbolicAWEModel(set::Settings, sys_struct::SystemDefinition; kwargs...)
 ```
 
 ## Backends
@@ -67,8 +67,8 @@ default_backend!
 ## System structure and components
 
 ```@docs
-SystemStructure
-SystemStructure(::AbstractString, ::Any)
+SystemDefinition
+system_definition(::AbstractString, ::Any)
 Point
 Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
@@ -106,7 +106,6 @@ ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_ben
 ## Indexing
 
 ```@docs
-NameRef
 WeightedRefPoints
 ```
 

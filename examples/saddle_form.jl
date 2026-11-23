@@ -70,7 +70,7 @@ function run_saddle(; yaml_file)
         world_frame_damping=1.0,
         compression_frac=1.0)
 
-    sys = SystemStructure("saddle_form", set;
+    sys = system_definition("saddle_form", set;
                           points, segments)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake=false)

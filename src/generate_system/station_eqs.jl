@@ -148,15 +148,15 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         # Set station geometry from getters (allows runtime updates)
         eqs = [
             eqs
-            station_y_airf[:, station.idx] ~ params.stations[station.idx].y_airf
-            station_chord[:, station.idx] ~ params.stations[station.idx].chord
-            station_le_pos[:, station.idx] ~ params.stations[station.idx].le_pos
+            station_y_airf[:, station.idx] ~ params.spanwise_stations[station.idx].y_airf
+            station_chord[:, station.idx] ~ params.spanwise_stations[station.idx].chord
+            station_le_pos[:, station.idx] ~ params.spanwise_stations[station.idx].le_pos
         ]
 
         if station.type == STATIC
             eqs = [
                 eqs
-                twist_angle[station.idx] ~ params.stations[station.idx].twist
+                twist_angle[station.idx] ~ params.spanwise_stations[station.idx].twist
                 twist_ω[station.idx] ~ 0
                 station_tether_force[station.idx] ~ 0
                 station_tether_moment[station.idx] ~ 0
@@ -171,7 +171,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         end
 
         orientation = collect(R_b_to_w[:, :, wing.idx])
-        surface_params = params.stations[station.idx]
+        surface_params = params.spanwise_stations[station.idx]
 
         for (i, point_idx) in enumerate(station.point_idxs)
             couple = twist_bridle_couple(surface_params,
@@ -206,7 +206,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
 
         station_chord = collect(station_chord)
         station_mass = sum(point_mass[point_idx] for point_idx in station.point_idxs) +
-            params.stations[station.idx].body_mass
+            params.spanwise_stations[station.idx].body_mass
         twist = station_dynamics(;
             free_angle = free_twist_angle[station.idx],
             twist_vel = twist_ω[station.idx],
@@ -214,8 +214,8 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
             node_moment = station_tether_moment[station.idx],
             mass = station_mass,
             chord = station_chord[:, station.idx],
-            damping = params.stations[station.idx].damping,
-            stiffness = params.stations[station.idx].stiffness)
+            damping = params.spanwise_stations[station.idx].damping,
+            stiffness = params.spanwise_stations[station.idx].stiffness)
 
         eqs = [
             eqs
@@ -234,9 +234,9 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
             ]
             defaults = [
                 defaults
-                bind_initial!(initial.stations[station.idx].twist,
+                bind_initial!(initial.spanwise_stations[station.idx].twist,
                               free_twist_angle[station.idx])
-                bind_initial!(initial.stations[station.idx].twist_ω,
+                bind_initial!(initial.spanwise_stations[station.idx].twist_ω,
                               twist_ω[station.idx])
             ]
         else

@@ -244,7 +244,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
                 eqs = [
                     eqs
                     fixed_pos[:, point.idx] ~
-                        params.stations[station.idx].le_pos
+                        params.spanwise_stations[station.idx].le_pos
                     chord_b[:, point.idx] ~
                         params.points[point.idx].pos_undeformed_b .-
                             fixed_pos[:, point.idx]

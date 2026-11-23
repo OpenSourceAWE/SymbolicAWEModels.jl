@@ -72,7 +72,7 @@ environment:
     inertia = [0.1, 0.2, 0.3]
     body = Body(:body1; extra_mass=2.0, inertia_principal=inertia,
                      pos=[0.0, 0.0, 10.0])
-    sys = SystemStructure("rigid_body_test", set; bodies=[body])
+    sys = system_definition("rigid_body_test", set; bodies=[body])
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
@@ -130,7 +130,7 @@ environment:
         offset = [0.5, 0.0, 0.0]
         body2 = Body(:body2; extra_mass=1.0, inertia_principal=inertia,
                           pos=[1.0, 2.0, 5.0], com_offset_b=offset)
-        sys2 = SystemStructure("rigid_body_test", set; bodies=[body2])
+        sys2 = system_definition("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
         test_init!(sam2)
         rb = sam2.state.bodies[:body2]
@@ -145,14 +145,14 @@ environment:
     end
 
     # A transform must reposition AND reorient a rigid body, like a wing.
-    # Tested at the SystemStructure level (reinit!), no ODE compilation.
+    # Tested at the SystemDefinition level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
         ground = Point(:ground, [0.0, 0.0, 0.0], STATIC)
         body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
                           pos=[100.0, 0.0, 0.0])
         tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
                     body=:body3, anchor_b=[0.0, 0.0, 0.0])
-        sys3 = SystemStructure("rigid_body_transform_test", set;
+        sys3 = system_definition("rigid_body_transform_test", set;
             points=[ground, tip], bodies=[body3])
         tf = Transform(; name=:tf, elevation=deg2rad(45), azimuth=0.0, heading=0.0,
                        base_pos=[0.0, 0.0, 0.0], base_point=1, rot_point=[2 => 1.0],
@@ -180,7 +180,7 @@ environment:
                        pos=[0.0, 0.0, 10.0])
         kcu = Point(:kcu, [1.0, 0.0, 10.0], BODY_STATIC; body=:carrier,
                     extra_mass=1.0)
-        sys4 = SystemStructure("rigid_body_rider_test", set;
+        sys4 = system_definition("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])
         rb = sys4.bodies[:carrier]
         @test rb.extra_mass == 2.0

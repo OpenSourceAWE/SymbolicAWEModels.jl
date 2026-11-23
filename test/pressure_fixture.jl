@@ -3,7 +3,7 @@
 
 # The synthetic surface-aero fixture the AeroPressure tests and the cold-start
 # inference benchmark both build their model from, plus the loader that turns it
-# into a SystemStructure carrying a given aero mode.
+# into a SystemDefinition carrying a given aero mode.
 
 """
 Write a synthetic per-node surface aero fixture (`.dat` contour + Cp/cf CSVs) for

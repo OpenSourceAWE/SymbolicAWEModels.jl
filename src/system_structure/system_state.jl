@@ -67,9 +67,10 @@ abstract type ComponentState end
 """
     SystemState{SS, ST}
 
-What a run holds of a [`SystemStructure`](@ref). Its state is a KiteUtils `SysState` of
+What a run holds of a [`SystemDefinition`](@ref). Its state is a KiteUtils `SysState` of
 `Float64`, `sysstate`, beside the integrator's parameters no column holds. Its
-`points`, `stations`, `segments`, `pulleys`, `tethers`, `winches`, `bodies` and `wings`
+`points`, `spanwise_stations`, `segments`, `pulleys`, `tethers`, `winches`, `bodies` and
+`wings`
 are records of the structure's components, found by index or name, each reading its
 state from those columns and every other property from its component. It holds the
 run's settings `set`, its atmosphere `am`, its `wind_mode` and its `transforms`. Any
@@ -130,7 +131,7 @@ function sysstate_counts(sys, n_corners=count_aero_log_points(wing_bodies(sys)))
 end
 
 """
-    SystemState(sys::SystemStructure; set=nothing, transforms=Transform[],
+    SystemState(sys::SystemDefinition; set=nothing, transforms=Transform[],
                 wind_mode=ProfileWind())
 
 The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteGeometry
@@ -146,7 +147,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
     no_records = Rows{ComponentState}()
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
     rows = (points=typed_rows(Point, sys.points),
-            stations=typed_rows(Station, sys.stations),
+            spanwise_stations=typed_rows(Station, sys.spanwise_stations),
             segments=typed_rows(SegmentRow, sys.segments),
             pulleys=typed_rows(Pulley, sys.pulleys),
             tethers=typed_rows(Tether, sys.tethers),
@@ -155,7 +156,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         zeros(SimFloat, length(sys.segments)),
                         zeros(SimFloat, length(sys.points)),
                         zeros(SimFloat, length(sys.bodies)),
-                        zeros(SimFloat, length(sys.stations)),
+                        zeros(SimFloat, length(sys.spanwise_stations)),
                         built_segments, point_segments(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
@@ -229,7 +230,8 @@ Base.haskey(records::Records, name::Symbol) = haskey(records.rows, name)
 @inline function Base.getproperty(state::SystemState, name::Symbol)
     rows = getfield(state, :rows)
     name === :points && return Records{PointState}(state, rows.points)
-    name === :stations && return Records{StationState}(state, rows.stations)
+    name === :spanwise_stations &&
+        return Records{StationState}(state, rows.spanwise_stations)
     name === :segments && return Records{SegmentState}(state, rows.segments)
     name === :pulleys && return Records{PulleyState}(state, rows.pulleys)
     name === :tethers && return Records{TetherState}(state, rows.tethers)
@@ -583,7 +585,7 @@ function state_vars(state::SystemState)
     for body in state.bodies
         append!(vars, body.pos_w, body.vel_w, body.Q_b_to_w, body.ω_b)
     end
-    for station in state.stations
+    for station in state.spanwise_stations
         push!(vars, station.twist, station.twist_ω)
     end
     for pulley in state.pulleys
@@ -607,7 +609,7 @@ function set_state_vars!(state::SystemState, vars)
         body.Q_b_to_w .= next_values!(values, 4)
         body.ω_b .= next_values!(values, 3)
     end
-    for station in state.stations
+    for station in state.spanwise_stations
         station.twist, station.twist_ω = next_values!(values, 2)
     end
     for pulley in state.pulleys

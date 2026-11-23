@@ -1814,7 +1814,7 @@ function FlapDelta(s, params, idx; name)
     main = indexed_scalar_variables(:main_frame, 9; input = true)
     flap = indexed_scalar_variables(:flap_frame, 9; input = true)
     delta = scalar_output(:delta)
-    station = params.reg.sys_struct.stations[idx]
+    station = params.reg.sys_struct.spanwise_stations[idx]
     eqs = [delta ~ flap_delta_expression(station, reshape(main, 3, 3),
                                          reshape(flap, 3, 3))]
     return System(eqs, t, [main; flap; delta], param_unknowns(params); name)
@@ -1831,7 +1831,7 @@ function PointFlapDelta(s, params, idx; name)
     positions = indexed_vector_variables(:point_pos, 3; input = true)
     frame = indexed_scalar_variables(:wing_frame, 9; input = true)
     delta = scalar_output(:delta)
-    station = params.reg.sys_struct.stations[idx]
+    station = params.reg.sys_struct.spanwise_stations[idx]
     eqs = [delta ~ point_flap_delta_expression(station, positions[1], positions[2],
                                                positions[3], reshape(frame, 3, 3))]
     return System(eqs, t, [positions; frame; delta], param_unknowns(params); name)
@@ -2317,7 +2317,7 @@ function StationDOF(s, params, idx; name)
     end
     report = station_diagnostics()
     state = @variables free_twist_angle(t) twist_omega(t)
-    surface = params.stations[idx]
+    surface = params.spanwise_stations[idx]
     twist = station_dynamics(; free_angle = state[1], twist_vel = state[2],
                                    aero_moment = vars[1], node_moment = vars[2],
                                    mass = vars[4] + surface.body_mass,
@@ -2360,7 +2360,7 @@ function PrescribedTwist(s, params, idx; name)
         twist_vel(t), [output = true]
     end
     report = station_diagnostics()
-    eqs = [vars[2] ~ params.stations[idx].twist
+    eqs = [vars[2] ~ params.spanwise_stations[idx].twist
            vars[3] ~ 0
            report[1] ~ 0
            report[2] ~ 0
@@ -2382,7 +2382,7 @@ dropping the axial term would shrink their spanwise spread by `cos(angle)`.
 """
 function twist_deformed_offset(params, idx, surface_idx, angle)
     surface_idx == 0 && return collect(params.points[idx].pos_undeformed_b)
-    surface = params.stations[surface_idx]
+    surface = params.spanwise_stations[surface_idx]
     leading_edge = collect(surface.le_pos)
     axis = collect(surface.y_airf)
     offset = collect(params.points[idx].pos_undeformed_b) .- leading_edge
@@ -2473,7 +2473,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
     extra = Any[twist]
     if surface_idx > 0
         point = params.points[idx]
-        surface = params.stations[surface_idx]
+        surface = params.spanwise_stations[surface_idx]
         node_force = scalar_output(:node_force)
         node_moment = scalar_output(:node_moment)
         node_mass = scalar_output(:node_mass)

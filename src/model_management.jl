@@ -31,7 +31,8 @@ Generate the functions that read and write the state and parameters of the compi
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
-    (; points, wings, stations, pulleys, winches, tethers, segments, bodies) = sys_struct
+    (; points, wings, pulleys, winches, tethers, segments, bodies) = sys_struct
+    stations = sys_struct.spanwise_stations
     get_aero_input, set_set_values, get_set_values = nothing, nothing, nothing
 
     specs = NamedTuple[]
@@ -418,7 +419,7 @@ end
 Full `init!` path for a non-[`MonolithBackend`](@ref). The monolith uses the
 `init!` body directly; other backends (currently [`KernelBackend`](@ref))
 implement their own assembly + integrator build here and return the fresh
-`ODEIntegrator`: refresh the `SystemStructure` (positions, rest lengths), assemble
+`ODEIntegrator`: refresh the `SystemDefinition` (positions, rest lengths), assemble
 the problem from it, and store `sam.prob`/`sam.integrator`.
 """
 function init_backend!(backend::ModelBackend, sam, solver; kwargs...)
@@ -561,9 +562,9 @@ function init!(sam::SymbolicAWEModel;
     sparse = something(sparse, default_sparse(sam.backend))
     analytic_jacobian = something(analytic_jacobian,
                                   default_analytic_jacobian(sam.backend))
-    prn && @info "Initializing $(sam.state.name) model..."
-    sam.sys_struct isa SystemStructure || error(
-        "Equation generation requires SystemStructure, " *
+    prn && @info "Initializing $(sam.sys_struct.metadata.name) model..."
+    sam.sys_struct isa SystemDefinition || error(
+        "Equation generation requires SystemDefinition, " *
         "got $(typeof(sam.sys_struct)).")
     if isnothing(remake)
         remake = has_custom_component(sam.state)
@@ -588,7 +589,7 @@ function init!(sam::SymbolicAWEModel;
             integrator = init_backend!(sam.backend, sam, solver;
                 adaptive, prn, remake_vsm, reset_integrator, vsm_min_wind,
                 lin_vsm, sparse, analytic_jacobian, remake, reload)
-            prn && @info "$(sam.state.name) model initialized " *
+            prn && @info "$(sam.sys_struct.metadata.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
             return integrator
         end
@@ -653,7 +654,7 @@ function init!(sam::SymbolicAWEModel;
                 adaptive, reset_integrator, lin_vsm, vsm_min_wind, prn)
         end
     end
-    prn && @info "$(sam.state.name) model initialized in $time seconds."
+    prn && @info "$(sam.sys_struct.metadata.name) model initialized in $time seconds."
     return sam.integrator
 end
 
@@ -661,7 +662,7 @@ end
 """
     reinit!(sam, integrator; solver=integrator.alg, kwargs...) -> (ODEIntegrator, Bool)
 
-Reset `integrator`, which is `sam`'s own, from the current `SystemStructure`.
+Reset `integrator`, which is `sam`'s own, from the current `SystemDefinition`.
 `solver` defaults to the one `integrator` was built with, so the reset stays on the
 compiled right-hand side instead of forcing a second compilation at another
 Jacobian's element type. `kwargs` are those of
@@ -670,7 +671,7 @@ Jacobian's element type. `kwargs` are those of
 function reinit!(sam::SymbolicAWEModel,
         integrator::OrdinaryDiffEqCore.ODEIntegrator;
         solver = integrator.alg, kwargs...)
-    isnothing(sam.prob) && error("reinit!: $(sam.state.name) has no " *
+    isnothing(sam.prob) && error("reinit!: $(sam.sys_struct.metadata.name) has no " *
         "ODEProblem; call init! first.")
     return reinit!(sam, sam.prob, solver; kwargs...)
 end
@@ -751,14 +752,15 @@ end
 """
     get_sys_struct_hash(state::SystemState)
 
-SHA1 hash of a run's `SystemStructure` topology, to check a cached compiled model: the
+SHA1 hash of a run's `SystemDefinition` topology, to check a cached compiled model: the
 connectivity and types of its points (with a `BODY_STATIC` point's beam joint), segments,
 stations, pulleys, tethers, winches, bodies and tubes, each wing's dynamics type, aero mode
 and transform base point, and [`PerPointWind`](@ref); no mass, length or stiffness value.
 """
 function get_sys_struct_hash(state::SystemState)
     (; structure, transforms) = state
-    (; points, stations, segments, pulleys, tethers, winches) = structure
+    (; points, segments, pulleys, tethers, winches) = structure
+    stations = structure.spanwise_stations
     (; wings, bodies, tubes) = state
     data_parts = []
     for point in points

@@ -4,7 +4,7 @@
 # Main system creation entry point
 
 """
-    create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
+    create_sys!(s::SymbolicAWEModel, system::SystemState; prn=true)
 
 Create the full `ModelingToolkit.ODESystem` for the AWE model: calls the per-part
 equation generators (forces, wing dynamics, scalar kinematics, aerodynamics) and
@@ -12,7 +12,7 @@ assembles their equations into a single `System`.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object to be populated with the system.
-- `system::SystemStructure`: The physical structure definition.
+- `system::SystemState`: The run state of the structure.
 - `prn::Bool=true`: If true, print progress information during system creation.
 
 # Returns
@@ -23,8 +23,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     eqs = Equation[]
     defaults = Pair{Num, Any}[]
 
-    (; points, stations, segments, pulleys, tethers, winches, wings,
+    (; points, segments, pulleys, tethers, winches, wings,
        bodies, tubes) = system
+
+    stations = system.spanwise_stations
 
     validate_station_modes(stations, bodies)
 

@@ -46,7 +46,7 @@ transforms = [
               rot_point=[length(points) => 1.0], points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("tether", set; points, segments)
+sys = system_definition("tether", set; points, segments)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
@@ -63,7 +63,7 @@ n_seg = length(segments)
 tethers = [Tether(:main, collect(1:n_seg))]
 winches = [Winch(:winch, set, [:main]; winch_point=1)]
 
-sys = SystemStructure("winch", set; points, segments, tethers, winches)
+sys = system_definition("winch", set; points, segments, tethers, winches)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
@@ -88,7 +88,7 @@ transforms = [
               points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys)
+sys = system_definition("pulley", set; points, segments, tethers, winches, pulleys)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
@@ -122,7 +122,7 @@ transforms = [
               points=collect(eachindex(points)), bodies=[1]),
 ]
 
-sys = SystemStructure("wing", set;
+sys = system_definition("wing", set;
     points, stations, segments, tethers, winches, pulleys, wings)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)

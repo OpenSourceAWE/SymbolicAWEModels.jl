@@ -7,7 +7,7 @@ CurrentModule = SymbolicAWEModels
 The internals of the [`KernelBackend`](@ref): the vendored ModelingToolkit codegen
 that turns one component into a compiled kernel, the runtime that schedules those
 kernels over gather/scatter buffers, and the assembler that builds a
-[`SystemStructure`](@ref) into them. Not part of the public API.
+[`SystemDefinition`](@ref) into them. Not part of the public API.
 
 ## Kernel backend — vendored codegen
 

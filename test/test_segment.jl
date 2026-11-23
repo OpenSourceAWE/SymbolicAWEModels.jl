@@ -750,7 +750,7 @@ end
                 Segment(:loose, :knot, :loose_end, 1e4, 10.0, 0.01)]
     tethers = [Tether(:main_tether, [:main], 10.0), Tether(:line_tether, [:line], 5.0)]
     winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
-    sys = SystemStructure("segment_role_tethers", set; points, segments, tethers,
+    sys = system_definition("segment_role_tethers", set; points, segments, tethers,
                           winches)
     state = SymbolicAWEModels.SystemState(sys; set)
     @test [segment_role(state, segment) for segment in state.segments] ==

@@ -55,7 +55,7 @@ cosine) and would quantize an exact match to a spurious ~1e-6 deg.
 function twist_chord_diffs(sam)
     wing = sam.state.wings[1]
     points = sam.state.points
-    stations = sam.state.stations
+    stations = sam.state.spanwise_stations
     vsm = wing.vsm_wing
     R = wing.R_b_to_w
     origin = wing.pos_w
@@ -122,7 +122,7 @@ for step in 1:100
     sam.state.segments[:kcu_steering_right].l0 =
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
-    any(station -> abs(station.twist) > 0.1, sam.state.stations) && break
+    any(station -> abs(station.twist) > 0.1, sam.state.spanwise_stations) && break
 end
 dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)

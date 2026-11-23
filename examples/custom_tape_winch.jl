@@ -103,7 +103,7 @@ winches = [Winch(:winch, set, [:main]; winch_point=:ground,
                  model=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0))]
 winches[1].inertia_total = 0.001  # tiny rotor → near-instant velocity tracking
 
-sys_struct = SystemStructure("custom_winch_vel", set;
+sys_struct = system_definition("custom_winch_vel", set;
                              points, segments, tethers, winches)
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=true, prn=false)

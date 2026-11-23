@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_makie_static_figure.jl - A SystemStructure drawn into a CairoMakie Axis3
+# test_makie_static_figure.jl - A SystemDefinition drawn into a CairoMakie Axis3
 # and saved as a vector PDF, the route docs/src/exported_functions.md documents.
 
 using Pkg

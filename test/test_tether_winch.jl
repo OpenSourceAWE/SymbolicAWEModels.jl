@@ -408,7 +408,7 @@ environment:
     # ============================================================
     @testset "Route 2 auto-generated tether" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            SystemStructure, SymbolicAWEModel,
+            SystemDefinition, SymbolicAWEModel,
             STATIC, DYNAMIC, init!
 
         points = [
@@ -429,7 +429,7 @@ environment:
         winches = [Winch(:winch, set, [:line];
             winch_point=:anchor)]
 
-        sys2 = SystemStructure("route2_test", set;
+        sys2 = system_definition("route2_test", set;
             points, tethers, winches, prn=false)
 
         # 2 original + 3 intermediate = 5 points
@@ -515,7 +515,7 @@ environment:
     # ============================================================
     @testset "Tether without winch" begin
         using SymbolicAWEModels: Point, Segment, Tether,
-            SystemStructure, SymbolicAWEModel,
+            SystemDefinition, SymbolicAWEModel,
             STATIC, DYNAMIC
 
         points = [
@@ -534,7 +534,7 @@ environment:
         ]
 
         # No winches — should build fine
-        sys3 = SystemStructure("no_winch", set;
+        sys3 = system_definition("no_winch", set;
             points, segments, tethers, prn=false)
 
         @test length(sys3.winches) == 0
@@ -579,7 +579,7 @@ environment:
     # ============================================================
     @testset "Custom length-tracking component" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            SystemStructure, SymbolicAWEModel,
+            SystemDefinition, SymbolicAWEModel,
             STATIC, DYNAMIC, validate_winch_component
 
         points_l = [
@@ -596,7 +596,7 @@ environment:
                            winch_point=:ground_l,
                            model=LengthTrackWinch(100.0, 20.0))]
 
-        sys_l = SystemStructure("len_track_test", set;
+        sys_l = system_definition("len_track_test", set;
             points=points_l, segments=segments_l,
             tethers=tethers_l, winches=winches_l, prn=false)
         sam_l = SymbolicAWEModel(set, sys_l)

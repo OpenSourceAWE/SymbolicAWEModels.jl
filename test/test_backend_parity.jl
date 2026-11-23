@@ -3,7 +3,7 @@
 
 # test_backend_parity.jl
 #
-# The two backends must scatter the same `SystemStructure` back out of a solved
+# The two backends must scatter the same `SystemDefinition` back out of a solved
 # model. Every other test reads a handful of named fields, so a quantity the
 # monolith writes and the kernel does not stays invisible until someone reads it
 # months later and finds a stale value — which is how the kernel came to solve
@@ -97,7 +97,7 @@ left out because it is a filtered view of `bodies` — the same `Body` objects, 
 including it would only report each wing twice.
 """
 function struct_mismatches(kernel, monolith; atol=1e-6)
-    groups = (:points, :stations, :segments, :pulleys, :tethers, :winches,
+    groups = (:points, :spanwise_stations, :segments, :pulleys, :tethers, :winches,
               :bodies, :tubes)
     found = reduce(vcat, (field_mismatches(String(group), getproperty(kernel, group),
                                            getproperty(monolith, group), atol)

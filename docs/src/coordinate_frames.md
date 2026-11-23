@@ -197,7 +197,7 @@ See `calc_particle_dynamics_wing_frame` in `wing.jl`.
 
 The VSM aero geometry is read in the frame it was authored in, the same one as the
 structure's authored geometry. Both wing types move it into the body frame during
-[`SystemStructure`](@ref) construction, from the wing's authored origin and
+[`SystemDefinition`](@ref) construction, from the wing's authored origin and
 orientation, which the VSM wing records as `T_cad_body` and `R_cad_body` so that a
 rebuilt aero geometry lands the same way:
 

@@ -69,7 +69,7 @@ function deform_trailing_edge!(sys, wing, base_pos, delta)
     for point in sys.points
         haskey(base_pos, point.idx) && (point.pos_w .= base_pos[point.idx])
     end
-    for surface in sys.stations
+    for surface in sys.spanwise_stations
         length(surface.point_idxs) >= 2 || continue
         trailing = sys.points[surface.point_idxs[2]]
         span = SymbolicAWEModels.initial_body_position(wing, trailing)[2]
@@ -88,7 +88,7 @@ Surfaces not named keep their value. Only meaningful for `STATIC` stations,
 where the angle is held rather than integrated.
 """
 function set_twist!(sys, twists)
-    for surface in sys.stations
+    for surface in sys.spanwise_stations
         haskey(twists, surface.name) && (surface.twist = twists[surface.name])
     end
     return nothing
@@ -215,7 +215,7 @@ end
 """
     load_2plate_particle_sys(system_name) -> (sys, set, vsm_set)
 
-The 2plate kite's particle `SystemStructure`, its settings and its VSM settings, loaded
+The 2plate kite's particle `SystemDefinition`, its settings and its VSM settings, loaded
 from a scratch copy of `data/2plate_kite`; the global data path is left as it was.
 """
 function load_2plate_particle_sys(system_name)

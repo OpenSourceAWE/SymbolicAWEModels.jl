@@ -4,7 +4,7 @@
 # test_getter_allocations.jl - state extraction allocation tests
 #
 # The monolithic in-place getter (`get_all_state`) writes the integrator state
-# into the SystemStructure fields with zero allocations. This test asserts that
+# into the SystemDefinition fields with zero allocations. This test asserts that
 # `update_sys_struct!` (and the getter it calls) allocate nothing per step.
 #
 # The model below carries no wing, which for a long time made this file blind to

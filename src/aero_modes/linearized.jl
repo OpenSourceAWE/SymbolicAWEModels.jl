@@ -26,7 +26,7 @@ function aero_component(::AeroLinearized, wing::RigidWingState, sys_struct; name
     aero_jac_p = params.wings[wing_idx].aero_jac
     drag_frac_p = params.wings[wing_idx].drag_frac
 
-    stations = sys_struct.stations
+    stations = sys_struct.spanwise_stations
     num_stations = length(wing.station_idxs)
     num_aero_inputs = length(wing.aero_y)
     area = wing.vsm_aero.projected_area

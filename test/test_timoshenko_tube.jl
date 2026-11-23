@@ -94,7 +94,7 @@ end
     tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
         model=TimoshenkoTube(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
                              damping=0.05))
-    sys = SystemStructure("timoshenko_test", set;
+    sys = system_definition("timoshenko_test", set;
         bodies=[nodeA, nodeB], tubes=[tube])
 
     @testset "Model setup" begin
@@ -170,7 +170,7 @@ end
     tube_nl = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
         model=TimoshenkoTube(; EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI,
                              shear_coeff=kshear, damping=0.05))
-    sys_nl = SystemStructure("timoshenko_test", set;
+    sys_nl = system_definition("timoshenko_test", set;
         bodies=[nodeA2, nodeB2], tubes=[tube_nl])
     sam_nl = SymbolicAWEModel(set, sys_nl)
     rb_nl = sam_nl.state.bodies[:nodeB]

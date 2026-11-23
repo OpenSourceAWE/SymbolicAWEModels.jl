@@ -109,7 +109,7 @@ function Wing end
          z_ref_points=nothing, y_ref_points=nothing, origin=nothing, vsm=nothing)
 
 Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
-`SystemStructure`.
+`SystemDefinition`.
 
 # Arguments
 - `name::Symbol`: Name/identifier (e.g. `:main_wing`).
@@ -151,7 +151,7 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
         (WeightedRefPoints(y_ref_points[1]), WeightedRefPoints(y_ref_points[2]))
     origin_rp = isnothing(origin) ? nothing : WeightedRefPoints(origin)
 
-    # Mass properties and frames are placeholders filled by SystemStructure.
+    # Mass properties and frames are placeholders filled by SystemDefinition.
     body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
     damping_vec = broadcast_damping(angular_damping)
     return body_row(name, aero, wing_dynamics(dynamics_type); extra_mass=0.0,
@@ -262,7 +262,7 @@ its [`VSMEngine`](@ref) from it.
 - `stations::Vector`: References to stations (names or indices).
 
 # Keyword Arguments
-- `Q_KA_to_ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemStructure`](@ref)
+- `Q_KA_to_ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemDefinition`](@ref)
   overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
   per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and
@@ -310,7 +310,7 @@ function VSMWing(name, set::Settings,
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
 
-    # Placeholders — overwritten by SystemStructure
+    # Placeholders — overwritten by SystemDefinition
     isnothing(Q_KA_to_ENU) && (Q_KA_to_ENU = SimFloat[1, 0, 0, 0])
     isnothing(pos_ENU) && (pos_ENU = zeros(KVec3))
     inertia_vec = isnothing(inertia_diag) ?

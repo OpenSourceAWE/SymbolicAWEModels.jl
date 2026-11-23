@@ -39,7 +39,7 @@ using LinearAlgebra
 """
     build_unsteady_case(root, tag; apparent_mass, wagner, rates)
 
-Fresh data directory, `Settings`, `SystemStructure` and its placing transforms for
+Fresh data directory, `Settings`, `SystemDefinition` and its placing transforms for
 the particle-dynamics 2plate kite with the unsteady corrections set as given. Each
 build gets its own `system_name`: the Wagner constants are substituted into the
 emitted equations, so two lags must not share a compiled model.
@@ -139,7 +139,7 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         rider = Point(:rider, [0.25, 0.0, 0.0], BODY_STATIC; tube=:tube)
         anchored = Point(:anchored, [1.0, 0.0, 0.0], BODY_STATIC; body=:node_b)
         free = Point(:free, [2.0, 0.0, 0.0], DYNAMIC; wing=0)
-        beam = SystemStructure("carrier_test", set;
+        beam = system_definition("carrier_test", set;
             points=[rider, anchored, free], bodies=[node_a, node_b],
             tubes=[tube])
 

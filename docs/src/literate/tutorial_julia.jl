@@ -9,7 +9,7 @@
 #
 # This tutorial walks through building mechanical systems from scratch
 # using Julia constructors. Each component is created with a symbolic
-# name and assembled into a [`SystemStructure`](@ref), which is then
+# name and assembled into a [`SystemDefinition`](@ref), which is then
 # compiled into a simulation model.
 #
 # ## Overview
@@ -19,7 +19,7 @@
 # 1. **Define components** — create [`Point`](@ref), [`Segment`](@ref),
 #    a KiteGeometry `Transform`, and optionally [`Tether`](@ref),
 #    [`Winch`](@ref), [`Pulley`](@ref)
-# 2. **Assemble** — pass components to [`SystemStructure`](@ref), which
+# 2. **Assemble** — pass components to [`SystemDefinition`](@ref), which
 #    resolves all symbolic references (`:anchor` → index 1) and
 #    validates the structure
 # 3. **Compile** — wrap in [`SymbolicAWEModel`](@ref), which generates
@@ -27,7 +27,7 @@
 # 4. **Simulate** — call [`init!`](@ref) and [`next_step!`](@ref)
 #
 # All components use symbolic names (`:anchor`, `:spring`, etc.) and
-# reference each other by name. The [`SystemStructure`](@ref)
+# reference each other by name. The [`SystemDefinition`](@ref)
 # constructor resolves these references to numeric indices
 # automatically. Integer indices are also supported for backwards
 # compatibility.
@@ -98,7 +98,7 @@ for i in 1:n_segments
             unit_stiffness, unit_damping, diameter))
 end
 
-# Now assemble everything into a [`SystemStructure`](@ref).
+# Now assemble everything into a [`SystemDefinition`](@ref).
 #
 # A KiteGeometry `Transform` describes the initial orientation of the
 # system using spherical coordinates (elevation, azimuth, heading)
@@ -106,7 +106,7 @@ end
 # turns and the points it moves by their index; [`place!`](@ref) puts
 # the structure where it says. Then visualize it:
 
-sys_struct = SystemStructure("tether", set; points, segments)
+sys_struct = system_definition("tether", set; points, segments)
 transforms = [Transform(; name=:tf, elevation=deg2rad(-80), azimuth=0.0,
     heading=0.0, base_pos=[0.0, 0.0, 50.0], base_point=1,
     rot_point=[length(points) => 1.0], points=collect(eachindex(points)))]
@@ -117,7 +117,7 @@ plot(sys_struct)
 
 GLMakie.save(joinpath(ASSETS, "tether_sys_struct.png"), scene)    #hide
 
-#md # ![SystemStructure visualization](assets/tether_sys_struct.png)
+#md # ![SystemDefinition visualization](assets/tether_sys_struct.png)
 #
 # If the system looks correct, compile and simulate:
 
@@ -170,7 +170,7 @@ winches = [Winch(:winch, [:main],
 
 # Build and simulate with a constant torque of -20 Nm:
 
-sys_struct = SystemStructure("winch", set; points, segments, tethers, winches)
+sys_struct = system_definition("winch", set; points, segments, tethers, winches)
 place!(sys_struct, transforms)
 
 scene = plot(sys_struct)                                          #hide
@@ -240,7 +240,7 @@ pulleys = [Pulley(:pulley, :to_left, :to_right, DYNAMIC)]
 
 # Build the system:
 
-sys_struct = SystemStructure("pulley", set; points, segments, pulleys)
+sys_struct = system_definition("pulley", set; points, segments, pulleys)
 
 scene = plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "pulley_sys_struct.png"), scene)    #hide
@@ -274,7 +274,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # ## Step 4: wings
 #
 # Wings can be added via Julia constructors or YAML — both paths
-# produce the same [`SystemStructure`](@ref). See the
+# produce the same [`SystemDefinition`](@ref). See the
 # [2-Plate Kite example](examples.md#plate-kite-2) for a complete
 # wing system, and [VSM Coupling](vsm_coupling.md) for how
 # aerodynamic forces are computed.
@@ -301,7 +301,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 #
 # ```
 #
-# The [`SystemStructure`](@ref) constructor resolves all names to
+# The [`SystemDefinition`](@ref) constructor resolves all names to
 # indices. After construction, you can access components by name:
 #
 # ```julia

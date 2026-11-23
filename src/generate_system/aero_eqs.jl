@@ -17,7 +17,8 @@ function aero_eqs!(
     pos, vel, va_point_b, height, aero_force_point_b=nothing,
     station_delta=nothing
 )
-    (; stations, wings) = s.state
+    (; wings) = s.state
+    stations = s.state.spanwise_stations
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, aero_subsystems
 

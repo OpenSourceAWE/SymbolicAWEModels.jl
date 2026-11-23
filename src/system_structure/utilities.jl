@@ -31,7 +31,7 @@ end
 # ==================== VALIDATION ==================== #
 
 """
-    validate_sys_struct(sys_struct::SystemStructure)
+    validate_sys_struct(sys_struct::SystemDefinition)
 
 Error on values that break a run and warn on suspicious ones: NaN or non-positive point and
 wing mass, wing and winch inertia, NaN positions, rigid wings without stations, non-positive
@@ -39,7 +39,8 @@ wing mass, wing and winch inertia, NaN positions, rigid wings without stations, 
 stiffness, negative damping, zero pulley `sum_len`, unequal station `moment_frac`.
 """
 function validate_sys_struct(sys_struct)
-    (; points, stations, segments, pulleys, wings, winches) = sys_struct
+    (; points, segments, pulleys, wings, winches) = sys_struct
+    stations = sys_struct.spanwise_stations
 
     # ==================== POINT VALIDATIONS ==================== #
     for point in points
@@ -255,7 +256,7 @@ function reset_to_initial_pose!(state::SystemState; reset_vel::Bool=true)
         body.Q_b_to_w .= body.Q_KA_to_ENU
         reset_vel && (body.vel_w .= 0.0; body.ω_b .= 0.0)
     end
-    for station in state.stations
+    for station in state.spanwise_stations
         station.type == STATIC && continue
         station.twist = 0.0
         station.twist_ω = 0.0
@@ -319,19 +320,19 @@ function init_sys_struct!(state, set::Settings;
 end
 
 """
-    init_rest_geometry!(sys_struct::SystemStructure)
+    init_rest_geometry!(sys_struct::SystemDefinition)
 
 Capture every tube's rest configuration and every flap station's rest deflection
 from the initial pose, so the structure is unstrained there.
 """
 function init_rest_geometry!(sys_struct)
     init_tube_rest!.(sys_struct.tubes, Ref(sys_struct.bodies))
-    init_station_flap!.(sys_struct.stations, Ref(sys_struct))
+    init_station_flap!.(sys_struct.spanwise_stations, Ref(sys_struct))
     return nothing
 end
 
 """
-    init_derived_properties!(sys_struct::SystemStructure; prn=true)
+    init_derived_properties!(sys_struct::SystemDefinition; prn=true)
 
 Derive from the initial pose every body's mass properties
 ([`update_mass_properties!`](@ref)) and the rest geometry of its tubes and flap
@@ -355,7 +356,7 @@ points and bodies moving as the rates of its transforms say
 holds.
 """
 function start_run!(state; reset_vel::Bool=true)
-    foreach(station -> station.twist = station.row.twist, state.stations)
+    foreach(station -> station.twist = station.row.twist, state.spanwise_stations)
     reset_to_initial_pose!(state; reset_vel)
     for point in state.points
         point.apparent_mass = point.row.apparent_mass
@@ -498,7 +499,8 @@ Every field the log can reach is written, whether or not the compiler integrates
 because a derived field can still seed `u0` as a torn variable.
 """
 function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
-    (; points, segments, stations, pulleys, tethers, winches, wings, bodies) = sys
+    (; points, segments, pulleys, tethers, winches, wings, bodies) = sys
+    stations = sys.spanwise_stations
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -509,7 +511,7 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
     has_wing_slots = P == slots.total
 
     if !has_wing_slots && P != total_without_wings
-        error("SystemStructure expects $(slots.total) points " *
+        error("SystemDefinition expects $(slots.total) points " *
               "($n_points regular + $n_panel_corners corners + " *
               "$n_wings wings + $(length(bodies)) bodies) or " *
               "$total_without_wings without wing slots, but SysState has $P points")
@@ -656,7 +658,7 @@ function assign_damping!(components, field::Symbol,
 end
 
 """
-    set_world_frame_damping(sys::SystemStructure, damping[, point_idxs])
+    set_world_frame_damping(sys::SystemDefinition, damping[, point_idxs])
     set_world_frame_damping(components::AbstractVector, damping[, idxs])
 
 Set the world-frame damping coefficient, on `sys.points` by default or on any
@@ -668,11 +670,11 @@ frame: ``\\mathbf{a}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where ``c_{damp}``
 is the per-mass damping vector [1/s] and ``\\odot`` is element-wise
 multiplication. A scalar `damping` applies to all three axes.
 """
-set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
+set_world_frame_damping(sys::SystemDefinition, damping::Union{Real, AbstractVector},
                         point_idxs) =
     assign_damping!(sys.points, :world_frame_damping, damping, point_idxs)
 
-set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector}) =
+set_world_frame_damping(sys::SystemDefinition, damping::Union{Real, AbstractVector}) =
     set_world_frame_damping(sys, damping, eachindex(sys.points))
 
 set_world_frame_damping(components::AbstractVector, damping::Union{Real, AbstractVector},
@@ -680,7 +682,7 @@ set_world_frame_damping(components::AbstractVector, damping::Union{Real, Abstrac
     assign_damping!(components, :world_frame_damping, damping, idxs)
 
 """
-    set_body_frame_damping(sys::SystemStructure, damping[, point_idxs])
+    set_body_frame_damping(sys::SystemDefinition, damping[, point_idxs])
     set_body_frame_damping(components::AbstractVector, damping[, idxs])
 
 Set the body-frame damping coefficient, on `sys.points` by default or on any
@@ -692,11 +694,11 @@ coefficient damps selectively: `[0, 0, 20]` on a wing body resists motion normal
 to the wing without slowing flight along it. Coefficients are per-mass [1/s]; a
 scalar applies to all three axes.
 """
-set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
+set_body_frame_damping(sys::SystemDefinition, damping::Union{Real, AbstractVector},
                        point_idxs) =
     assign_damping!(sys.points, :body_frame_damping, damping, point_idxs)
 
-set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector}) =
+set_body_frame_damping(sys::SystemDefinition, damping::Union{Real, AbstractVector}) =
     set_body_frame_damping(sys, damping, eachindex(sys.points))
 
 set_body_frame_damping(components::AbstractVector, damping::Union{Real, AbstractVector},
@@ -721,7 +723,7 @@ set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector}
 # ==================== SEGMENT STATISTICS ==================== #
 
 """
-    segment_stretch_stats(sys::SystemStructure)
+    segment_stretch_stats(sys::SystemDefinition)
 
 Maximum and mean relative stretch `(len - l0) / l0` over the segments in tension
 (`len > l0`), plus the index of the most stretched one.
@@ -730,7 +732,7 @@ For pulley segments, the combined length of both legs is used against the pulley
 `sum_l0`, since the pulley constraint distributes length between them.
 
 # Arguments
-- `sys::SystemStructure`: System structure with current segment states
+- `sys::SystemDefinition`: System structure with current segment states
 
 # Returns
 - `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,

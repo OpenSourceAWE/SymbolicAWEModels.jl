@@ -99,7 +99,7 @@ segments = [Segment(:spring, :anchor, :mass,
     614600.0, 473.0, 0.004)]
 
 # Assemble, place by a KiteGeometry transform (indices into the points), and compile
-sys = SystemStructure("pendulum", set; points, segments)
+sys = system_definition("pendulum", set; points, segments)
 transforms = [Transform(; name=:tf, elevation=deg2rad(-70), azimuth=0.0, heading=0.0,
     base_pos=[0, 0, 50], base_point=1, rot_point=[2 => 1.0], points=[1, 2])]
 place!(sys, transforms)

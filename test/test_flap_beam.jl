@@ -145,7 +145,7 @@ end
     EI = 100.0; GA = 1500.0; EA = 1.0e4; GJ = 50.0; kshear = 5 / 6
     inertia = [0.01, 0.01, 0.01]
 
-    # Fresh components per call: `SystemStructure` resolves indices in place.
+    # Fresh components per call: `SystemDefinition` resolves indices in place.
     function build_beam_sys(name; with_flap=true)
         # The wing owning the flap: a rigid wing with no aero, held where it is.
         nodeA = Wing(:nodeA, with_flap ? [:flap] : Symbol[], [1.0, 0.0, 0.0, 0.0],
@@ -161,7 +161,7 @@ end
             wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
         bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; tube=:tube)
-        return SystemStructure(name, set;
+        return system_definition(name, set;
             points=[bridle], wings=[nodeA], bodies=[nodeB], tubes=[tube],
             stations=with_flap ? [flap] : Station[])
     end
@@ -169,7 +169,7 @@ end
     sys = build_beam_sys("flap_beam_test")
 
     @testset "structural resolution" begin
-        @test sys.stations[:flap].flap_body_idxs == [1, 2]
+        @test sys.spanwise_stations[:flap].flap_body_idxs == [1, 2]
         @test sys.points[:bridle].tube_idx == 1
         @test sys.points[:bridle].beam_frac ≈ 0.5 atol=1e-6
         @test sys.points[:bridle].beam_offset_b[3] ≈ 0.1 atol=1e-6

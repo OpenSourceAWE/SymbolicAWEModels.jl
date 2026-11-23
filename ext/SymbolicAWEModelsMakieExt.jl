@@ -169,9 +169,9 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
     quad_vertices() = [Point3f(corner)
         for station_idx in wing.station_idxs
         for corner in SymbolicAWEModels.plate_corners(
-            sys.stations[station_idx],
+            sys.spanwise_stations[station_idx],
             sys.points[
-                sys.stations[station_idx].point_idxs[1]].pos_w,
+                sys.spanwise_stations[station_idx].point_idxs[1]].pos_w,
             wing.R_b_to_w)]
     initial = quad_vertices()
     isempty(initial) && return nothing
@@ -1384,7 +1384,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemState}, logs::Vector{<:SysL
     actual_suffixes = if length(logs) == 1
         [""]
     elseif isnothing(suffixes)
-        [" (" * sys.name * ")" for sys in syss]
+        [" (" * sys.structure.metadata.name * ")" for sys in syss]
     else
         [" (" * s * ")" for s in suffixes]
     end
@@ -1482,7 +1482,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemState}, logs::Vector{<:SysL
         all_times = []
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
-            suffix = " - " * syss[i].name
+            suffix = " - " * syss[i].structure.metadata.name
 
             # View-frame angular velocity components (ω_v) from log turn_rates
             turn_rates_rad = hcat(sl.turn_rates...)
@@ -4204,30 +4204,30 @@ end
 # ==================== STRUCTURES ==================== #
 
 # A structure is drawn at the pose a run of it starts from.
-Makie.plot!(ax, sys::SystemStructure; kwargs...) =
+Makie.plot!(ax, sys::SystemDefinition; kwargs...) =
     Makie.plot!(ax, SystemState(sys); kwargs...)
-MakieControlPlots.plot(sys::SystemStructure; kwargs...) =
+MakieControlPlots.plot(sys::SystemDefinition; kwargs...) =
     MakieControlPlots.plot(SystemState(sys); kwargs...)
-MakieControlPlots.plot(syss::Vector{<:SystemStructure}; kwargs...) =
+MakieControlPlots.plot(syss::Vector{<:SystemDefinition}; kwargs...) =
     MakieControlPlots.plot(SystemState.(syss); kwargs...)
-MakieControlPlots.plot(sys::SystemStructure, logs; kwargs...) =
+MakieControlPlots.plot(sys::SystemDefinition, logs; kwargs...) =
     MakieControlPlots.plot(SystemState(sys), logs; kwargs...)
-MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
+MakieControlPlots.plot(syss::Vector{<:SystemDefinition}, logs::Vector{<:SysLog};
                        kwargs...) =
     MakieControlPlots.plot(SystemState.(syss), logs; kwargs...)
-SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::String; kwargs...) =
+SymbolicAWEModels.record(lg::SysLog, sys::SystemDefinition, filename::String; kwargs...) =
     SymbolicAWEModels.record(lg, SystemState(sys), filename; kwargs...)
-SymbolicAWEModels.record(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure},
+SymbolicAWEModels.record(logs::Vector{<:SysLog}, syss::Vector{<:SystemDefinition},
                          filename::String; kwargs...) =
     SymbolicAWEModels.record(logs, SystemState.(syss), filename; kwargs...)
-SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure; kwargs...) =
+SymbolicAWEModels.replay(lg::SysLog, sys::SystemDefinition; kwargs...) =
     SymbolicAWEModels.replay(lg, SystemState(sys); kwargs...)
-SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
+SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemDefinition};
                          kwargs...) =
     SymbolicAWEModels.replay(logs, SystemState.(syss); kwargs...)
-SymbolicAWEModels.plot_body_frame(sys::SystemStructure; kwargs...) =
+SymbolicAWEModels.plot_body_frame(sys::SystemDefinition; kwargs...) =
     SymbolicAWEModels.plot_body_frame(SystemState(sys); kwargs...)
-SymbolicAWEModels.plot_aoa(sys::SystemStructure; kwargs...) =
+SymbolicAWEModels.plot_aoa(sys::SystemDefinition; kwargs...) =
     SymbolicAWEModels.plot_aoa(SystemState(sys); kwargs...)
 
 end

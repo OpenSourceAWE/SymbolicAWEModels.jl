@@ -23,7 +23,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: Point, Segment, Tether, Winch, PlateWing, Station,
-    Transform, SystemStructure, create_plate_interpolations, PARTICLE_DYNAMICS
+    Transform, SystemDefinition, create_plate_interpolations, PARTICLE_DYNAMICS
 using KiteUtils
 using LinearAlgebra
 
@@ -90,7 +90,7 @@ function build_plate_kite(data_root)
         cl_interp, cd_interp; dynamics_type=PARTICLE_DYNAMICS,
         z_ref_points=([:right, :left], :top), y_ref_points=(:left, :right),
         origin=:kcu, drag_corr=0.93 * (1.0 - rel_side))
-    sys = SystemStructure("plate_aero_test", set; points, stations,
+    sys = system_definition("plate_aero_test", set; points, stations,
         segments, tethers, winches, wings=[wing])
     transforms = [Transform(; name=:main_tf, elevation=deg2rad(set.elevation),
         azimuth=0.0, heading=0.0, base_pos=zeros(3), base_point=1, body=1,
@@ -106,8 +106,8 @@ Antisymmetric tip twist about the wing's nominal `base` angle: `+delta` on the
 left tip, `-delta` on the right. Passing `-delta` gives the mirrored wing.
 """
 function tip_twist!(sys, base, delta)
-    sys.stations[:left_tip].twist = base + delta
-    sys.stations[:right_tip].twist = base - delta
+    sys.spanwise_stations[:left_tip].twist = base + delta
+    sys.spanwise_stations[:right_tip].twist = base - delta
     return nothing
 end
 

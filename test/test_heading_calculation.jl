@@ -148,7 +148,7 @@ function heading_after_reinit(base_pos, dx, target_heading)
                       base_point=1, rot_point=[2 => 1.0], body=1, points=[2],
                       bodies=[1])]
 
-    sys = SystemStructure("near_vertical_heading", set;
+    sys = system_definition("near_vertical_heading", set;
         points, bodies=[kite], prn=false)
     place!(sys, transforms)
 

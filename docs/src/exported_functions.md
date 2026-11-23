@@ -37,12 +37,12 @@ by the models it registers with KiteGeometry.
 
 ```@docs
 load_sys_struct_from_yaml
-SystemStructure(::SystemDefinition, ::Settings)
+system_definition(::SystemDefinition, ::Settings)
 ```
 
 ## Structure documents
 
-A `SystemStructure` is a KiteGeometry `SystemDefinition`, and reads and writes as its
+A `SystemDefinition` is a KiteGeometry `SystemDefinition`, and reads and writes as its
 awesIO *structure document*: one
 `headers`/`units`/`data` table per block, conforming to the `structure_schema.yml`
 KiteGeometry ships. YAML and JSON are two encodings of the one document, and the file
@@ -66,9 +66,9 @@ set_angular_damping
 calc_steady_torque
 ```
 
-## Placing a SystemStructure
+## Placing a SystemDefinition
 
-[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor runs it with none. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
+[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemDefinition` constructor runs it with none. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
 
 ```julia
 set_unstretched_length!(sam.state, sam.state.tethers[1], 240.0)
@@ -159,7 +159,7 @@ Plot the 3D structure of the system with interactive features:
 ```julia
 import GLMakie
 using MakieControlPlots
-plot(sys::SystemStructure; kwargs...)
+plot(sys::SystemDefinition; kwargs...)
 ```
 
 **Keyword arguments:**
@@ -200,7 +200,7 @@ of your own with `plot!(ax, sys; kwargs...)`. It takes the drawing keywords of
 `plot` (colours, layers, styling) but not its camera ones, draws into any Makie
 axis (`Axis3`, `LScene`) and returns a `Dict` of the plot objects by layer
 (`:segments`, `:points`, …). With CairoMakie as the backend, `CairoMakie.save` writes
-the figure as vector graphics. Here `sys` is any `SystemStructure`, such as the one
+the figure as vector graphics. Here `sys` is any `SystemDefinition`, such as the one
 the [2-Plate Kite](@ref plate-kite-2) example loads:
 ```julia
 using SymbolicAWEModels, CairoMakie, MakieControlPlots
@@ -221,7 +221,7 @@ CairoMakie.save("kite.pdf", fig)
 
 Plot simulation results as multi-panel time-series:
 ```julia
-plot(sys::SystemStructure, log::SysLog; kwargs...)
+plot(sys::SystemDefinition, log::SysLog; kwargs...)
 ```
 
 **Keyword arguments** — `plot_default::Bool=true` switches the default panel

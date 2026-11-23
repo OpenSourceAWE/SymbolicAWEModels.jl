@@ -38,7 +38,7 @@ using LinearAlgebra
 """
     build_curvature_case(case, root, flow_curvature)
 
-Fresh data directory, `Settings`, `SystemStructure` and its placing transforms for
+Fresh data directory, `Settings`, `SystemDefinition` and its placing transforms for
 one mode of the particle-dynamics 2plate kite, with the solver's `flow_curvature`
 flag set as given. Each build gets its own data copy and `system_name`: the flag
 changes the emitted equations, so the two must not share a compiled model.

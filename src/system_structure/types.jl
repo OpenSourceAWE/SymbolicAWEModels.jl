@@ -270,25 +270,6 @@ getters). Defaults to an empty tuple.
 """
 aero_hash_id(::AbstractAeroModel) = ()
 
-"""
-    NameRef = Union{Int, Symbol}
-
-A reference to another component, either by symbolic name
-(`:ground`) or integer index (`1`).
-
-## Name resolution
-
-Components reference each other by name or index at construction
-time. These are stored in `_ref` fields (e.g. `point_refs`,
-`wing_ref`). During [`SystemStructure`](@ref) construction,
-`assign_indices_and_resolve!` maps every ref to its position in the
-component's KiteGeometry `Rows` and stores the result in the
-corresponding `_idx` fields (e.g. `point_idxs`, `wing_idx`).
-
-Each component has a `name` field, a `Symbol` set once at
-construction, that identifies it for lookup.
-"""
-const NameRef = Union{Int, Symbol}
 
 # ==================== POINT ==================== #
 
@@ -437,7 +418,7 @@ drives the per-point aero and wing-frame fitting.
 - `fix_static::Bool=false`: If true, dynamically freezes the point.
 
 # Returns
-- `Point`: A new `Point` object. The `idx` field is assigned later by SystemStructure.
+- `Point`: A new `Point` object. The `idx` field is assigned later by SystemDefinition.
 """
 function Point(name, pos_ENU, type::DynamicsType;
     wing=nothing,
@@ -528,7 +509,7 @@ references_column(refs) =
 Constructs a `Station` object representing a collection of points on a
 kite body that share a common twist deformation.
 
-Station geometry (le_pos, chord, y_airf) is computed later by SystemStructure
+Station geometry (le_pos, chord, y_airf) is computed later by SystemDefinition
 using the closest VSM panel to the station's mean point position.
 
 # Arguments
@@ -544,7 +525,7 @@ using the closest VSM panel to the station's mean point position.
   independent of the bridle-tension restoring moment.
 - `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
   the `chord` field — twist is measured relative to it. Defaults to auto-derived
-  from the closest VSM panel during SystemStructure construction.
+  from the closest VSM panel during SystemDefinition construction.
 - `y_airf=nothing`: Spanwise reference (body frame). Auto-derived when omitted.
 - `area=NaN`: Surface area [m²] for flat-plate (`AeroPlate`) sections.
 - `twist=0.0`: Initial twist angle [rad] (prescribed input for `STATIC` sections).
@@ -569,9 +550,10 @@ using the closest VSM panel to the station's mean point position.
   as-placed pose is δ=0. Internal — not a YAML field (YAML angles are degrees).
 
 # Returns
-- `Station`: A new `Station` object. The `idx` and `point_idxs` are resolved by SystemStructure.
+- `Station`: A new `Station` object. The `idx` and `point_idxs` are resolved when its
+  structure is built.
   When `x_airf`/`y_airf` are omitted the geometry fields (le_pos, chord, y_airf) are
-  computed during SystemStructure construction from the closest VSM panel.
+  computed during SystemDefinition construction from the closest VSM panel.
 """
 function Station(name, points, type::DynamicsType, moment_frac;
                       damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,

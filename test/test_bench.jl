@@ -16,7 +16,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, SystemStructure, KVec3
+using SymbolicAWEModels: VortexStepMethod, SystemDefinition, KVec3
 using KiteUtils
 using BenchmarkTools
 using Statistics

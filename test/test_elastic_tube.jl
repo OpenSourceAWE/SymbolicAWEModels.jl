@@ -94,7 +94,7 @@ end
         anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
         model=ElasticTube(stiffness_axial=0.0, stiffness_shear=0.0,
                           stiffness_torsion=0.0, stiffness_bending=0.0))
-    sys = SystemStructure("joint_test", set;
+    sys = system_definition("joint_test", set;
         bodies=[body1, body2], tubes=[tube])
 
     @testset "Model setup" begin
@@ -225,7 +225,7 @@ end
                 stiffness_shear=0.0, stiffness_torsion=0.0,
                 stiffness_bending=0.0))                     # ... mixed with floats
         @test tube_i.model.stiffness_axial === f_axial
-        sys_i = SystemStructure("joint_test", set;
+        sys_i = system_definition("joint_test", set;
             bodies=[b1i, b2i], tubes=[tube_i])
         sam_i = SymbolicAWEModel(set, sys_i)
         test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
@@ -265,7 +265,7 @@ end
             model=ElasticTube(stiffness_axial=1000.0, stiffness_shear=1000.0,
                               stiffness_torsion=1000.0, stiffness_bending=1000.0,
                               damping=0.05))
-        sys_r = SystemStructure("joint_test", set;
+        sys_r = system_definition("joint_test", set;
             bodies=[bodyA, bodyB], tubes=[tube_r])
         sam_r = SymbolicAWEModel(set, sys_r)
         test_init!(sam_r; prn=false)

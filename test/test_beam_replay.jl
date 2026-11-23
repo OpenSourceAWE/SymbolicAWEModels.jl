@@ -53,7 +53,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
                           stiffness_torsion=5e3, stiffness_bending=5e3, damping=0.05))
         for i in 1:(n-1)]
 
-    sys = SystemStructure("beam_replay", set;
+    sys = system_definition("beam_replay", set;
         bodies=make_bodies(), tubes=make_tubes())
     sam = SymbolicAWEModel(set, sys)
     init!(sam)
@@ -77,7 +77,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     @test norm(collect(lg.syslog.orient[end])) ≈ 1.0 atol=1e-3
 
     # Reconstruct geometry from the last frame (the path replay uses).
-    sys2 = SystemStructure("beam_replay", set;
+    sys2 = system_definition("beam_replay", set;
         bodies=make_bodies(), tubes=make_tubes())
     state2 = SystemState(sys2)
     update_from_sysstate!(state2, lg.syslog[end])

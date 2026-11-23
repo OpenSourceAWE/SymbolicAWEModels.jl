@@ -9,7 +9,7 @@
 # index swapped. The runtime address is `(instance, slot)` into our own buffer, so
 # two reads of the same field name can never collide.
 #
-# This is the lowest layer that mentions the `SystemStructure`: the runtime below it
+# This is the lowest layer that mentions the `SystemDefinition`: the runtime below it
 # sees only integers and buffers, and only ever reads `p.numeric` / `p.callables`.
 
 """
@@ -94,7 +94,7 @@ end
 """
     KernelParamSync(groups, callable_groups)
 
-Copies live `SystemStructure` fields into a [`KernelParams`](@ref): the
+Copies live `SystemDefinition` fields into a [`KernelParams`](@ref): the
 [`ReaderGroup`](@ref)s supply `numeric`, the [`CallableGroup`](@ref)s the
 callables. This is the [`KernelBackend`](@ref)'s parameter sync, applied every
 step through the same `ProbWithAttributes` machinery as the monolith's, so it is

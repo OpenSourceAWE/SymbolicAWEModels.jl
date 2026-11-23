@@ -34,7 +34,7 @@ couples_to_sections(::AbstractAeroModel) = false
 couples_to_sections(::AbstractVSMAero) = true
 
 """
-    has_vsm_wing(sys_struct::SystemStructure) -> Bool
+    has_vsm_wing(sys_struct::SystemDefinition) -> Bool
 
 `true` if any wing carries a VSM aero mode ([`AbstractVSMAero`](@ref)) whose
 state must be refreshed each `vsm_interval`. When `false`, [`refresh_aero!`](@ref)
@@ -1236,7 +1236,7 @@ before.
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
                        cold_start=false, vsm_warn_on_fail=false)
     wings = sam.state.wings
-    stations = sam.state.stations
+    stations = sam.state.spanwise_stations
     points = sam.state.points
 
     length(wings) == 0 && return nothing
@@ -1349,7 +1349,7 @@ function setup_model_aero!(wing, state)
     mode = wing.aero
     mode isa AbstractVSMAero || return nothing
     resize_aero_state!(mode, wing)
-    setup_aero!(mode, wing, state.points, state.stations; vsm_set=state.vsm_set)
+    setup_aero!(mode, wing, state.points, state.spanwise_stations; vsm_set=state.vsm_set)
     return build_panel_station_map!(mode, wing, state)
 end
 
@@ -1385,7 +1385,7 @@ Construction-time aero setup for `wing`, dispatched on its aero `mode` (default
 no-op). VSM modes transform the VSM panels into the body frame and, for
 section-coupled wings, auto-create stations, match aero sections to
 structure, and build the station / structural↔panel mappings. A custom mode
-adds a method to participate in construction without editing the SystemStructure
+adds a method to participate in construction without editing the SystemDefinition
 constructor. Runs after [`setup_wing_frame!`](@ref) (which sets the body frame).
 `vsm_set` is the model's `VSMSettings`, for a mode that reads how its sections were
 generated rather than only the geometry they produced.
@@ -1809,7 +1809,7 @@ end
 Number of aero segments logged in `SysState.flap_angle`: one flap deflection δ
 per station. Sets the `D` type parameter of the model's `SysState`.
 """
-n_flap_deflections(sys_struct) = length(sys_struct.stations)
+n_flap_deflections(sys_struct) = length(sys_struct.spanwise_stations)
 
 """
     write_flap_deflections!(sys_state, sys_struct)

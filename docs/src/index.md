@@ -72,7 +72,7 @@ segments = [Segment(:spring, :anchor, :mass,
     614600.0, 473.0, 0.004)]
 
 # Assemble and compile
-sys = SystemStructure("pendulum", set; points, segments)
+sys = system_definition("pendulum", set; points, segments)
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
 

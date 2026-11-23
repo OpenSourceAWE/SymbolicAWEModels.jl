@@ -73,7 +73,7 @@ end
 """
     init_backend!(::KernelBackend, sam, solver; kwargs...)
 
-Full `init!` path for the [`KernelBackend`](@ref): refresh the `SystemStructure`,
+Full `init!` path for the [`KernelBackend`](@ref): refresh the `SystemDefinition`,
 assemble the problem from it, and build the integrator. The assembled problem is
 serialized to `get_model_name`'s bin and read back on the next `init!` of the same
 structure, exactly as the monolith's is — the kernels' `mtkcompile` is the slow

@@ -151,7 +151,7 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     test_init!(sam; prn=false)
     lg2 = build_test_syslog(sam, sys1, 5, 0.05)
 
-    # Second SystemStructure for multi-system tests
+    # Second SystemDefinition for multi-system tests
     sys2, _ = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_2", set=set)
 

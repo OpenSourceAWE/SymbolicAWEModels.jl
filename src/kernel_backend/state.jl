@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Scattering the runtime's buffers back into the `SystemStructure`, and
+# Scattering the runtime's buffers back into the `SystemDefinition`, and
 # writing the control setpoints into the parameter buffer. Every value has a fixed
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
@@ -421,7 +421,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
     end
     for readout in getter.twist
-        surface = sys_struct.stations[readout.surface]
+        surface = sys_struct.spanwise_stations[readout.surface]
         surface.twist = scratch.output[readout.angle]
         surface.twist_ω = scratch.output[readout.rate]
         surface.aero_moment = scratch.observable[readout.aero_moment]
@@ -440,7 +440,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,
-            stations = sys_struct.stations)
+            stations = sys_struct.spanwise_stations)
     end
     for readout in getter.rigid
         wing = sys_struct.bodies[readout.wing]
@@ -448,7 +448,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         copy_slots!(getter.alpha_b, scratch.observable, readout.alpha_b)
         write_wing_scalars!(wing, sys_struct.points;
             base_point = readout.base_point, alpha_b = getter.alpha_b,
-            stations = sys_struct.stations)
+            stations = sys_struct.spanwise_stations)
     end
     return nothing
 end

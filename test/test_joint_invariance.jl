@@ -150,7 +150,7 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
             model=TimoshenkoTube(; EA, GA=1500.0, GJ, EIy=100.0, EIz=100.0,
                                  shear_coeff=5 / 6, damping))
-        return SystemStructure("joint_invariance_test", set;
+        return system_definition("joint_invariance_test", set;
             bodies=[node_a, node_b], tubes=[tube])
     end
 
@@ -164,7 +164,7 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             model=ElasticTube(; stiffness_axial=axial_stiffness,
                               stiffness_shear=axial_stiffness, stiffness_torsion=20.0,
                               stiffness_bending=20.0, damping))
-        return SystemStructure("joint_invariance_test", set;
+        return system_definition("joint_invariance_test", set;
             bodies=[node_a, node_b], tubes=[tube])
     end
 

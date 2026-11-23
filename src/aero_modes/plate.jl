@@ -94,7 +94,7 @@ air density.
 function aero_component(::AeroPlate, wing::ParticleWingState, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
-    stations = sys_struct.stations
+    stations = sys_struct.spanwise_stations
     points = wing_points(sys_struct, wing)
     num_points = length(points)
     connectors = particle_aero_connectors(num_points)
@@ -116,11 +116,11 @@ function aero_component(::AeroPlate, wing::ParticleWingState, sys_struct;
             "Wing $wing_idx: wing node $(point.idx) is not a flat-plate " *
             "section point.")
 
-        chord_p = params.stations[ts_idx].chord
-        y_airf_p = params.stations[ts_idx].y_airf
-        twist_p = params.stations[ts_idx].twist
+        chord_p = params.spanwise_stations[ts_idx].chord
+        y_airf_p = params.spanwise_stations[ts_idx].y_airf
+        twist_p = params.spanwise_stations[ts_idx].twist
         drag_corr_p = params.wings[wing_idx].aero.drag_corr
-        area_p = params.stations[ts_idx].area
+        area_p = params.spanwise_stations[ts_idx].area
         append!(flat_ps, (chord_p, y_airf_p, twist_p, drag_corr_p, area_p))
         x_airf = smooth_normalize(collect(chord_p))
         y_airf = collect(y_airf_p)
@@ -194,7 +194,7 @@ function write_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
                                 point_idx, zoom)
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
     for station_idx in wing.station_idxs
-        station = sys_struct.stations[station_idx]
+        station = sys_struct.spanwise_stations[station_idx]
         point = sys_struct.points[station.point_idxs[1]]
         for corner_w in plate_corners(station, point.pos_w, R_b_to_w)
             point_idx += 1

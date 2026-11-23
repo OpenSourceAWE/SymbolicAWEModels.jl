@@ -91,7 +91,7 @@ end
     hang = Point(:hang, KVec3(0.0, 0.0, -rest_length), DYNAMIC; extra_mass=mass)
     spring = Segment(:spring, :ground, :hang, force_law, damping, diameter;
                      l0=rest_length, density=0.0)
-    sys = SystemStructure("segment_nl_test", set;
+    sys = system_definition("segment_nl_test", set;
         points=[ground, hang], segments=[spring])
 
     @testset "Model setup" begin
@@ -125,7 +125,7 @@ end
         line = Tether(:line; start_point=:ground, end_point=:mass,
             n_segments=3, unit_stiffness=force_law, unit_damping=200.0,
             diameter=0.005, density=724.0)
-        sys_t = SystemStructure("tether_nl_test", set;
+        sys_t = system_definition("tether_nl_test", set;
             points=[ground2, end_pt], tethers=[line])
 
         @info "Route 2 tether: callable unit_stiffness fanned out to every segment."

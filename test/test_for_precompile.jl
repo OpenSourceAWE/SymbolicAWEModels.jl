@@ -24,7 +24,7 @@ transforms = [
               base_pos=[2, 0, 5], base_point=1, rot_point=[2 => 1.0]),
 ]
 
-sys = SystemStructure("hanging_mass", set; points, segments)
+sys = system_definition("hanging_mass", set; points, segments)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam)
 

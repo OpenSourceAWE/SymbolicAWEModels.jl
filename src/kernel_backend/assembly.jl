@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# The assembler: the one layer that knows both the `SystemStructure` and the
+# The assembler: the one layer that knows both the `SystemDefinition` and the
 # runtime. It classifies the topology, compiles one kernel per component type,
 # adds an instance per component, wires the outputs into the inputs, and binds
 # each instance's parameters and initial state. Everything below it — kernel,
@@ -151,7 +151,7 @@ The one station point `idx` belongs to, or `0`. Two would make its section
 twist ambiguous, which `point_eqs!` also rejects.
 """
 function station_of(sys_struct, idx)
-    found = [surface.idx for surface in sys_struct.stations
+    found = [surface.idx for surface in sys_struct.spanwise_stations
              if idx in surface.point_idxs]
     length(found) <= 1 || error(
         "KernelBackend: point $(sys_struct.points[idx].name) is in " *
@@ -412,7 +412,7 @@ unconnected and so reads the zero `station_delta_eqs!` binds it to.
 """
 function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
     instances = Dict{Int, Int}()
-    for surface in sam.state.stations
+    for surface in sam.state.spanwise_stations
         has_flap(surface) || continue
         point_flap = has_point_flap(surface)
         key = point_flap ? :point_flap_delta : :flap_delta
@@ -422,7 +422,7 @@ function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
                             FlapDelta(sam, params, surface.idx; name = key),
                         point_flap ? POINT_FLAP_INPUTS : FLAP_INPUTS, [:delta])
         instance = add_instance!(builder, entry.index)
-        push!(bindings, (instance, entry, Dict(:stations => surface.idx)))
+        push!(bindings, (instance, entry, Dict(:spanwise_stations => surface.idx)))
         if point_flap
             for (k, idx) in enumerate(surface.flap_point_idxs)
                 connect!(builder, points[idx], :pos, instance,
@@ -760,7 +760,7 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        station_aero_driven(sam.state.stations[surface]) &&
+        station_aero_driven(sam.state.spanwise_stations[surface]) &&
             connect!(builder, instance, Symbol(:twist_moment_, surface),
                      twists[surface], :aero_moment_in)
     end
@@ -946,8 +946,8 @@ Add one twist instance per station that has a section twist to report: a
 [`FlapDelta`](@ref) instead.
 """
 function add_stations!(builder, table, bindings, sam)
-    instances = zeros(Int, length(sam.state.stations))
-    for surface in sam.state.stations
+    instances = zeros(Int, length(sam.state.spanwise_stations))
+    for surface in sam.state.spanwise_stations
         surface.type in (DYNAMIC, STATIC) || continue
         dynamic = surface.type == DYNAMIC
         key = dynamic ? :station : :prescribed_twist
@@ -957,7 +957,7 @@ function add_stations!(builder, table, bindings, sam)
                         dynamic ? STATION_INPUTS : [:aero_moment_in],
                         TWIST_OUTPUTS)
         instance = add_instance!(builder, entry.index)
-        push!(bindings, (instance, entry, Dict(:stations => surface.idx)))
+        push!(bindings, (instance, entry, Dict(:spanwise_stations => surface.idx)))
         instances[surface.idx] = instance
     end
     return instances
@@ -979,7 +979,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     surface = role.element_idx
     gated = surface > 0 && !sam.state.bodies[role.body_idx].group_points_moment
     index_map = Dict(:points => idx)
-    surface > 0 && (index_map[:stations] = surface)
+    surface > 0 && (index_map[:spanwise_stations] = surface)
     suffix = surface > 0 ? "" : "_free"
     kinematics = kernel!(builder, table, sam, Symbol(:twist_node, suffix), idx,
                          params -> TwistNodePoint(sam, params, idx;
@@ -1013,7 +1013,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     if surface > 0 && twists[surface] != 0
         connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
         connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
-        if sam.state.stations[surface].type == DYNAMIC
+        if sam.state.spanwise_stations[surface].type == DYNAMIC
             connect!(builder, wrench, :node_force, twists[surface], :node_force_in)
             connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
             connect!(builder, wrench, :node_mass, twists[surface], :node_mass_in)
@@ -1367,7 +1367,7 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
     fill!(u0, zero(SimFloat))
     for (idx, instance) in enumerate(twist_instances)
         instance == 0 && continue
-        surface = sys_struct.stations[idx]
+        surface = sys_struct.spanwise_stations[idx]
         surface.type == DYNAMIC || continue
         u0[only(buffer_slots(system, instance, :states, :free_twist_angle))] =
             surface.twist

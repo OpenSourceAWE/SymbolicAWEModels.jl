@@ -35,7 +35,7 @@ on the rigid connector contract.
 """
 function aero_component(::AeroDirect, wing::RigidWingState, sys_struct;
                         name, params=nothing)
-    stations = sys_struct.stations
+    stations = sys_struct.spanwise_stations
     num_stations = length(wing.station_idxs)
     connectors = rigid_aero_connectors(num_stations)
     force_p = params.wings[wing.idx].aero_force_b
@@ -47,7 +47,7 @@ function aero_component(::AeroDirect, wing::RigidWingState, sys_struct;
         if isempty(stations[station_idx].unrefined_section_idxs)
             eqs = [eqs; connectors.twist_moment[station_pos] ~ 0]
         else
-            moment_ts_p = params.stations[station_idx].aero_moment
+            moment_ts_p = params.spanwise_stations[station_idx].aero_moment
             push!(flat_ps, moment_ts_p)
             eqs = [eqs; connectors.twist_moment[station_pos] ~ moment_ts_p]
         end

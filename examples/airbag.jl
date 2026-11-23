@@ -100,10 +100,10 @@ for j in 0:N-1, i in 0:N-1
           SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
     seg_id += 1
 end
-# Rest lengths (l0) are automatically set to initial CAD distances by SystemStructure.
+# Rest lengths (l0) are automatically set to initial CAD distances by SystemDefinition.
 
 # ── Build model ─────────────────────────────────────────────────────────
-sys = SystemStructure("airbag", set; points, segments)
+sys = system_definition("airbag", set; points, segments)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 

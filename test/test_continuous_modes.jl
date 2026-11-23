@@ -37,7 +37,7 @@ using LinearAlgebra
 """
     build_continuous_case(case, root)
 
-Fresh data directory, `Settings`, `SystemStructure` and its placing transforms
+Fresh data directory, `Settings`, `SystemDefinition` and its placing transforms
 for one continuous-mode case. The mode's spanwise distribution and its own
 fixture (AeroPressure's synthetic surface aero) are applied to that copy alone,
 so no case can disturb another's geometry or model cache.

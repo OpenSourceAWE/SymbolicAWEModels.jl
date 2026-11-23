@@ -8,6 +8,6 @@ include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for Timoshenko
 include("rigid_body.jl")    # Body (embedded in Wing and standalone)
 include("wing.jl")          # AbstractWing, Wing (embeds a Body)
 include("system_state.jl")  # SystemState: what a run holds of each component
-include("system_structure_core.jl")  # SystemStructure type and constructor
+include("system_structure_core.jl")  # SystemDefinition type and constructor
 include("utilities.jl")     # Helpers, validation, state management
 include("definition.jl")         # The KiteGeometry definition of a structure

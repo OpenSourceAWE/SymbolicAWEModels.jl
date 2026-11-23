@@ -400,7 +400,7 @@ function build_beam(name, n_seg, joint_law)
         model = CascadedLengthWinch(v_max = sweep_v_max,
             position_gain = 20.0, velocity_gain = 20.0))]
     winches[1].inertia_total = 1.0e-4     # tiny rotor → near-instant tracking
-    sys = SystemStructure(name, set; points, segments, tethers, winches,
+    sys = system_definition(name, set; points, segments, tethers, winches,
         bodies = bodies, tubes = joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake = false, prn = true)

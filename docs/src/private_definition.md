@@ -4,7 +4,7 @@ CurrentModule = SymbolicAWEModels
 
 # Private API — definition
 
-The internals that read a KiteGeometry definition into a [`SystemStructure`](@ref) and
+The internals that read a KiteGeometry definition into a [`SystemDefinition`](@ref) and
 write one back: the loader, the models SymbolicAWEModels registers for each block, the
 components as definition rows, and the writer. Not part of the public API.
 

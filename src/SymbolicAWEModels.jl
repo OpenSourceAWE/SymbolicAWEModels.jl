@@ -68,13 +68,13 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
+export system_definition, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
 export segment_role
 export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
-export NameRef, WeightedRefPoints
+export WeightedRefPoints
 # Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
 export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law

@@ -42,7 +42,7 @@ using LinearAlgebra
 
     @test length(sys_refine.wings) == 1
     @test sys_refine.bodies[1].dynamics_type == PARTICLE_DYNAMICS
-    @test length(sys_refine.stations) == 3
+    @test length(sys_refine.spanwise_stations) == 3
     @test length(sys_refine.bodies[1].station_idxs) == 3
 
     # ── RIGID_DYNAMICS with YAML-defined stations ───────
@@ -55,13 +55,13 @@ using LinearAlgebra
 
     wing = SymbolicAWEModels.SystemState(sys_quat; set, vsm_set).wings[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
-    @test length(sys_quat.stations) == 3
+    @test length(sys_quat.spanwise_stations) == 3
     @test length(wing.station_idxs) == 3
     @test !isnothing(wing.wing_segments)
     @test length(wing.wing_segments) == 3
 
     # Geometry was computed from closest VSM panel
-    for station in sys_quat.stations
+    for station in sys_quat.spanwise_stations
         @test !iszero(station.chord)
         @test !iszero(station.y_airf)
     end

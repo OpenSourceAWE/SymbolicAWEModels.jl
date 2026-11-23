@@ -46,9 +46,9 @@ segments = [Segment(:spring, :anchor, :mass,
 Alternatively, components can be parsed from a YAML file using
 [`load_sys_struct_from_yaml`](@ref), which calls the same constructors internally.
 
-## Stage 2: SystemStructure assembly
+## Stage 2: SystemDefinition assembly
 
-The [`SystemStructure`](@ref) constructor takes the component vectors and:
+The [`SystemDefinition`](@ref) constructor takes the component vectors and:
 
 1. **Assigns indices** — each component gets an `idx` based on its position in the
    vector (1, 2, 3, ...)
@@ -64,7 +64,7 @@ The [`SystemStructure`](@ref) constructor takes the component vectors and:
    etc. via `validate_sys_struct()`
 
 ```julia
-sys = SystemStructure("my_model", set; points, segments)
+sys = system_definition("my_model", set; points, segments)
 # All references now resolved: segments[1].point_idxs == (1, 2)
 ```
 
@@ -132,7 +132,7 @@ end
 ## Runtime parameter changes
 
 Numeric fields of the component structs are emitted as **flat MTK parameters** and
-synced from the live [`SystemStructure`](@ref) once per step, so many parameters
+synced from the live [`SystemDefinition`](@ref) once per step, so many parameters
 can be changed at runtime without recompiling:
 
 - Winch parameters: `inertia_total`, `coulomb_friction`, `viscous_coefficient`, `gear_ratio`
@@ -151,4 +151,4 @@ Changes that **do** require recompilation (rebuilding the symbolic system):
 - Changing dynamics types (STATIC ↔ DYNAMIC)
 - Changing an aero mode, or any structural field it reports via `aero_hash_id`
 
-These require creating a new [`SystemStructure`](@ref) and [`SymbolicAWEModel`](@ref).
+These require creating a new [`SystemDefinition`](@ref) and [`SymbolicAWEModel`](@ref).

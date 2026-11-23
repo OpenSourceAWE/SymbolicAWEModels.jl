@@ -49,7 +49,7 @@ for i in 1:n_segments
         l0=l0_seg, compression_frac=0.01))
 end
 
-sys = SystemStructure("catenary", set; points, segments)
+sys = system_definition("catenary", set; points, segments)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 

@@ -310,7 +310,7 @@ end
         wing.wing_segments = nothing
         match_aero_sections_to_structure!(
             wing, points;
-            stations=collect(sys_q.stations))
+            stations=collect(sys_q.spanwise_stations))
 
         # Aero geometry untouched
         @test vsm_w.n_unrefined_sections == n_aero_before

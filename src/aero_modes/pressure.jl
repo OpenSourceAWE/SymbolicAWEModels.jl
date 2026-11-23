@@ -247,7 +247,7 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
         mode.panel_station = zeros(Int64, n_panels)
         return nothing
     end
-    flaps = [ts for ts in sys_struct.stations
+    flaps = [ts for ts in sys_struct.spanwise_stations
              if ts.type == KINEMATIC && has_flap(ts) && ts.wing_idx == wing.idx]
     if isempty(flaps)
         mode.panel_station = zeros(Int64, n_panels)
@@ -283,7 +283,7 @@ Live flap deflection δ [rad] per station (indexed by `station.idx`;
 `station_delta_eqs!`, used to drive `panel.delta` at refresh and by tests.
 """
 function station_deltas(sys_struct)
-    stations = sys_struct.stations
+    stations = sys_struct.spanwise_stations
     bodies = sys_struct.bodies
     deltas = zeros(SimFloat, length(stations))
     for station in stations

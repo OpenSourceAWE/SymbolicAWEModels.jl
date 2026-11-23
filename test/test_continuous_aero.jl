@@ -29,7 +29,7 @@ using LinearAlgebra
 """
     load_continuous_sys(data_path, set; billowing)
 
-`SystemStructure` for the particle 2plate kite carrying [`ContinuousAero`](@ref),
+`SystemDefinition` for the particle 2plate kite carrying [`ContinuousAero`](@ref),
 with the VSM spanwise distribution either left at the file's `SPLIT_PROVIDED` or
 switched to `BILLOWING`.
 """

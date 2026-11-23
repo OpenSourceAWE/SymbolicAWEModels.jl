@@ -84,11 +84,11 @@ end
     sys, transforms = load_sys_struct_from_yaml(fixed_yaml;
         system_name="2plate_fixed", set)
     sys.winches[:main_winch].brake = true
-    @test all(g.type == STATIC for g in sys.stations)
+    @test all(g.type == STATIC for g in sys.spanwise_stations)
 
     # Prescribe distinct twist angles per station.
     prescribed = Dict(:left => 0.05, :center => -0.10, :right => 0.08)
-    for g in sys.stations
+    for g in sys.spanwise_stations
         g.twist = prescribed[g.name]
     end
 
@@ -97,7 +97,7 @@ end
     next_step!(sam)
 
     # twist_angle must track the prescribed value (no dynamics, no clamp drift).
-    for g in sam.state.stations
+    for g in sam.state.spanwise_stations
         @test isapprox(g.twist, prescribed[g.name]; atol=1e-9)
     end
     rm(fixed_yaml; force=true)
@@ -121,7 +121,7 @@ station_point_mass(points, station, field) =
     init!(sam; prn=false, remake=false, remake_vsm=false)
     update_sys_struct!(sam.prob, sam.integrator, sam.state)
 
-    stations = sam.state.stations
+    stations = sam.state.spanwise_stations
     points = sam.sys_struct.points
     @test all(station_point_mass(points, station, :total_mass) >
               1.01 * station_point_mass(points, station, :extra_mass)

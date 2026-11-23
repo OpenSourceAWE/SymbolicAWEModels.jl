@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_structure_document.jl - SystemStructure → awesIO structure document →
-# SystemStructure, in both encodings and through a run's log, against the
+# test_structure_document.jl - SystemDefinition → awesIO structure document →
+# SystemDefinition, in both encodings and through a run's log, against the
 # structure_schema.yml KiteGeometry ships and the golden document in test/data.
 # Regenerate the golden by pointing save_structure_document at
 # data/2plate_kite_structure.yml.
@@ -22,7 +22,7 @@ using JSONSchema
 using YAML
 
 """
-    two_plate_kite(set, vsm_set) -> (SystemStructure, transforms)
+    two_plate_kite(set, vsm_set) -> (SystemDefinition, transforms)
 
 The rigid-dynamics 2-plate kite from `data/2plate_kite`, the system the golden
 document describes, with the transforms placing it.
@@ -34,7 +34,7 @@ function two_plate_kite(set, vsm_set)
 end
 
 """
-    bodies_and_tubes(set) -> SystemStructure
+    bodies_and_tubes(set) -> SystemDefinition
 
 A clamped root body, a free tip body and a hub whose own mass sits off its origin,
 linked by one Timoshenko tube and one elastic tube, with a segment between two
@@ -63,12 +63,12 @@ function bodies_and_tubes(set)
              model=ElasticTube(stiffness_axial=1.2e5, stiffness_shear=4.0e4,
                                stiffness_torsion=900.0, stiffness_bending=1500.0,
                                damping=0.002))]
-    return SystemStructure("structure_document_bodies", set; points, segments,
+    return system_definition("structure_document_bodies", set; points, segments,
         bodies, tubes, prn=false)
 end
 
 """
-    pretensioned_tether(set; winches=Winch[]) -> SystemStructure
+    pretensioned_tether(set; winches=Winch[]) -> SystemDefinition
 
 A ground point and a top point on one two-segment tether whose rest length is 99 % of
 its length, reeled by `winches`.
@@ -78,7 +78,7 @@ function pretensioned_tether(set; winches=Winch[])
                    Point(:top, [0.0, 0.0, 10.0], DYNAMIC; extra_mass=1.0)]
     tethers = Tether[Tether(:line, 10.0; start_point=:ground, end_point=:top,
                             n_segments=2, stretch_frac=0.99)]
-    return SystemStructure("structure_document_tether", set; points, tethers, winches,
+    return system_definition("structure_document_tether", set; points, tethers, winches,
         prn=false)
 end
 
@@ -317,7 +317,7 @@ end
                        Point(:top, [0.0, 0.0, 1.0], DYNAMIC; extra_mass=1.0)]
         segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
                                    10.0, 0.004; l0=1.0, density=724.0)]
-        sys = SystemStructure("nonlinear_link", set; points, segments, prn=false)
+        sys = system_definition("nonlinear_link", set; points, segments, prn=false)
         @test_throws "awesIO#1" save_structure_document(
             joinpath(tmpdir, "nonlinear.yml"), sys)
     end

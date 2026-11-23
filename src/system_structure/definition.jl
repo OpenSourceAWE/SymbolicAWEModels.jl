@@ -2,19 +2,19 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    system_definition(sys::SystemStructure) -> SystemDefinition
+    definition_rows(sys) -> SystemDefinition
 
 The KiteGeometry definition of `sys` in its initial pose: its components as rows, every
 reference an index, what only SymbolicAWEModels reads in the models it registers
 ([`register_definition_models`](@ref)), and each body at the centre of its own mass.
 """
-function system_definition(sys)
+function definition_rows(sys)
     materials = sys.materials
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
         points=[point_row!(point) for point in sys.points],
         segments=collect(sys.segments),
-        spanwise_stations=[station_row(sys, station) for station in sys.stations],
+        spanwise_stations=[station_row(sys, station) for station in sys.spanwise_stations],
         pulleys=collect(sys.pulleys),
         tethers=[with_ends!(tether) for tether in sys.tethers],
         winches=[winch_row!(winch) for winch in sys.winches],

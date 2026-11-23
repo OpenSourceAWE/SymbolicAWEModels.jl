@@ -362,7 +362,7 @@ the body where it is; unlike `type=STATIC` it is a parameter, so it can be
 toggled on a built model.
 
 `extra_mass`, `com_offset_b` and the inertia are the body's own, without the
-`BODY_STATIC` points riding it: [`SystemStructure`](@ref) adds those. Supply the
+`BODY_STATIC` points riding it: [`SystemDefinition`](@ref) adds those. Supply the
 inertia about the body's own COM in one of two ways: `inertia_principal` (a length-3
 diagonal principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 `inertia` (a full 3×3 body-frame tensor). Give one, not both. Either is stored as a
@@ -476,7 +476,7 @@ mutable struct ElasticTube{S} <: AbstractTubeModel
     const rest_offset_a::KVec3
     "Rest relative rotation `R_a' R_b`, the placed orientation, set by `place!`."
     const R_rel0::Matrix{SimFloat}
-    "Index in `SystemStructure.tubes` (assigned by SystemStructure)."
+    "Index in `SystemDefinition.tubes` (assigned by SystemDefinition)."
     idx::Int64
     "Tube end on body A, as an offset from its origin in its frame [m]."
     const anchor_a_b::KVec3
@@ -537,7 +537,7 @@ mutable struct TimoshenkoTube{S} <: AbstractTubeModel
     const R_a_rel0::Matrix{SimFloat}
     "Rest orientation of node B in the element frame (set at reinit!)."
     const R_b_rel0::Matrix{SimFloat}
-    "Index in `SystemStructure.tubes` (assigned by SystemStructure)."
+    "Index in `SystemDefinition.tubes` (assigned by SystemDefinition)."
     idx::Int64
     "Tube end on body A, as an offset from its origin in its frame [m]."
     const anchor_a_b::KVec3

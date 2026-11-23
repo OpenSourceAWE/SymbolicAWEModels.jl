@@ -41,7 +41,7 @@ segments = [
             500.0, 50.0, 0.004),
 ]
 pulleys = [Pulley(:pulley, :seg1, :seg2, DYNAMIC)]
-sys = SystemStructure("pulley", set;
+sys = system_definition("pulley", set;
                       points, segments, pulleys)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)

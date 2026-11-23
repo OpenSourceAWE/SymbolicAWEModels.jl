@@ -99,7 +99,7 @@ using LinearAlgebra
             if p.is_wing_node &&
                p.wing_idx == wing.idx]
 
-        for station in sys.stations
+        for station in sys.spanwise_stations
             # Find LE and TE points in this station
             le_pt = nothing
             te_pt = nothing
@@ -139,7 +139,7 @@ using LinearAlgebra
             # in the same ballpark
             @test le_err < 1.0
         end
-        println("  All $(length(sys.stations)) stations " *
+        println("  All $(length(sys.spanwise_stations)) stations " *
             "have consistent geometry")
     end
 

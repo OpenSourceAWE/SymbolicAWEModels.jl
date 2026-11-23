@@ -3,26 +3,9 @@
 
 # ==================== SYSTEM STRUCTURE ==================== #
 
-"""
-    SystemStructure
-
-The old name of KiteGeometry's `SystemDefinition`: a kite system's points, segments,
-tethers, winches, wings, bodies and tubes as rows of the same type a structure document
-holds. Its `wings` are KiteGeometry's rows, each a wing's frame; a wing's body is the first
-of `bodies` under the same name. `sys.stations` is its `spanwise_stations`.
-"""
-const SystemStructure = KiteGeometry.SystemDefinition
-
 """The bodies of the wings of `sys`, the first of its `bodies`."""
 wing_bodies(sys) = sys.wings
 wing_bodies(sys::KiteGeometry.SystemDefinition) = view(sys.bodies, 1:length(sys.wings))
-
-function Base.getproperty(sys::KiteGeometry.SystemDefinition, name::Symbol)
-    name === :stations && return getfield(sys, :spanwise_stations)
-    name === :name && return getfield(getfield(sys, :metadata), :name)
-    return getfield(sys, name)
-end
-
 
 """
     calc_heading(sys::SystemState)
@@ -515,7 +498,8 @@ and its section bodies. Point masses are taken at the current `l0`, and the rigi
 nodes' offsets from the new COM re-derived ([`init_undeformed_offsets!`](@ref)).
 """
 function update_mass_properties!(sys_struct; prn=true)
-    (; points, bodies, stations) = sys_struct
+    (; points, bodies) = sys_struct
+    stations = sys_struct.spanwise_stations
     write_total_mass!(sys_struct)
     for body in bodies
         body.type == KINEMATIC && continue
@@ -582,10 +566,10 @@ carried_position_b(point, body) = point.body_idx == body.idx ? Vector(point.anch
     initial_body_position(body, point)
 
 """
-    SystemStructure(name, set; points, stations, segments, pulleys, tethers,
+    system_definition(name, set; points, stations, segments, pulleys, tethers,
                     winches, wings, bodies, tubes)
 
-Constructs a `SystemStructure` object representing a complete mechanical system.
+Constructs a `SystemDefinition` object representing a complete mechanical system.
 Resolves every symbolic reference to a numeric index, fills in derived properties
 and validates the result.
 
@@ -605,12 +589,12 @@ of the same structural shape should share one.
   and every `l0` instead of running [`place!`](@ref).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 - `definition`: The KiteGeometry definition the components were read from; written from
-  them ([`system_definition`](@ref)) when omitted.
+  them (`definition_rows`) when omitted.
 
 # Returns
-- `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
+- `SystemDefinition`: A complete system ready for building a `SymbolicAWEModel`.
 """
-function SystemStructure(name::AbstractString, set;
+function system_definition(name::AbstractString, set;
         points=Point[],
         stations=Station[],
         segments=Segment[],
@@ -779,12 +763,12 @@ function SystemStructure(name::AbstractString, set;
     end
 
     sys_struct = (; name,
-        points=point_rows, stations=station_rows,
+        points=point_rows, spanwise_stations=station_rows,
         segments=segment_rows, pulleys=pulley_rows,
         tethers=tether_rows, winches=winch_rows,
         bodies=body_rows, wings=wing_rows, tubes=tube_rows,
         materials)
-    isnothing(definition) && (definition = system_definition(sys_struct))
+    isnothing(definition) && (definition = definition_rows(sys_struct))
     placed || place!(definition; ignore_l0)
     init_derived_properties!(sys_struct; prn)
     return definition

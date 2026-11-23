@@ -369,7 +369,7 @@ must be reported by [`aero_hash_id`](@ref); runtime-mutable fields must not
 
 Put the mutable value on the mode struct and read it through the build-time
 `params` view: the field becomes a flat MTK parameter synced from the live
-`SystemStructure` once per step (no `@register_symbolic`, no `psys`):
+`SystemDefinition` once per step (no `@register_symbolic`, no `psys`):
 
 ```julia
 mutable struct ConstantLiftAero <: AbstractAeroModel

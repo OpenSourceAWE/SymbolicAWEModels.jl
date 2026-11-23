@@ -5,7 +5,7 @@
 #
 # Tests the Tether.init_stretched_length feature: scaling pos_w before transforms.
 # Uses Route 2 (auto-generated) tethers and YAML-specified init_stretched_length.
-# All tests use reinit! directly on a SystemStructure (no ODE compilation).
+# All tests use reinit! directly on a SystemDefinition (no ODE compilation).
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -520,7 +520,7 @@ winches:
             1e4, 10.0, 0.01; l0=5.0)]
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
-        sys = SystemStructure("init_stretched_length_body", set; points,
+        sys = system_definition("init_stretched_length_body", set; points,
             segments, tethers, winches, bodies=bodies, tubes)
 
         place!(sys)
@@ -644,7 +644,7 @@ winches:
                             l0=1.0)]
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
-        return SystemStructure(name, set; points, segments, tethers, winches, bodies,
+        return system_definition(name, set; points, segments, tethers, winches, bodies,
                                tubes)
     end
 

@@ -61,7 +61,7 @@ transforms = [
               rot_point=[length(points) => 1.0], points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("wind_drag", set; points, segments)
+sys = system_definition("wind_drag", set; points, segments)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
