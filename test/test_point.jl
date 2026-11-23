@@ -557,7 +557,7 @@ end
 
     # The KCU carries no body-frame damping, so its physics is unchanged by this.
     @testset "free point with no wing builds and flies" begin
-        sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
+        sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "~");
             system_name="point_no_wing", set)
         @test isnothing(sys.points[:kcu].wing_idx)
         @test !sys.points[:kcu].is_wing_node
@@ -576,12 +576,12 @@ end
 
     @testset "station member without a wing is rejected" begin
         @test_throws "le_left" load_sys_struct_from_yaml(
-            geometry_with_wing(:le_left, "0");
+            geometry_with_wing(:le_left, "~");
             system_name="wing_node_no_wing", set)
     end
 
     @testset "wing that does not exist is rejected at load" begin
-        @test_throws "kcu" load_sys_struct_from_yaml(
+        @test_throws ArgumentError load_sys_struct_from_yaml(
             geometry_with_wing(:kcu, "7");
             system_name="wing_out_of_range", set)
     end

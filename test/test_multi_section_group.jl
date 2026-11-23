@@ -116,7 +116,7 @@ end
 
 """The total mass of the points riding `wing`: extra_mass plus their segment halves."""
 function riding_mass(sys, wing)
-    riders = [point.idx for point in sys.points
+    riders = [i for (i, point) in enumerate(sys.points)
               if point.body == wing.idx]
     mass = sum(sys.points[idx].extra_mass for idx in riders)
     state = SymbolicAWEModels.SystemState(sys; set, vsm_set)

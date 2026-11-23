@@ -443,14 +443,14 @@ environment:
         # Tether start/end resolved correctly
         teth = sys2.tethers[:line]
         @test teth.start_point ==
-            sys2.points[:mass].idx
+            KiteGeometry.row_index(sys2.points, :mass)
         @test teth.end_point ==
-            sys2.points[:anchor].idx
+            KiteGeometry.row_index(sys2.points, :anchor)
         @test length(teth.segments) == 4
 
         # Winch point is anchor
         @test sys2.winches[:winch].winch_point ==
-            sys2.points[:anchor].idx
+            KiteGeometry.row_index(sys2.points, :anchor)
 
         # Intermediate points evenly spaced
         for i in 1:3
@@ -540,9 +540,9 @@ environment:
         @test length(sys3.tethers) == 1
         teth = sys3.tethers[:free_tether]
         @test teth.start_point ==
-            sys3.points[:top].idx
+            KiteGeometry.row_index(sys3.points, :top)
         @test teth.end_point ==
-            sys3.points[:bot].idx
+            KiteGeometry.row_index(sys3.points, :bot)
 
         sam3 = SymbolicAWEModel(set, sys3; transforms)
         test_init!(sam3)

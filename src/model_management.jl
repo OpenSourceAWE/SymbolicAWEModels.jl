@@ -765,10 +765,10 @@ function get_sys_struct_hash(state::SystemState)
     stations = structure.spanwise_stations
     (; wings, bodies, tubes) = state
     data_parts = []
-    for point in points
+    for (idx, point) in enumerate(points)
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
         # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
-        push!(data_parts, ("point", point.idx, something(point.wing_idx, 0),
+        push!(data_parts, ("point", idx, something(point.wing_idx, 0),
                            something(point.body, 0), something(point.tube, 0),
                            Int(point_type(point))))
     end
@@ -778,21 +778,21 @@ function get_sys_struct_hash(state::SystemState)
                      string(typeof(segment.unit_stiffness))
         push!(data_parts, ("segment", segment.idx, segment.points, stiff_type))
     end
-    for station in stations
-        push!(data_parts, ("station", station.idx, station.points,
+    for (idx, station) in enumerate(stations)
+        push!(data_parts, ("station", idx, station.points,
                            Int(station_type(station)),
                            something(station.flap_bodies, Int[]),
                            something(station.flap_points, Int[])))
     end
-    for pulley in pulleys
-        push!(data_parts, ("pulley", pulley.idx, pulley.segments,
+    for (idx, pulley) in enumerate(pulleys)
+        push!(data_parts, ("pulley", idx, pulley.segments,
                            Int(pulley_type(pulley))))
     end
-    for tether in tethers
-        push!(data_parts, ("tether", tether.idx, tether.segments))
+    for (idx, tether) in enumerate(tethers)
+        push!(data_parts, ("tether", idx, tether.segments))
     end
-    for winch in winches
-        push!(data_parts, ("winch", winch.idx, winch.tethers))
+    for (idx, winch) in enumerate(winches)
+        push!(data_parts, ("winch", idx, winch.tethers))
     end
     for wing in wings
         # Polar format sets the panel interpolant dimensionality baked into the bin.

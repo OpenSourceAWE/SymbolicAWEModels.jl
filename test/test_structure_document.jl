@@ -165,7 +165,7 @@ end
     @testset "a point is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         point = last(sys.points)
-        row = sys.points[point.idx]
+        row = sys.points[point.name]
         point.extra_mass = 2.0
         point.area = 0.3
         point.fix_static = true

@@ -95,7 +95,7 @@ using LinearAlgebra
 
     # ---- Test 3: Station geometry in principal frame ---- #
     @testset "Station geometry frame" begin
-        wing_pts = [p for p in sys.points
+        wing_pts = [p for p in state.points
             if p.is_wing_node &&
                p.wing_idx == wing.idx]
 
@@ -104,7 +104,7 @@ using LinearAlgebra
             le_pt = nothing
             te_pt = nothing
             for pt_idx in station.points
-                pt = sys.points[pt_idx]
+                pt = state.points[pt_idx]
                 name_str = string(pt.name)
                 if occursin("le", name_str)
                     le_pt = pt

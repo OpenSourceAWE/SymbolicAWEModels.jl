@@ -43,6 +43,7 @@ PointModel(body_frame_damping, world_frame_damping, area, drag_coeff,
 KiteGeometry.model_columns(::Type{PointModel}) =
     (:body_frame_damping, :world_frame_damping, :area, :drag_coeff,
      :fix_sphere, :fix_static, :wing_idx, :anchor_b, :apparent_mass)
+KiteGeometry.model_references(::Type{PointModel}) = (wing_idx=:wings,)
 
 """
     SegmentSpring
@@ -330,6 +331,12 @@ KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
     (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,
      :damping, :anchor_a, :anchor_b)
 
+
+KiteGeometry.model_references(::Type{WingModel}) = (
+    origin_idx=KiteGeometry.WeightedRefs(:points),
+    z_ref_points=(KiteGeometry.WeightedRefs(:points), KiteGeometry.WeightedRefs(:points)),
+    y_ref_points=(KiteGeometry.WeightedRefs(:points), KiteGeometry.WeightedRefs(:points)),
+    stations=:spanwise_stations)
 
 """
     register_definition_models()

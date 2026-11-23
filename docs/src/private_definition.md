@@ -111,6 +111,7 @@ SymbolicAWEModels.run_value
 SymbolicAWEModels.set_run_value!
 SymbolicAWEModels.segment_rest_length
 SymbolicAWEModels.station_aero_moment!
+SymbolicAWEModels.point_is_wing_node
 SymbolicAWEModels.point_anchor_b
 SymbolicAWEModels.pulley_sum_len
 SymbolicAWEModels.winch_setting

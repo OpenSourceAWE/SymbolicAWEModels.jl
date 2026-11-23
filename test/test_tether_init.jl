@@ -740,5 +740,20 @@ winches:
         @test_throws ErrorException set_unstretched_length!(state, tether, -1.0)
     end
 
+    @testset "a tether without a winch builds on the kernel backend" begin
+        points = [Point(:ground, [0.0, 0.0, 0.0], STATIC),
+                  Point(:middle, [0.0, 0.0, -5.0], DYNAMIC; extra_mass=0.5),
+                  Point(:mass, [0.0, 0.0, -10.0], DYNAMIC; extra_mass=1.0)]
+        segments = [Segment(:s1, :ground, :middle, 1e4, 10.0, 0.01; rest_length=5.0),
+                    Segment(:s2, :middle, :mass, 1e4, 10.0, 0.01; rest_length=5.0)]
+        tethers = [Tether(:line, [:s1, :s2])]
+        sys = system_definition("unwinched_tether", set; points, segments, tethers)
+        sam = SymbolicAWEModel(set, sys; backend=KernelBackend())
+        init!(sam; prn=false)
+        next_step!(sam; dt=0.01, vsm_interval=0)
+        @test sam.state.segments[:s1].rest_length ≈ 5.0
+        @test sam.state.tethers[:line].len ≈ 10.0
+    end
+
 end
 nothing

@@ -575,8 +575,8 @@ using LinearAlgebra
             tethers=tethers_c, winches=winches_c,
             wings=[wing_c])
 
-        point_idx(name) = sys_c.points[name].idx
-        tether_idxs = [point.idx for point in sys_c.points
+        point_idx(name) = KiteGeometry.row_index(sys_c.points, name)
+        tether_idxs = [i for (i, point) in enumerate(sys_c.points)
                        if startswith(String(point.name), "main_tether_point")]
         transforms_c = [
             Transform(; name=:main_tf, elevation=elev, azimuth=azim, heading=0.0,

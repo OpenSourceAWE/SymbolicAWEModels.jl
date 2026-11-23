@@ -354,6 +354,12 @@ function segment_rest_length(r)
     return run_value(r, :rest_length, something(getfield(r, :row).rest_length, 0.0))
 end
 
+"""Whether point record `r` is a structural node of a wing: a member of one of the
+stations of its run's definition."""
+point_is_wing_node(r) =
+    any(station -> index(r) in station.points,
+        getfield(run_state(r), :structure).spanwise_stations)
+
 """Where point record `r` sits in the frame of the body it rides [m]: its `anchor_b`, else
 where its initial position puts it; zero for a point on no body."""
 function point_anchor_b(r)
@@ -501,6 +507,7 @@ A point of a run's state: its position and velocity and the forces on it.
                    set_run_value!(r, :fix_static, value))
     ext_force_w => (run_value(r, :ext_force_w, zero(KVec3)),
                     set_run_value!(r, :ext_force_w, value))
+    is_wing_node => (point_is_wing_node(r), derived(:is_wing_node))
     anchor_b => (point_anchor_b(r), derived(:anchor_b))
     pos_undeformed_b => (point_undeformed_b(r), derived(:pos_undeformed_b))
     beam_frac => (first(point_beam_anchor(r)), derived(:beam_frac))
