@@ -38,15 +38,16 @@ a run never changes it; what moves is `pos_w` and `Q_b_to_w`.
 ## Transform: Authoring Geometry to World
 
 Geometry is authored wherever convenient — the YAML's `pos_cad` column, or the
-position passed to a constructor — and a [`Transform`](@ref) moves it into the
-world. [`place!`](@ref) applies each Transform in three steps, then makes where the
-structure lands its initial pose:
+position passed to a constructor — and a KiteGeometry `Transform` moves it into the
+world. [`place!`](@ref)`(sys, transforms)` applies each transform with KiteGeometry's
+`place_transforms!` in three steps, then makes where the structure lands its initial
+pose:
 
-1. **Translation**: `pos_w = pos_ENU + (base_pos - curr_base_pos)`
+1. **Translation**: the members move by `base_pos - curr_base_pos`
 2. **Rotation**: spherical repositioning using `elevation` and
    `azimuth` angles around the base point
-3. **Heading**: orientation solve for wings (yaw about the radial
-   axis)
+3. **Heading**: a turn about the radial until the transform's `body` has its
+   `heading`
 
 Without a Transform, the authored position is the initial pose. This lets you
 place geometry defined in any convenient orientation into the correct world-frame
@@ -69,9 +70,11 @@ specified elevation and azimuth. Transforms can chain: use
 `base_transform` instead of `base_pos` to use the already-rotated
 `rot_point`/`wing` position of another transform as the base.
 
-`SystemStructure` places once when it is built; after changing a Transform, call
-`place!(sys_struct)` before `init!`. Placing again starts from the initial pose,
-and the steps above land on the same pose whatever orientation they start from.
+An authoring YAML is placed by its transforms when it is loaded
+([`load_sys_struct_from_yaml`](@ref) returns them beside the structure), and the model
+holds them, `sam.transforms`. After changing a transform, call `place!(sam)` before
+`init!`. Placing again starts from the initial pose, and the steps above land on the
+same pose whatever orientation they start from.
 
 ## World Frame
 
@@ -188,7 +191,7 @@ Key points:
 - Different reference point choices produce different body frames —
   pick what makes physical sense for your model
 
-See `calc_particle_dynamics_wing_frame` in `transforms.jl`.
+See `calc_particle_dynamics_wing_frame` in `wing.jl`.
 
 ## Aero Geometry to Body Transformation (VSM Panels)
 

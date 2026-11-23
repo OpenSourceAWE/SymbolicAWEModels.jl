@@ -102,7 +102,7 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
-    node = sam.sys_struct.points[:hang]
+    node = sam.state.points[:hang]
 
     @testset "Hanging-mass equilibrium" begin
         test_init!(sam; prn=false)
@@ -133,7 +133,7 @@ end
         @test all(s.unit_stiffness === force_law for s in sys_t.segments)
 
         sam_t = SymbolicAWEModel(set, sys_t)
-        node_t = sam_t.sys_struct.points[:mass]
+        node_t = sam_t.state.points[:mass]
         test_init!(sam_t; prn=false)
         settle!(sam_t, node_t)
         # Uniform tension ≈ end weight: each segment strains ε = mg/c1, so the

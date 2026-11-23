@@ -22,10 +22,10 @@ Build-time record of every `bind_initial!` call. Transient: it lives only during
 equation generation and drives `build_initial_sync` after compilation.
 """
 mutable struct InitialRegistry
-    sys_struct::SystemStructure
+    sys_struct::SystemState
     entries::Vector{InitialEntry}
 end
-InitialRegistry(sys_struct::SystemStructure) =
+InitialRegistry(sys_struct::SystemState) =
     InitialRegistry(sys_struct, InitialEntry[])
 
 # ==================== BUILD-TIME VIEW ==================== #
@@ -197,7 +197,7 @@ before a fresh `init`/`solve` (a `reinit!` with `reinit_dae` does not re-read
 them). A no-op when there are none.
 """
 sync_initial!(::Nothing, prob, sys_struct) = nothing
-function sync_initial!(sync::InitialSync, prob, sys_struct::SystemStructure)
+function sync_initial!(sync::InitialSync, prob, sys_struct)
     if sync.param_setter !== nothing
         @inbounds for k in eachindex(sync.param_readers)
             sync.param_buffer[k] = sync.param_readers[k](sys_struct)

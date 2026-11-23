@@ -174,7 +174,7 @@ and rebuilt into the principal frame, which costs a few ULP in
 the quaternion/matrix conversions.
 """
 function validate_sysstate_roundtrip(sam; rtol = 1e-10)
-    sys = sam.sys_struct
+    sys = sam.state
     expected = copy(sam.integrator.u)
     isempty(expected) && return nothing
     path = mktempdir()
@@ -213,10 +213,10 @@ function test_init!(
 end
 
 """
-    load_2plate_particle_sys(system_name) -> SystemStructure
+    load_2plate_particle_sys(system_name) -> (sys, set)
 
-The 2plate kite's particle `SystemStructure`, loaded from a scratch copy of
-`data/2plate_kite`; the global data path is left as it was.
+The 2plate kite's particle `SystemStructure` and its settings, loaded from a scratch
+copy of `data/2plate_kite`; the global data path is left as it was.
 """
 function load_2plate_particle_sys(system_name)
     data_path = joinpath(mktempdir(), "2plate_kite")
@@ -226,11 +226,11 @@ function load_2plate_particle_sys(system_name)
     set = Settings("system.yaml")
     vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(
+    sys, _ = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name, set, vsm_set)
     set_data_path(data_path_before)
-    return sys
+    return sys, set
 end
 
 """

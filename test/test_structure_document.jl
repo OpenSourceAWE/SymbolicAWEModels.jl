@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_structure_document.jl - SystemStructure → structure document →
-# SystemStructure, in both encodings and through a run's log, against a vendored
-# copy of structure_schema.yml and the golden document in test/data. Regenerate
-# the golden by pointing save_structure_document at data/2plate_kite_structure.yml
-# with the description and note below.
+# test_structure_document.jl - SystemStructure → awesIO structure document →
+# SystemStructure, in both encodings and through a run's log, against the
+# structure_schema.yml KiteGeometry ships and the golden document in test/data.
+# Regenerate the golden by pointing save_structure_document at
+# data/2plate_kite_structure.yml.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -14,21 +14,18 @@ end
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KiteGeometry
 using KiteUtils
 using VortexStepMethod
 using JSON
 using JSONSchema
 using YAML
 
-GOLDEN_DESCRIPTION = "Resolved structure of the 2-plate kite shipped in data/"
-GOLDEN_NOTE = "Written by SymbolicAWEModels; the golden file of " *
-              "test_structure_document.jl."
-
 """
-    two_plate_kite(set, vsm_set) -> SystemStructure
+    two_plate_kite(set, vsm_set) -> (SystemStructure, transforms)
 
 The rigid-dynamics 2-plate kite from `data/2plate_kite`, the system the golden
-document describes.
+document describes, with the transforms placing it.
 """
 function two_plate_kite(set, vsm_set)
     return load_sys_struct_from_yaml(
@@ -71,26 +68,34 @@ function bodies_and_tubes(set)
 end
 
 """
-    pretensioned_tether(set) -> SystemStructure
+    pretensioned_tether(set; winches=Winch[]) -> SystemStructure
 
 A ground point and a top point on one two-segment tether whose rest length is 99 % of
-its length.
+its length, reeled by `winches`.
 """
-function pretensioned_tether(set)
+function pretensioned_tether(set; winches=Winch[])
     points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
                    Point(:top, [0.0, 0.0, 10.0], DYNAMIC; extra_mass=1.0)]
     tethers = Tether[Tether(:line, 10.0; start_point=:ground, end_point=:top,
                             n_segments=2, stretch_frac=0.99)]
-    return SystemStructure("structure_document_tether", set; points, tethers, prn=false)
+    return SystemStructure("structure_document_tether", set; points, tethers, winches,
+        prn=false)
 end
 
 """World position of `body`'s centre of mass."""
-com_w(body) = body.pos_w .+ body.R_b_to_w * body.com_offset_b
+com_w(body) = body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
     body = sys.bodies[tube.body_b_idx]
-    return body.pos_w .+ body.R_b_to_w * tube.anchor_b_b
+    return body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
+end
+
+"""The `header` cells of the rows of `block` in `document`, by row name."""
+function cells(document, block, header)
+    table = document[block]
+    column = findfirst(==(header), table["headers"])
+    return Dict(row[1] => row[column] for row in table["data"])
 end
 
 @testset verbose = true "Structure document" begin
@@ -99,49 +104,112 @@ end
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
-    schema = Schema(YAML.load_file(joinpath(@__DIR__, "data",
+    schema = Schema(YAML.load_file(joinpath(pkgdir(KiteGeometry), "src", "awesio",
                                             "structure_schema.yml")))
     golden = YAML.load_file(joinpath(@__DIR__, "data", "2plate_kite_structure.yml"))
     tmpdir = mktempdir()
 
     @testset "connectivity_sha hashes the preimage the schema documents" begin
         # The schema's worked example reads `3;1,2;2,3;2;1,2;1;1,2,3;`.
-        @test SymbolicAWEModels.connectivity_sha(
+        @test connectivity_sha(
             (3, [(1, 2), (2, 3)]), (2, [(1, 2)]), (1, [(1, 2, 3)])) ==
             "1f9a31aca7b6d655aaae4f5de9872d3fd489f907f90316e8f33e3125b1fd18ea"
     end
 
     @testset "the 2plate kite writes the golden document" begin
-        document = structure_document(two_plate_kite(set, vsm_set);
-            description=GOLDEN_DESCRIPTION, note=GOLDEN_NOTE)
+        document = structure_document(first(two_plate_kite(set, vsm_set)))
         @test isnothing(JSONSchema.validate(schema, document))
         @test golden == document
     end
 
     @testset "a document holds the initial pose, not where a run moved the system" begin
-        sys = two_plate_kite(set, vsm_set)
-        sys.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
-        document = structure_document(sys)
-        kcu = document["points"]["data"][sys.points[:kcu].idx]
-        @test kcu[4] ≈ sys.points[:kcu].pos_ENU
-        @test !(kcu[4] ≈ sys.points[:kcu].pos_w)
+        sys, _ = two_plate_kite(set, vsm_set)
+        state = SystemState(sys)
+        state.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
+        kcu = cells(structure_document(sys), "points", "pos_ENU")["kcu"]
+        @test kcu ≈ sys.points[:kcu].pos_ENU
+        @test !(kcu ≈ state.points[:kcu].pos_w)
     end
 
     @testset "a point names its body, and carries its own mass and drag" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
-        columns = Dict(row[1] => row for row in document["points"]["data"])
-        @test columns["le_left"][[3, 8]] == ["main_wing", nothing]
-        @test columns["kcu"][5:7] == [1.0, 0.1, 1.0]
+        document = structure_document(first(two_plate_kite(set, vsm_set)))
+        @test cells(document, "points", "body")["le_left"] == "main_wing"
+        @test [cells(document, "points", header)["kcu"]
+               for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
+    end
+
+    @testset "a point is its definition row" for
+            sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
+        point = last(sys.points)
+        row = sys.definition.points[point.idx]
+        point.extra_mass = 2.0
+        point.area = 0.3
+        point.fix_static = true
+        @test (row.extra_mass, row.area, row.fix_static) == (2.0, 0.3, true)
+        row.drag_coeff = 0.7
+        @test point.drag_coeff == 0.7
+        @test point === row
+    end
+
+    @testset "a segment is its definition row" for
+            sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
+        segment = last(sys.segments)
+        row = sys.definition.segments[segment.idx]
+        segment.l0 = 1.5
+        segment.diameter = 0.002
+        segment.unit_damping = 3.0
+        segment.compression_frac = 0.2
+        segment.compression_damping_frac = 0.5
+        @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac,
+               row.compression_damping_frac) == (1.5, 0.002, 3.0, 0.2, 0.5)
+        row.rest_length = 2.5
+        @test segment.l0 == 2.5
+        @test segment === row
+    end
+
+    @testset "a winch is its definition row" for
+            sys in (first(two_plate_kite(set, vsm_set)),
+            pretensioned_tether(set;
+                                winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
+        winch = only(sys.winches)
+        row = sys.definition.winches[winch.idx]
+        winch.brake = 1.0
+        winch.model.friction_epsilon = 3.0
+        @test row.model.brake == 1.0
+        document = structure_document(sys)
+        @test only(values(cells(document, "winches", "friction_epsilon"))) == 3.0
+        @test winch.model.dynamics.friction_epsilon == 3.0
+        @test winch === row
+    end
+
+    @testset "a winch read back keeps its row's drum over the settings'" begin
+        sys = pretensioned_tether(set;
+                                  winches=[Winch(:reel, set, [:line]; winch_point=:ground)])
+        winch = only(sys.winches)
+        winch.gear_ratio = 2 * set.gear_ratio
+        winch.drum_radius = 2 * set.drum_radius
+        reread = sys_struct_from_document(structure_document(sys); set, prn=false)
+        @test (only(reread.winches).gear_ratio, only(reread.winches).drum_radius) ==
+              (2 * set.gear_ratio, 2 * set.drum_radius)
+    end
+
+    @testset "a segment named by a number keeps that name as its row's" begin
+        @test Segment(3, :ground, :top, 1.0, 0.0, 0.001).name === Symbol(3)
     end
 
     @testset "a station names the wing whose twist it carries" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
-        @test all(row[2] == "main_wing" for row in document["stations"]["data"])
+        document = structure_document(first(two_plate_kite(set, vsm_set)))
+        @test all(==("main_wing"), values(cells(document, "spanwise_stations", "wing")))
     end
 
-    @testset "a document with wings is refused" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
-        @test_throws "#396" sys_struct_from_document(document; set, vsm_set)
+    @testset "a document with wings reads back in its initial pose" begin
+        sys, _ = two_plate_kite(set, vsm_set)
+        reread = sys_struct_from_document(structure_document(sys); set, vsm_set,
+                                          prn=false)
+        @test [point.pos_ENU for point in reread.points] ≈
+              [point.pos_ENU for point in sys.points]
+        @test reread.wings[:main_wing].pos_ENU ≈ sys.wings[:main_wing].pos_ENU
+        @test reread.wings[:main_wing].Q_KA_to_ENU ≈ sys.wings[:main_wing].Q_KA_to_ENU
     end
 
     @testset "bodies and tubes round-trip through $extension" for
@@ -174,13 +242,13 @@ end
         document = structure_document(sys)
         reread = sys_struct_from_document(document; set, prn=false)
         @test structure_document(reread) == document
-        @test [point.pos_w for point in reread.points] ==
+        @test [point.pos_w for point in SystemState(reread).points] ==
               [point.pos_ENU for point in sys.points]
     end
 
     @testset "a run's log carries the structure document of the system that ran" begin
-        sys = two_plate_kite(set, vsm_set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = two_plate_kite(set, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         init!(sam; prn=false)
         logger = Logger(sam, 3)
         state = SysState(sam)
@@ -206,13 +274,16 @@ end
 
     @testset "a document of another major version is refused" begin
         document = structure_document(bodies_and_tubes(set))
-        document["metadata"]["awesIO_version"] = "0.1.0"
-        @test_throws "does not understand" sys_struct_from_document(document; set)
+        document["metadata"]["awesIO_version"] = "1.0.0"
+        @test_throws "major version" sys_struct_from_document(document; set)
     end
 
     @testset "a nonlinear stiffness law cannot be written yet" begin
-        sys = bodies_and_tubes(set)
-        sys.segments[:link].unit_stiffness = strain -> 1000.0 * strain
+        points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
+                       Point(:top, [0.0, 0.0, 1.0], DYNAMIC; extra_mass=1.0)]
+        segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
+                                   10.0, 0.004; l0=1.0, density=724.0)]
+        sys = SystemStructure("nonlinear_link", set; points, segments, prn=false)
         @test_throws "awesIO#1" structure_document(sys)
     end
 end

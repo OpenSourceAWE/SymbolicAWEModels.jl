@@ -29,6 +29,11 @@ end
 TorqueWinch(; friction_epsilon=6.0) =
     TorqueWinch(SimFloat(friction_epsilon))
 
+"""A [`TorqueWinch`](@ref) of smoothing width `friction_epsilon`, the default's where
+`nothing`."""
+torque_winch(::Nothing) = TorqueWinch()
+torque_winch(friction_epsilon) = TorqueWinch(; friction_epsilon)
+
 is_builtin_winch(::TorqueWinch) = true
 
 function winch_component(::TorqueWinch, sys_struct, winch_idx; name, params)

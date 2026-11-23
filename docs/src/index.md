@@ -70,11 +70,9 @@ points = [
 ]
 segments = [Segment(:spring, :anchor, :mass,
     614600.0, 473.0, 0.004)]
-transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
-    base_pos=[0, 0, 50], base_point=:anchor, rot_point=:mass)]
 
 # Assemble and compile
-sys = SystemStructure("pendulum", set; points, segments, transforms)
+sys = SystemStructure("pendulum", set; points, segments)
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
 
@@ -84,7 +82,7 @@ for _ in 1:100
 end
 
 # Visualize the result
-plot(sam.sys_struct)
+plot(sam.state)
 ```
 
 For the full tutorial, see [Building a System using Julia](tutorial_julia.md).
@@ -104,7 +102,7 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - [`Station`](@ref)s — twist degrees of freedom for aeroelastic coupling
 - [`Body`](@ref)s — plain rigid bodies, linked by inflated [`Tube`](@ref)s,
   simulated as [`TimoshenkoTube`](@ref) beam elements or [`ElasticTube`](@ref) springs
-- [`Transform`](@ref)s — spherical coordinate positioning of components
+- KiteGeometry `Transform`s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from simple
 hanging masses to complex kite power systems with multiple tethers, bridles,
