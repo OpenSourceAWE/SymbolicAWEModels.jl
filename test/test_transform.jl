@@ -22,7 +22,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
-    write_wing_scalars!
+    write_wing_scalars!, quaternion_to_rotation_matrix
 using KiteUtils
 using SymbolicAWEModels.KiteGeometry: base_position
 using LinearAlgebra
