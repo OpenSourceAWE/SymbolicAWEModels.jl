@@ -26,7 +26,7 @@ Before you begin, ensure you have the following software installed:
 - **Bash**: A Unix-like shell environment.
 - **Code editor**: Your preferred code editor with Julia support.
 
-For Windows or macOS, check [these](https://ufechner7.github.io/2024/08/09/installing-julia-with-juliaup.html) instructions.
+For Windows or macOS, check [these](https://ufechner7.github.io/2026/10/24/installing-julia-1.13-and-vscode.html) instructions.
 
 ---
 
@@ -382,21 +382,21 @@ its own job on Ubuntu with Julia 1.12.
 | `test_wing_dynamics` | [`Wing`](@ref AbstractWing) | Torque response, precession, angular momentum conservation |
 | `test_tether_winch` | [`Tether`](@ref), [`Winch`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
-| `test_transform` | [`Transform`](@ref) | Spherical coordinate positioning |
+| `test_transform` | KiteGeometry `Transform` | Spherical coordinate positioning |
 | `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
 | `test_quaternion_auto_groups` | [`Station`](@ref) | Twist DOFs on a rigid wing |
 | `test_static_twist` | [`Station`](@ref) | Prescribed (`STATIC`) twist |
 | `test_principal_body_frame` | [`Wing`](@ref AbstractWing) | Principal vs body frame separation |
 | `test_principal_frame_invariance` | [`Wing`](@ref AbstractWing) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
 | `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
-| `test_joint` | [`ElasticJoint`](@ref) | Lumped 6-DOF spring between bodies |
-| `test_timoshenko_joint` | [`TimoshenkoJoint`](@ref) | Beam bending, shear, axial, torsion vs closed form |
+| `test_elastic_tube` | [`ElasticTube`](@ref) | Lumped 6-DOF spring between bodies |
+| `test_timoshenko_tube` | [`TimoshenkoTube`](@ref) | Beam bending, shear, axial, torsion vs closed form |
 | `test_tube_laws` | — | Breukels inflated-tube correlations and their fitted range |
 | `test_aero_modes` | [`AbstractAeroModel`](@ref) | Mode dispatch and connector contract |
 | `test_continuous_aero` | [`ContinuousAero`](@ref) | Live symbolic force assembly |
 | `test_pressure_aero` | [`AeroPressure`](@ref) | Surface-traction scatter onto points |
 | `test_flap_aero`, `test_flap_beam` | [`AeroPressure`](@ref) | Flap deflection δ into the polars |
-| `test_yaml_bodies` | — | YAML `bodies` / `timoshenko_joints` loading |
+| `test_yaml_bodies` | — | YAML `bodies` / `tubes` loading |
 | `test_heading_calculation` | — | Kite heading from tether geometry |
 | `test_section_alignment` | [`Wing`](@ref AbstractWing) | VSM section ↔ structural point mapping |
 | `test_profile_law` | — | Atmospheric wind profile verification |
@@ -472,15 +472,14 @@ The source code is organized into modular directories:
 
 - **`src/system_structure/`** — component types and assembly
   - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
-    [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref), [`Transform`](@ref)
+    [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref)
   - `wing.jl`: [`AbstractWing`](@ref)/[`Wing`](@ref) types and the
     [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
-  - `rigid_body.jl`: [`Body`](@ref), [`ElasticJoint`](@ref),
-    [`TimoshenkoJoint`](@ref)
+  - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
+    [`ElasticTube`](@ref)
   - `system_structure_core.jl`: [`SystemStructure`](@ref) constructor, reference
     resolution
   - `named_collection.jl`: Symbol-based indexing ([`NamedCollection`](@ref))
-  - `transforms.jl`: Spherical coordinate transforms
   - `utilities.jl`: Validation, tether creation, state management
 - **`src/aero_modes/`** — one file per [`AbstractAeroModel`](@ref)
   (`none`, `direct`, `linearized`, `continuous`, `pressure`, `plate`), plus
@@ -490,9 +489,10 @@ The source code is organized into modular directories:
 - **`src/generate_system/`** — symbolic equation generation
   - `create_sys.jl`: Top-level orchestrator
   - `point_eqs.jl`, `segment_eqs.jl`, `wing_eqs.jl`, `rigid_body_eqs.jl`,
-    `joint_eqs.jl`, etc.: per-subsystem equations
-- **`src/yaml_loader.jl`** — YAML configuration file parser
-  ([`load_sys_struct_from_yaml`](@ref))
+    `elastic_tube_eqs.jl`, etc.: per-subsystem equations
+- **`src/definition_loader.jl`** — a structure from a KiteGeometry definition: the
+  authoring YAML KiteGeometry loads ([`load_sys_struct_from_yaml`](@ref)) and the
+  structure documents it reads and writes
 - **`src/obj_adapter.jl`** — `.obj` mesh mass properties (`ObjAdapter`)
 - **`src/linearize.jl`** — low-frequency aero refresh dispatch and
   state-space linearization ([`linearize!`](@ref))

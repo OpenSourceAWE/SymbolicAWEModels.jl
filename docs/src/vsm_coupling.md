@@ -290,7 +290,7 @@ frozen state — a non-finite point force or traction pattern — are
 Each wing carries an `aero::AbstractAeroModel` field. The builder is selected by
 dispatch on **both** its type and the wing's dynamics, [`aero_component`](@ref)
 `(mode, wing::AbstractWing, sys_struct; name, params)`, returning a `System`
-exactly like a winch's [`Winch`](@ref) `model`. The built-in subtypes
+exactly like a winch's [`Winch`](@ref) `model.dynamics`. The built-in subtypes
 [`AeroNone`](@ref), [`AeroDirect`](@ref), [`AeroLinearized`](@ref) ship their
 own methods. A mode supports a wing dynamics by defining the matching method,
 dispatched on [`RigidWing`](@ref) and/or [`ParticleWing`](@ref) — rigid,
@@ -305,7 +305,7 @@ function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct;
 end
 SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
 
-Wing(name, stations, R_b_to_c, pos_cad, inertia; aero = MyAero())
+Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia; aero = MyAero())
 ```
 
 Everything else is an **optional hook with a working default**, dispatched on

@@ -25,11 +25,6 @@ const WRENCH_OUTPUTS = [:force_out, :moment_out]
 const JOINT_INPUTS = [:a_pos, :a_frame, :a_com, :a_com_velocity, :a_omega,
                       :b_pos, :b_frame, :b_com, :b_com_velocity, :b_omega]
 const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
-"""The joint fields whose equations differ between a `Real` and a callable, so a
-kernel is shared only by joints that agree on them ([`callable_field_key`](@ref))."""
-const ELASTIC_RIGIDITIES = [:stiffness_axial, :stiffness_shear,
-                            :stiffness_torsion, :stiffness_bending]
-const TIMOSHENKO_RIGIDITIES = [:EA, :GA, :GJ, :EIy, :EIz]
 const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
 const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
@@ -68,13 +63,14 @@ const STATION_INPUTS = [:aero_moment_in, :node_moment_in, :node_force_in,
                               :node_mass_in]
 
 """
-    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, joint_idx)
+    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, element_idx)
 
 How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch`,
 `:wing_node`, `:ride` or `:hermite`. A `:pulley` point carries the pulley it splits
 and one of that pulley's segments (whose material gives the rope mass); a `:winch`
-point carries its winch; a `:ride` point carries the body it is anchored to and a
-`:hermite` point the Timoshenko joint whose beam it rides.
+point carries its winch; a `:ride` point carries the body it is anchored to.
+`element_idx` is the Timoshenko tube a `:hermite` point rides, or the station of a
+`:twist_node`.
 """
 struct PointRole
     kind::Symbol
@@ -82,7 +78,7 @@ struct PointRole
     segment_idx::Int
     winch_idx::Int
     body_idx::Int
-    joint_idx::Int
+    element_idx::Int
 end
 
 """
@@ -101,8 +97,8 @@ function classify_points(sys_struct)
                                  station_of(sys_struct, point.idx))
             continue
         end
-        if point.joint_idx > 0
-            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.joint_idx)
+        if point.tube_idx > 0
+            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.tube_idx)
             continue
         end
         if point.type == BODY_STATIC
@@ -275,7 +271,7 @@ instance.
 function kernel!(builder, table, sam, key, source, make, inputs, outputs)
     entry = get(table, key, nothing)
     entry === nothing || return entry
-    registry = ParamRegistry(sam.sys_struct)
+    registry = ParamRegistry(sam.state)
     seconds = @elapsed kernel = compile_kernel(make(ParamView(registry)), inputs,
                                                outputs; name = key)
     fresh = KernelEntry(add_kernel!(builder, kernel, seconds), registry, source)
@@ -294,7 +290,7 @@ components that differ there cannot share a kernel even though they are the same
 kind, and writing one's law into the other's slot fails on type.
 """
 function callable_field_key(key::Symbol, component, fields)
-    callable = filter(field -> !(getfield(component, field) isa Real), fields)
+    callable = filter(field -> !(getproperty(component, field) isa Real), fields)
     isempty(callable) && return key
     return Symbol(key, :_, join(callable, '_'))
 end
@@ -333,13 +329,13 @@ end
 """
     assemble(sam) -> KernelModel
 
-Translate `sam.sys_struct` into a [`KernelModel`](@ref). Kernels are compiled once per
+Translate `sam.state` into a [`KernelModel`](@ref). Kernels are compiled once per
 component type, one instance is added per component, the wiring is recorded, and
 the parameters and initial state are bound from the struct afterwards, when every
 instance's buffer slice is final.
 """
 function assemble(sam; verbose = false)
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     point_roles = classify_points(sys_struct)
     segment_roles = classify_segments(sys_struct)
     builder = SystemBuilder(; verbose)
@@ -379,14 +375,8 @@ function assemble(sam; verbose = false)
         connect!(builder, body_instances[body.wing_idx], :vel,
                  body_instances[idx], :wing_velocity)
     end
-    for joint in sys_struct.elastic_joints
-        add_joint!(builder, table, bindings, sam, joint, body_instances,
-                   :elastic_joints, ElasticJointComponent, ELASTIC_RIGIDITIES)
-    end
-    for joint in sys_struct.timoshenko_joints
-        add_joint!(builder, table, bindings, sam, joint, body_instances,
-                   :timoshenko_joints, TimoshenkoJointComponent,
-                   TIMOSHENKO_RIGIDITIES)
+    for tube in sys_struct.tubes
+        add_tube!(builder, table, bindings, sam, tube, body_instances)
     end
     flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances,
                                       point_instances)
@@ -422,7 +412,7 @@ unconnected and so reads the zero `station_delta_eqs!` binds it to.
 """
 function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
     instances = Dict{Int, Int}()
-    for surface in sam.sys_struct.stations
+    for surface in sam.state.stations
         has_flap(surface) || continue
         point_flap = has_point_flap(surface)
         key = point_flap ? :point_flap_delta : :flap_delta
@@ -470,7 +460,7 @@ function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, fla
     supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
         builder, table, bindings, sam, wing, bodies, points, flaps, wrenches,
         inflow_instances, aero_force_instances)
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     nodes = wing_points(sys_struct, wing)
     surfaces = wing_flap_surfaces(wing)
     key = Symbol(:wing_aero_, wing.idx)
@@ -518,7 +508,7 @@ size; this decomposition is not, which is what makes a large wing buildable.
 function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
                               flaps, wrenches, inflow_instances,
                               aero_force_instances)
-    nodes = wing_points(sam.sys_struct, wing)
+    nodes = wing_points(sam.state, wing)
     body = bodies[wing.idx]
     inflow_points = add_aero_inflow_points!(builder, table, bindings, sam, nodes,
                                             points, body)
@@ -769,7 +759,7 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        station_aero_driven(sam.sys_struct.stations[surface]) &&
+        station_aero_driven(sam.state.stations[surface]) &&
             connect!(builder, instance, Symbol(:twist_moment_, surface),
                      twists[surface], :aero_moment_in)
     end
@@ -784,7 +774,7 @@ because which one a body is, is topology: a `DYNAMIC` body integrates, a `STATIC
 one is clamped, and a `KINEMATIC` one is fitted from reference points.
 """
 function add_body!(builder, table, bindings, sam, idx)
-    body = sam.sys_struct.bodies[idx]
+    body = sam.state.bodies[idx]
     body.type == KINEMATIC && return add_kinematic_body!(builder, table, bindings,
                                                       sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
@@ -855,7 +845,7 @@ wired to its body here.
 """
 function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                     twists)
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     index_map = Dict(:points => idx)
     role.kind === :ride && return add_ride_point!(builder, table, bindings, sam, idx,
                                                   role, bodies, wrenches)
@@ -915,11 +905,11 @@ point, which is what the incident segments connect to.
 """
 function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
     body = bodies[role.body_idx]
-    point = sam.sys_struct.points[idx]
+    point = sam.state.points[idx]
     kinematics = kernel!(builder, table, sam, :ride_point, idx,
                          params -> RidePoint(sam, params, idx; name = :ride_point),
                          RIDE_INPUTS, RIDE_OUTPUTS)
-    gravity = carrier_body_idx(point, sam.sys_struct.bodies) == 0
+    gravity = carrier_body_idx(point, sam.state.bodies) == 0
     key = gravity ? :ride_wrench : :riding_wrench
     statics = kernel!(builder, table, sam, key, idx,
                       params -> RideWrench(sam, params, idx; name = key,
@@ -955,8 +945,8 @@ Add one twist instance per station that has a section twist to report: a
 [`FlapDelta`](@ref) instead.
 """
 function add_stations!(builder, table, bindings, sam)
-    instances = zeros(Int, length(sam.sys_struct.stations))
-    for surface in sam.sys_struct.stations
+    instances = zeros(Int, length(sam.state.stations))
+    for surface in sam.state.stations
         surface.type in (DYNAMIC, STATIC) || continue
         dynamic = surface.type == DYNAMIC
         key = dynamic ? :station : :prescribed_twist
@@ -985,8 +975,8 @@ prescribed one holds its twist whatever the nodes pull.
 function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                          twists)
     body = bodies[role.body_idx]
-    surface = role.joint_idx
-    gated = surface > 0 && !sam.sys_struct.bodies[role.body_idx].group_points_moment
+    surface = role.element_idx
+    gated = surface > 0 && !sam.state.bodies[role.body_idx].group_points_moment
     index_map = Dict(:points => idx)
     surface > 0 && (index_map[:stations] = surface)
     suffix = surface > 0 ? "" : "_free"
@@ -1022,7 +1012,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     if surface > 0 && twists[surface] != 0
         connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
         connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
-        if sam.sys_struct.stations[surface].type == DYNAMIC
+        if sam.state.stations[surface].type == DYNAMIC
             connect!(builder, wrench, :node_force, twists[surface], :node_force_in)
             connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
             connect!(builder, wrench, :node_mass, twists[surface], :node_mass_in)
@@ -1042,8 +1032,8 @@ which is what the incident segments connect to.
 """
 function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodies,
                                  wrenches)
-    joint = sam.sys_struct.timoshenko_joints[role.joint_idx]
-    index_map = Dict(:points => idx, :timoshenko_joints => role.joint_idx)
+    tube = sam.state.tubes[role.element_idx]
+    index_map = Dict(:points => idx, :tubes => role.element_idx)
     kinematics = kernel!(builder, table, sam, :hermite_ride_point, idx,
                          params -> HermiteRidePoint(sam, params, idx;
                                                     name = :hermite_ride_point),
@@ -1057,7 +1047,7 @@ function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodie
     push!(bindings, (ride, kinematics, index_map))
     push!(bindings, (wrench, statics, index_map))
     wrenches[idx] = wrench
-    for (prefix, body) in ((:a, joint.body_a_idx), (:b, joint.body_b_idx))
+    for (prefix, body) in ((:a, tube.body_a_idx), (:b, tube.body_b_idx))
         for source in (:pos, :frame, :com, :com_velocity)
             connect!(builder, bodies[body], source, ride, Symbol(prefix, :_, source))
         end
@@ -1072,21 +1062,21 @@ function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodie
 end
 
 """
-    add_joint!(builder, table, bindings, sam, joint, bodies, container, make)
+    add_tube!(builder, table, bindings, sam, tube, bodies)
 
-Add one body-to-body joint and wire it: both end bodies' poses in, the restoring
-wrench on each back out. `container` names the joint collection its parameters are
-remapped over and `make` builds the component.
+Add one tube and wire it: both end bodies' poses in, the restoring wrench on each
+back out. Its model picks the component ([`tube_kernel`](@ref)); its parameters
+are remapped over `tubes`.
 """
-function add_joint!(builder, table, bindings, sam, joint, bodies, container, make,
-                    rigidity_fields)
-    key = callable_field_key(container, joint, rigidity_fields)
-    entry = kernel!(builder, table, sam, key, joint.idx,
-                    params -> make(sam, params, joint.idx; name = container),
+function add_tube!(builder, table, bindings, sam, tube, bodies)
+    kind, make = tube_kernel(tube.model)
+    key = callable_field_key(kind, tube.model, rigidity_fields(tube.model))
+    entry = kernel!(builder, table, sam, key, tube.idx,
+                    params -> make(sam, params, tube.idx; name = kind),
                     JOINT_INPUTS, JOINT_OUTPUTS)
     instance = add_instance!(builder, entry.index)
-    push!(bindings, (instance, entry, Dict(container => joint.idx)))
-    for (prefix, body) in ((:a, joint.body_a_idx), (:b, joint.body_b_idx))
+    push!(bindings, (instance, entry, Dict(:tubes => tube.idx)))
+    for (prefix, body) in ((:a, tube.body_a_idx), (:b, tube.body_b_idx))
         for (source, target) in ((:pos, :pos), (:frame, :frame), (:com, :com),
                                  (:com_velocity, :com_velocity),
                                  (:omega_w, :omega))
@@ -1101,6 +1091,14 @@ function add_joint!(builder, table, bindings, sam, joint, bodies, container, mak
 end
 
 """
+    tube_kernel(model) -> (kind, make)
+
+The kernel kind a tube model is built as and the component constructor building it.
+"""
+tube_kernel(::ElasticTube) = (:elastic_tube, ElasticTubeComponent)
+tube_kernel(::TimoshenkoTube) = (:timoshenko_tube, TimoshenkoTubeComponent)
+
+"""
     add_segment!(builder, table, bindings, sam, idx, role) -> Int
 
 Add the instance for segment `idx` and record its parameter remapping.
@@ -1108,7 +1106,7 @@ Add the instance for segment `idx` and record its parameter remapping.
 function add_segment!(builder, table, bindings, sam, idx, role)
     index_map = Dict(:segments => idx)
     stiffness = (:unit_stiffness,)
-    segment = sam.sys_struct.segments[idx]
+    segment = sam.state.segments[idx]
     entry = if role.kind === :pulley
         index_map[:pulleys] = role.pulley_idx
         kernel!(builder, table, sam,

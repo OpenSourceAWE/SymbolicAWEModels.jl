@@ -35,7 +35,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
 @testset "Multi-section station partition" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
@@ -48,18 +48,21 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test length(station.unrefined_section_idxs) == 1
     end
 
-    # Every panel belongs to exactly one station, the one nearest its centre, so the
-    # mirror-symmetric kite gives its left and right stations the same number of panels.
+    # Every panel belongs to exactly one station, the one nearest its centre, a tie within
+    # 1e-9 relative going outboard, so the mirror-symmetric kite gives its left and right
+    # stations the same number of panels.
     n_panels = length(wing.vsm_aero.panels)
     owned = reduce(vcat, [station.panel_idxs for station in sys.stations])
     @test sort(owned) == collect(1:n_panels)
-    station_center(station) = sum(wing.R_b_to_c' * (sys.points[i].pos_cad - wing.pos_cad)
-                                  for i in station.point_idxs) / length(station.point_idxs)
+    station_center(station) =
+        sum(SymbolicAWEModels.initial_body_position(wing, sys.points[i])
+            for i in station.point_idxs) / length(station.point_idxs)
     offset = [0.0, 0.0, wing.aero_z_offset]
     for station in sys.stations, panel_idx in station.panel_idxs
         corners = wing.vsm_aero.panels[panel_idx].corner_points
         center = vec(sum(corners; dims=2)) / 4 - offset
-        @test all(norm(center - station_center(station)) <= norm(center - station_center(other))
+        distance(other) = norm(center - station_center(other))
+        @test all(distance(station) <= distance(other) * (1 + 1e-9)
                   for other in sys.stations)
     end
     @test length(sys.stations[:left].panel_idxs) == length(sys.stations[:right].panel_idxs)
@@ -123,7 +126,7 @@ function riding_mass(sys, wing)
 end
 
 @testset "Rigid wing total_mass is its extra_mass plus its riders" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="rigid_total_mass",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
@@ -142,13 +145,13 @@ end
     load_both() = SymbolicAWEModels.load_sys_struct_from_yaml(
         both_yaml; system_name="rigid_total_mass", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
-    both = @test_logs min_level=Base.CoreLogging.Warn load_both()
+    both, _ = @test_logs min_level=Base.CoreLogging.Warn load_both()
     @test both.wings[1].extra_mass == 2.0
     @test both.wings[1].total_mass ≈ 2.0 + riding_mass(both, both.wings[1])
 end
 
 @testset "n_stations > n_unrefined errors" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_stations",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]

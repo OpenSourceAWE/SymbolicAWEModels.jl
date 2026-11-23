@@ -147,12 +147,12 @@ end
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    sys = load_sys_struct_from_yaml(
+    sys, _ = load_sys_struct_from_yaml(
         write_yaml(tmpdir, "variables.yaml", VARIABLES_YAML);
         system_name="variables_test", set)
 
-    @test sys.points[:anchor].pos_cad ≈ [1.0, 2.0, 0.0]
-    @test sys.points[:top].pos_cad ≈ [1.0, 2.0, -10.0]
+    @test sys.points[:anchor].pos_ENU ≈ [1.0, 2.0, 0.0]
+    @test sys.points[:top].pos_ENU ≈ [1.0, 2.0, -10.0]
 
     # A multi-variable fills the three columns at its position
     thin_line = sys.segments[:thin_line]
@@ -171,7 +171,7 @@ end
     @test sys.segments[:plain_line].unit_stiffness ≈ 5.0e9 * π * 0.001^2
 
     # In a dict row the fields are merged, without overriding the row
-    dict_sys = load_sys_struct_from_yaml(
+    dict_sys, _ = load_sys_struct_from_yaml(
         write_yaml(tmpdir, "dict_row.yaml", DICT_ROW_YAML);
         system_name="variables_test", set)
     dict_line = dict_sys.segments[:dict_line]

@@ -23,21 +23,21 @@ aero_mode_tag(::AeroDirect) = "dir"
 provides_aero_override(::AeroDirect) = true
 
 """
-    aero_component(::AeroDirect, wing::ParticleWing, sys_struct; name, params)
+    aero_component(::AeroDirect, wing::ParticleWingState, sys_struct; name, params)
 
 Frozen per-point VSM forces (synced each refresh, so emitted as flat params) on
 the particle connector contract.
 """
-aero_component(::AeroDirect, wing::ParticleWing, sys_struct; name, params=nothing) =
+aero_component(::AeroDirect, wing::ParticleWingState, sys_struct; name, params=nothing) =
     frozen_point_force_component(wing, sys_struct; name, params)
 
 """
-    aero_component(::AeroDirect, wing::RigidWing, sys_struct; name, params)
+    aero_component(::AeroDirect, wing::RigidWingState, sys_struct; name, params)
 
 Frozen lumped VSM force/moment (synced each refresh, so emitted as flat params)
 on the rigid connector contract.
 """
-function aero_component(::AeroDirect, wing::RigidWing, sys_struct;
+function aero_component(::AeroDirect, wing::RigidWingState, sys_struct;
                         name, params=nothing)
     stations = sys_struct.stations
     num_stations = length(wing.station_idxs)

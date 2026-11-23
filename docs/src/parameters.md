@@ -1,16 +1,28 @@
 ```@meta
 CurrentModule = SymbolicAWEModels
 ```
-## Configuration
-To configure the parameters of the kite models, edit the file `data/settings.yaml`, or
-create a copy under a different name and change the name of the active configuration in
-the file `data/system.yaml`.
+## The project file
+`system.yaml` is the project file: it names every other file a model is made of,
+so a second variant of a model is a second project file rather than an edit
+everywhere the old names appear.
 
-!!! note
-    These are the simulation `Settings` parameters loaded from `system.yaml`.
-    For YAML-based models, the structural geometry (points, segments, etc.)
-    is defined separately in `particle_structural_geometry.yaml` (or `rigid_structural_geometry.yaml`). See
-    [Building a system using YAML](tutorial_yaml.md) for details.
+```yaml
+system:
+    sim_settings: "settings.yaml"                             # the Settings below
+    structural_geometry: "particle_structural_geometry.yaml"  # points, segments, ...
+    aero_geometry: "aero_geometry.yaml"                       # sections and polars
+    vsm_settings: "vsm_settings.yaml"                         # VSM solver settings
+```
+
+Only `sim_settings:` is required; a model without a wing names no aero geometry
+or VSM settings. To fly the same model on other parameters, copy its
+`settings.yaml` and point a second project file's `sim_settings:` at the copy.
+[Building a system using YAML](tutorial_yaml.md) says what goes in the geometry
+files.
+
+```@docs
+project_file
+```
 
 ## Parameters
 The blocks below are the `KiteUtils.Settings` schema. This package reads a
@@ -40,8 +52,6 @@ kite:
     model: ""                               # 3D model of the kite
     foil_file: ""                           # filename for the foil shape
     physical_model: "2plate"                # system_name; feeds the model cache key
-    struc_geometry_path: "particle_structural_geometry.yaml"  # structural YAML
-    aero_geometry_path: "aero_geometry.yaml"                  # aerodynamic YAML
     crease_frac: 0.82                       # distance along normalized foil chord for the trailing edge deformation crease
     mass: 0.9                               # kite mass [kg]
 

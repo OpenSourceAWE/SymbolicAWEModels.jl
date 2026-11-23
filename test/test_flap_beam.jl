@@ -4,7 +4,7 @@
 # test_flap_beam.jl — the two structure-driven aero-coupling features:
 #   A. KINEMATIC flap station: a live deflection δ = the signed angle between
 #      two bodies about a hinge axis (fed to the (α, δ) polars by AeroPressure).
-#   B. beam-anchored point: a BODY_STATIC point rides a TimoshenkoJoint's deformed
+#   B. beam-anchored point: a BODY_STATIC point rides a TimoshenkoTube's deformed
 #      corotational-Hermite centerline instead of one rigid body.
 #
 # Covered here (no pressure-aero fixture needed):
@@ -70,18 +70,18 @@ environment:
 Corotational-Hermite world position of a beam-anchored point — the Julia mirror
 of the symbolic branch in `point_eqs!`, used as the ground truth.
 """
-function hermite_point_w(sam, joint, point)
-    bodies = sam.sys_struct.bodies
-    body_a = bodies[joint.body_a_idx]
-    body_b = bodies[joint.body_b_idx]
+function hermite_point_w(sam, tube, point)
+    bodies = sam.state.bodies
+    body_a = bodies[tube.body_a_idx]
+    body_b = bodies[tube.body_b_idx]
     R_a = S.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
     R_b = S.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
-    x_a = body_a.pos_w .+ R_a * joint.anchor_a_b
-    x_b = body_b.pos_w .+ R_b * joint.anchor_b_b
+    x_a = body_a.pos_w .+ R_a * tube.anchor_a_b
+    x_b = body_b.pos_w .+ R_b * tube.anchor_b_b
     e1, e2, e3, len = S.timoshenko_element_frame(x_a, x_b, R_a)
     element_frame = [e1 e2 e3]
-    Da = (element_frame' * R_a) * joint.R_a_rel0'
-    Db = (element_frame' * R_b) * joint.R_b_rel0'
+    Da = (element_frame' * R_a) * tube.model.R_a_rel0'
+    Db = (element_frame' * R_b) * tube.model.R_b_rel0'
     θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
            0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
@@ -111,9 +111,8 @@ end
             S.init_station_flap!(ts, (; bodies))
             @test ts.flap_rest_delta ≈ 0.0 atol=1e-12
             @test ts.flap_chord_refs == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
-            bodies[2].Q_b_to_w .= quat_y(phi)
-            R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_b_to_w)
-            R_flap = S.quaternion_to_rotation_matrix(bodies[2].Q_b_to_w)
+            R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA_to_ENU)
+            R_flap = S.quaternion_to_rotation_matrix(quat_y(phi))
             @test S.flap_delta(ts, R_main, R_flap) ≈ phi atol=1e-10
         end
         # Nonzero rest: capture at φ0, deflect to φ0+Δ → δ = Δ.
@@ -128,9 +127,8 @@ end
         ts.flap_body_idxs = [1, 2]
         S.init_station_flap!(ts, (; bodies))
         @test ts.flap_rest_delta ≈ phi0 atol=1e-10
-        bodies[2].Q_b_to_w .= quat_y(phi0 + delta)
-        R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_b_to_w)
-        R_flap = S.quaternion_to_rotation_matrix(bodies[2].Q_b_to_w)
+        R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA_to_ENU)
+        R_flap = S.quaternion_to_rotation_matrix(quat_y(phi0 + delta))
         @test S.flap_delta(ts, R_main, R_flap) ≈ delta atol=1e-10
     end
 
@@ -153,16 +151,16 @@ end
                      pos=[0.0, 0.0, 0.0], type=STATIC)
         nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0])
-        joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
-            EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-            damping=0.05)
+        tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
+            model=TimoshenkoTube(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
+                                 damping=0.05))
         # KINEMATIC flap station: δ = the hinge angle nodeA→nodeB.
         flap = Station(:flap, Int[], KINEMATIC, 0.0;
             wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
-        bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; joint=:joint)
+        bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; tube=:tube)
         return SystemStructure(name, set;
-            points=[bridle], bodies=[nodeA, nodeB], timoshenko_joints=[joint],
+            points=[bridle], bodies=[nodeA, nodeB], tubes=[tube],
             stations=with_flap ? [flap] : Station[])
     end
 
@@ -170,15 +168,15 @@ end
 
     @testset "structural resolution" begin
         @test sys.stations[:flap].flap_body_idxs == [1, 2]
-        @test sys.points[:bridle].joint_idx == 1
+        @test sys.points[:bridle].tube_idx == 1
         @test sys.points[:bridle].beam_frac ≈ 0.5 atol=1e-6
         @test sys.points[:bridle].beam_offset_b[3] ≈ 0.1 atol=1e-6
     end
 
     sam = SymbolicAWEModel(set, sys)
-    jt = sam.sys_struct.timoshenko_joints[:joint]
-    rb = sam.sys_struct.bodies[:nodeB]
-    br = sam.sys_struct.points[:bridle]
+    jt = sam.sys_struct.tubes[:tube]
+    rb = sam.state.bodies[:nodeB]
+    br = sam.state.points[:bridle]
 
     rb.ext_force_w .= [0.0, 0.0, 5.0]
     test_init!(sam; prn=false)
@@ -201,7 +199,7 @@ end
         expected = hermite_point_w(sam, jt, br)
         @test br.pos_w ≈ expected atol=1e-6
         # It bulges off the straight LE→TE chord midpoint when the beam bends.
-        ba = sam.sys_struct.bodies[:nodeA]
+        ba = sam.state.bodies[:nodeA]
         straight_mid = 0.5 .* (ba.pos_w .+ rb.pos_w) .+ [0.0, 0.0, 0.1]
         @test norm(br.pos_w - straight_mid) > 1e-4
     end

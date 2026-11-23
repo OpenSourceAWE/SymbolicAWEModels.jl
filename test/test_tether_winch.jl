@@ -117,8 +117,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -165,14 +163,14 @@ environment:
     set_data_path(tmpdir)
     set = Settings("system.yaml")
 
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         yaml_path; system_name="winch_test", set=set)
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     test_init!(sam)
 
-    winch = sam.sys_struct.winches[:main_winch]
-    tether = sam.sys_struct.tethers[:main_tether]
-    seg = sam.sys_struct.segments[:tether_seg]
+    winch = sam.state.winches[:main_winch]
+    tether = sam.state.tethers[:main_tether]
+    seg = sam.state.segments[:tether_seg]
     r = winch.drum_radius   # 0.1 m
     n = winch.gear_ratio     # 1.0
 
@@ -186,6 +184,7 @@ environment:
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
+        place!(sam; prn=false)
         test_init!(sam; prn=false)
 
         tau_motor = 5.0
@@ -211,6 +210,7 @@ environment:
 
         for I_test in [0.1, 0.5, 1.0]
             winch.inertia_total = I_test
+            place!(sam; prn=false)
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -246,6 +246,7 @@ environment:
 
         for f_c in [0.5, 2.0, 5.0]
             winch.coulomb_friction = f_c
+            place!(sam; prn=false)
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -290,6 +291,7 @@ environment:
 
         for viscous_test in [50.0, 100.0, 200.0]
             winch.viscous_coefficient = viscous_test
+            place!(sam; prn=false)
             test_init!(sam; prn=false)
 
             # Time constant: I / (viscous_coefficient * (r/n)^2)
@@ -325,6 +327,7 @@ environment:
         unit_d = unit_k * 0.01  # Damping for settling
         seg.unit_stiffness = unit_k
         seg.unit_damping = unit_d
+        place!(sam; prn=false)
         test_init!(sam; prn=false)
 
         # Compute total mass at weight point:
@@ -347,7 +350,7 @@ environment:
         extension = m * g * l0 / (unit_k - m * g)
         expected_z = -(l0 + extension)
 
-        weight_z = sam.sys_struct.points[:weight].pos_w[3]
+        weight_z = sam.state.points[:weight].pos_w[3]
         @test weight_z ≈ expected_z rtol=0.01
     end
 
@@ -368,6 +371,7 @@ environment:
         # Stiff tether to transmit gravity force
         seg.unit_stiffness = 120000.0
         seg.unit_damping = 500.0
+        place!(sam; prn=false)
         test_init!(sam; prn=false)
 
         tau_motor = 0.5
@@ -385,7 +389,7 @@ environment:
         end
 
         steady = calc_steady_torque(sam)
-        @test sam.sys_struct.winches[1].acc ≈ 0.0 atol=0.01
+        @test sam.state.winches[1].acc ≈ 0.0 atol=0.01
         @test steady[1] ≈ tau_motor rtol=0.01
 
         println(
@@ -404,7 +408,7 @@ environment:
     # ============================================================
     @testset "Route 2 auto-generated tether" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            Transform, SystemStructure, SymbolicAWEModel,
+            SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC, init!
 
         points = [
@@ -413,9 +417,8 @@ environment:
             Point(:anchor, [0.0, 0.0, 0.0], STATIC),
         ]
         transforms = [
-            Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
-                base_pos=[0, 0, 0], base_point=:anchor,
-                rot_point=:mass)
+            Transform(; name=:tf, elevation=deg2rad(-80.0), azimuth=0.0, heading=0.0,
+                base_pos=[0, 0, 0], base_point=2, rot_point=[1 => 1.0])
         ]
 
         # Route 2: auto-generate 4 segments between mass
@@ -427,8 +430,7 @@ environment:
             winch_point=:anchor)]
 
         sys2 = SystemStructure("route2_test", set;
-            points, tethers, winches, transforms,
-            prn=false)
+            points, tethers, winches, prn=false)
 
         # 2 original + 3 intermediate = 5 points
         @test length(sys2.points) == 5
@@ -454,7 +456,7 @@ environment:
         for i in 1:3
             pt = sys2.points[Symbol("line_point_$i")]
             expected_z = -100.0 + i * 25.0
-            @test pt.pos_w[3] ≈ expected_z atol=0.1
+            @test pt.pos_ENU[3] ≈ expected_z atol=0.1
         end
 
         # Segments have correct l0 (100m / 4 = 25m each)
@@ -464,16 +466,17 @@ environment:
         end
 
         # Build and simulate: mass should settle under gravity
-        sam2 = SymbolicAWEModel(set, sys2)
+        sam2 = SymbolicAWEModel(set, sys2; transforms)
         test_init!(sam2)
 
         # Brake on, stiff tether
         w2 = sam2.sys_struct.winches[:winch]
         w2.brake = true
-        for s in sam2.sys_struct.segments
+        for s in sam2.state.segments
             s.unit_stiffness = 50000.0
             s.unit_damping = 500.0
         end
+        place!(sam2; prn=false)
         test_init!(sam2; prn=false)
 
         next_step!(sam2; dt=3.0, vsm_interval=0)
@@ -500,7 +503,7 @@ environment:
             for m in cum_mass)
         expected_z = -total_len
 
-        mass_z = sam2.sys_struct.points[:mass].pos_w[3]
+        mass_z = sam2.state.points[:mass].pos_w[3]
         @test mass_z ≈ expected_z rtol=0.01
     end
 
@@ -512,7 +515,7 @@ environment:
     # ============================================================
     @testset "Tether without winch" begin
         using SymbolicAWEModels: Point, Segment, Tether,
-            Transform, SystemStructure, SymbolicAWEModel,
+            SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC
 
         points = [
@@ -526,15 +529,13 @@ environment:
         ]
         tethers = [Tether(:free_tether, [:seg], 50.0)]
         transforms = [
-            Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
-                base_pos=[0, 0, 0], base_point=:bot,
-                rot_point=:top)
+            Transform(; name=:tf, elevation=deg2rad(-80.0), azimuth=0.0, heading=0.0,
+                base_pos=[0, 0, 0], base_point=2, rot_point=[1 => 1.0])
         ]
 
         # No winches — should build fine
         sys3 = SystemStructure("no_winch", set;
-            points, segments, tethers, transforms,
-            prn=false)
+            points, segments, tethers, prn=false)
 
         @test length(sys3.winches) == 0
         @test length(sys3.tethers) == 1
@@ -544,7 +545,7 @@ environment:
         @test teth.end_point_idx ==
             sys3.points[:bot].idx
 
-        sam3 = SymbolicAWEModel(set, sys3)
+        sam3 = SymbolicAWEModel(set, sys3; transforms)
         test_init!(sam3)
 
         # Settle under gravity. k = unit_stiffness/l0 = 1000 N/m against 5 kg
@@ -556,18 +557,18 @@ environment:
         end
 
         # Should reach equilibrium (not diverge)
-        top_z = sam3.sys_struct.points[:top].pos_w[3]
+        top_z = sam3.state.points[:top].pos_w[3]
         @test isfinite(top_z)
         @test top_z < -49.0  # stretched slightly by gravity
 
         # Its length is a parameter, so retrimming it mid-run takes effect on
         # the next step, with no reinit! to push the change onto the problem.
-        sys3.tethers[:free_tether].len = 48.0
+        sam3.state.tethers[:free_tether].len = 48.0
         for _ in 1:250
             next_step!(sam3; dt=0.02, vsm_interval=0)
         end
-        @test sam3.sys_struct.segments[:seg].l0 ≈ 48.0 rtol=1e-6
-        @test sam3.sys_struct.points[:top].pos_w[3] > top_z
+        @test sam3.state.segments[:seg].l0 ≈ 48.0 rtol=1e-6
+        @test sam3.state.points[:top].pos_w[3] > top_z
     end
 
     # ============================================================
@@ -599,9 +600,10 @@ environment:
             points=points_l, segments=segments_l,
             tethers=tethers_l, winches=winches_l, prn=false)
         sam_l = SymbolicAWEModel(set, sys_l)
+        place!(sam_l; prn=false)
         test_init!(sam_l; prn=false)
 
-        tether_l = sam_l.sys_struct.tethers[:main_l]
+        tether_l = sam_l.state.tethers[:main_l]
 
         # Step 1: hold target = 50 for 1s (steady)
         for _ in 1:200
@@ -651,20 +653,21 @@ environment:
         winch.brake = true
         seg.unit_stiffness = 50000.0
         seg.unit_damping = 500.0
+        place!(sam; prn=false)
         test_init!(sam; prn=false)
 
-        placed = [copy(point.pos_w) for point in sam.sys_struct.points]
+        placed = [copy(point.pos_w) for point in sam.state.points]
         @test unstretched_length(sam) ≈ [50.0]
 
-        set_unstretched_length!(sam.sys_struct, tether, 48.0)
+        set_unstretched_length!(sam.state, tether, 48.0)
         # A winched tether's length is integrator state, so it reaches `u0`
-        # through a fresh `init!`; `reinit_sys=false` keeps the placement.
-        init!(sam; reinit_sys=false, remake=false, prn=false)
+        # through a fresh `init!`, which keeps the placement.
+        init!(sam; remake=false, prn=false)
 
         @test unstretched_length(sam) ≈ [48.0]
         @test seg.l0 ≈ 48.0
         @test all(point.pos_w ≈ was
-                  for (point, was) in zip(sam.sys_struct.points, placed))
+                  for (point, was) in zip(sam.state.points, placed))
     end
 
     rm(tmpdir; recursive=true)
