@@ -252,12 +252,12 @@ system:
 
         # Verify point properties
         anchor = sys.points[:anchor]
-        @test anchor.type == SymbolicAWEModels.STATIC
+        @test point_type(sys.points[:anchor]) == SymbolicAWEModels.STATIC
         @test anchor.pos_ENU == KVec3(0.0, 0.0, 0.0)
         @test anchor.extra_mass == 0.0
 
         mass_point = sys.points[:mass_point]
-        @test mass_point.type == SymbolicAWEModels.DYNAMIC
+        @test point_type(sys.points[:mass_point]) == SymbolicAWEModels.DYNAMIC
         @test mass_point.pos_ENU == KVec3(0.0, 0.0, -10.0)
         @test mass_point.extra_mass == 1.0
         @test mass_point.area == 0.0
@@ -381,7 +381,7 @@ system:
         expected_total_mass = sys.points[:mass_point].extra_mass + half_segment_mass
 
         # Verify total_mass is correctly computed
-        m = sam.sys_struct.points[:mass_point].total_mass
+        m = sam.state.points[:mass_point].total_mass
         @test m ≈ expected_total_mass rtol=0.01
 
         # Expected equilibrium stretch, accounting for k = unit_stiffness / len
@@ -692,8 +692,8 @@ system:
         expected_dyneema = 0.5 * 724.0 * area * l0
         expected_steel = 0.5 * 7800.0 * area * l0
 
-        m_dyneema = sam.sys_struct.points[:mass_dyneema].total_mass
-        m_steel = sam.sys_struct.points[:mass_steel].total_mass
+        m_dyneema = sam.state.points[:mass_dyneema].total_mass
+        m_steel = sam.state.points[:mass_steel].total_mass
         @test m_dyneema ≈ expected_dyneema rtol=0.01
         @test m_steel ≈ expected_steel rtol=0.01
         @test m_steel / m_dyneema ≈ 7800.0 / 724.0 rtol=0.01

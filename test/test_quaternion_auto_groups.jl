@@ -41,7 +41,7 @@ using LinearAlgebra
         system_name="2plate_refine", set)
 
     @test length(sys_refine.wings) == 1
-    @test sys_refine.bodies[1].dynamics_type == PARTICLE_DYNAMICS
+    @test body_dynamics_type(sys_refine.bodies[1]) == PARTICLE_DYNAMICS
     @test length(sys_refine.spanwise_stations) == 3
     @test length(sys_refine.bodies[1].station_idxs) == 3
 
@@ -54,7 +54,7 @@ using LinearAlgebra
         dynamics_type=RIGID_DYNAMICS)
 
     wing = SymbolicAWEModels.SystemState(sys_quat; set, vsm_set).wings[1]
-    @test wing.dynamics_type == RIGID_DYNAMICS
+    @test body_dynamics_type(wing) == RIGID_DYNAMICS
     @test length(sys_quat.spanwise_stations) == 3
     @test length(wing.station_idxs) == 3
     @test !isnothing(wing.wing_segments)

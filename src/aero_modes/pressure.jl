@@ -248,7 +248,7 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
         return nothing
     end
     flaps = [ts for ts in sys_struct.spanwise_stations
-             if ts.type == KINEMATIC && has_flap(ts) && ts.wing == wing.idx]
+             if station_type(ts) == KINEMATIC && has_flap(ts) && ts.wing == wing.idx]
     if isempty(flaps)
         mode.panel_station = zeros(Int64, n_panels)
         return nothing
@@ -257,10 +257,10 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     flap_station = map(flaps) do ts
         mid = has_point_flap(ts) ?
-            sys_struct.points[ts.flap_point_idxs[2]].pos_ENU :
-            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].origin_ENU .+
-                    sys_struct.bodies[ts.flap_body_idxs[2]].origin_ENU)
-        dot(rot_to_body * (mid .- wing.origin_ENU), spanwise)
+            sys_struct.points[ts.flap_points[2]].pos_ENU :
+            0.5 .* (origin_ENU(sys_struct.bodies[ts.flap_bodies[1]]) .+
+                    origin_ENU(sys_struct.bodies[ts.flap_bodies[2]]))
+        dot(rot_to_body * (mid .- origin_ENU(wing)), spanwise)
     end
     assignment = zeros(Int64, n_panels)
     for (panel_idx, panel) in enumerate(panels)
@@ -294,9 +294,9 @@ function station_deltas(sys_struct)
             continue
         end
         R_main = quaternion_to_rotation_matrix(
-            bodies[station.flap_body_idxs[1]].Q_b_to_w)
+            bodies[station.flap_bodies[1]].Q_b_to_w)
         R_flap = quaternion_to_rotation_matrix(
-            bodies[station.flap_body_idxs[2]].Q_b_to_w)
+            bodies[station.flap_bodies[2]].Q_b_to_w)
         deltas[station.idx] = flap_delta(station, R_main, R_flap)
     end
     return deltas
@@ -348,7 +348,7 @@ end
 
 function restore_flap_delta!(mode::AeroPressure, wing, sys_state)
     isempty(sys_state.flap_angle) && return nothing
-    wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return nothing
     set_panel_deltas!(mode, wing, sys_state.flap_angle)
     return nothing
 end
@@ -602,9 +602,9 @@ section is re-solved on the network its tables were generated with.
 """
 function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
                      vsm_set=nothing)
-    wing.dynamics_type == PARTICLE_DYNAMICS || error(
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || error(
         "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
-        "$(wing.name) is $(wing.dynamics_type).")
+        "$(wing.name) is $(body_dynamics_type(wing)).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
            mode, wing, points, stations; prn, vsm_set)
     mode.section_left_strut, mode.section_left_weight,

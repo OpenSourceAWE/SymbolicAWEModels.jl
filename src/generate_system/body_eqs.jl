@@ -32,7 +32,7 @@ function body_eqs!(
         # KINEMATIC bodies (particle wings) are pose-fitted by wing_eqs!, not here.
         # Their slaved COM can still survive as a tearing iteration variable, so it
         # needs a u0 guess (build_initializeprob=false runs no DAE init to fill it).
-        if rigid_body.type == KINEMATIC
+        if body_type(rigid_body) == KINEMATIC
             defaults = [
                 defaults
                 bind_initial!(initial.bodies[idx].com_w, collect(body_com_w[:, idx]))
@@ -51,15 +51,15 @@ function body_eqs!(
         moment_w = collect(body_moment[:, idx]) .+
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
-        parent = rigid_body.wing_idx
+        parent = rigid_body.wing
         (; ω_kinematic, d_ω_p, d_com_w, d_com_vel) = body_integration(
             params, idx, body_com_w[:, idx], body_com_vel[:, idx],
             body_ω_p[:, idx], body_α_p[:, idx], body_com_acc[:, idx],
             collect(body_R_p_to_w[:, :, idx]);
-            frozen=(rigid_body.type == STATIC),
-            wing_frame = parent == 0 ? nothing :
+            frozen=(body_type(rigid_body) == STATIC),
+            wing_frame = isnothing(parent) ? nothing :
                 collect(body_R_b_to_w[:, :, parent]),
-            wing_vel = parent == 0 ? nothing : body_com_vel[:, parent])
+            wing_vel = isnothing(parent) ? nothing : body_com_vel[:, parent])
 
         eqs, defaults = rigid_body_eqs!(
             eqs, defaults, idx;

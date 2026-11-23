@@ -29,8 +29,6 @@ builds the structure, which no document holds. `A` is the type of the body's aer
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct BodyModel{A, D} <: KiteGeometry.AbstractModel
-    "Dynamics type, `DYNAMIC` or `STATIC`."
-    type::Union{Nothing, String} = nothing
     "The wing whose body frame the body's damping acts in, by name or index."
     wing::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Spin damping about the body axes [1/s], one value or one per axis."
@@ -53,8 +51,6 @@ $(TYPEDFIELDS)
     principal_frame_method::Union{Nothing, String} = nothing
     "Index in the structure's bodies."
     idx::Int64 = 0
-    "Index of the wing whose body frame the body's damping acts in; 0 for none."
-    resolved_wing_idx::Int64 = 0
     "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
     total_mass::SimFloat = 0.0
     "Entrained-air mass resisting acceleration without adding weight [kg]."
@@ -106,15 +102,15 @@ $(TYPEDFIELDS)
     unsteady::UnsteadyAero = UnsteadyAero()
 end
 
-BodyModel(type, wing, angular_damping, world_frame_damping, body_frame_damping,
+BodyModel(wing, angular_damping, world_frame_damping, body_frame_damping,
           fix_sphere, fix_static, ext_force_w, ext_force_b, ext_moment_b,
           principal_frame_method) =
-    BodyModel{AeroNone, RigidDynamics}(; type, wing, angular_damping, world_frame_damping,
+    BodyModel{AeroNone, RigidDynamics}(; wing, angular_damping, world_frame_damping,
         body_frame_damping, fix_sphere, fix_static, ext_force_w, ext_force_b,
         ext_moment_b, principal_frame_method, aero=AeroNone())
 
 KiteGeometry.model_columns(::Type{<:BodyModel}) =
-    (:type, :wing, :angular_damping, :world_frame_damping, :body_frame_damping,
+    (:wing, :angular_damping, :world_frame_damping, :body_frame_damping,
      :fix_sphere, :fix_static, :ext_force_w, :ext_force_b, :ext_moment_b,
      :principal_frame_method)
 
@@ -138,69 +134,52 @@ with them ([`update_mass_properties!`](@ref)). Aero/wing fields are inert when
 `aero` is [`AeroNone`](@ref). Loads are gravity (`-g·total_mass` at the COM), the
 settable external wrench, tube wrenches, and aerodynamics.
 
-`origin_ENU` and `Q_KA_to_ENU` are the initial pose of the body frame; the row's
+`origin_ENU` and `Q_KA2ENU` are the initial pose of the body frame; the row's
 `pos_ENU` is the centre of the body's own mass, `extra_com_offset_b` from that origin, and
 `extra_inertia_b` is about that centre in the body frame. An external force or moment the
 row leaves unset reads as a zero vector the row then holds, so it can be written in place.
 """
 const Body{A, D} = KiteGeometry.Body{BodyModel{A, D}}
 
-"""The [`BodyModel`](@ref) of body row `row`."""
-@inline body_model(row::Body) = getfield(row, :model)
-function row_property(row::Body{A, D}, ::Val{:type}) where {A, D}
-    type = body_model(row).type
-    isnothing(type) || return parse_dynamics_type(type)
-    return D === ParticleDynamics ? KINEMATIC : DYNAMIC
+"""The dynamics type of `body`: `STATIC` where it is held, `KINEMATIC` for a particle wing
+and `DYNAMIC` for another."""
+function body_type(body)
+    body.fixed && return STATIC
+    return body.model isa BodyModel{<:Any, ParticleDynamics} ? KINEMATIC : DYNAMIC
 end
-row_property(row::Body, ::Val{:dynamics_type}) =
-    row_property(row, Val(:type)) === KINEMATIC ? PARTICLE_DYNAMICS : RIGID_DYNAMICS
-row_property(row::Body, ::Val{:principal_frame_method}) =
-    parse_principal_frame_method(something(wing_column(row, :principal_frame_method),
-                                           "EIGEN_DECOMP"))
-@inline row_property(row::Body, ::Val{:extra_mass}) =
-    something(getfield(row, :extra_mass), 0.0)
-@inline row_property(row::Body, ::Val{:origin_ENU}) = KVec3(getfield(row, :pos_ENU)) -
-    quaternion_to_rotation_matrix(getfield(row, :Q_KA2ENU)) *
-    body_model(row).extra_com_offset_b
-@inline row_property(row::Body, ::Val{:Q_KA_to_ENU}) = Vector(getfield(row, :Q_KA2ENU))
-@inline row_property(row::Body, ::Val{:wing_ref}) = reference(body_model(row).wing)
-@inline row_property(row::Body, ::Val{:wing_idx}) = body_model(row).resolved_wing_idx
-row_property(row::Body{A}, ::Val{:angular_damping}) where {A} =
-    per_axis(something(wing_column(row, :angular_damping),
-                       A === AeroNone ? 0.0 : [0.0, 150.0, 0.0]))
-@inline row_property(row::Body, ::Val{:world_frame_damping}) =
-    per_axis(body_model(row).world_frame_damping)
-@inline row_property(row::Body, ::Val{:body_frame_damping}) =
-    per_axis(body_model(row).body_frame_damping)
-@inline row_property(row::Body, ::Val{:ext_force_w}) = held_vector!(row, :ext_force_w)
-@inline row_property(row::Body, ::Val{:ext_force_b}) = held_vector!(row, :ext_force_b)
-@inline row_property(row::Body, ::Val{:ext_moment_b}) = held_vector!(row, :ext_moment_b)
-set_row_property!(row::Body, ::Val{:principal_frame_method}, method::PrincipalFrameMethod) =
-    body_model(row).principal_frame_method = string(method)
-set_row_property!(row::Body, ::Val{:wing_ref}, ref) =
-    body_model(row).wing = reference_column(ref)
-set_row_property!(row::Body, ::Val{:wing_idx}, idx) =
-    body_model(row).resolved_wing_idx = idx
-set_row_property!(row::Body, ::Val{:origin_ENU}, pos) = getfield(row, :pos_ENU) .=
-    pos + quaternion_to_rotation_matrix(getfield(row, :Q_KA2ENU)) *
-    body_model(row).extra_com_offset_b
-function set_row_property!(row::Body, ::Val{:Q_KA_to_ENU}, Q)
-    origin = row.origin_ENU
-    getfield(row, :Q_KA2ENU) .= Q
-    row.origin_ENU = origin
-    return Q
-end
-function set_row_property!(row::Body, ::Val{:type}, type::DynamicsType)
-    body_model(row).type = string(type)
-    setfield!(row, :fixed, type == STATIC)
-    return type
-end
+
+"""The [`WingType`](@ref) of `body`: particle dynamics for a `KINEMATIC` body."""
+body_dynamics_type(body) =
+    body_type(body) === KINEMATIC ? PARTICLE_DYNAMICS : RIGID_DYNAMICS
+
+"""How the principal frame of body row `row` is found: its own column, else its wing's,
+else `EIGEN_DECOMP`."""
+body_principal_frame_method(body) = parse_principal_frame_method(
+    something(wing_column(body, :principal_frame_method), "EIGEN_DECOMP"))
+
+"""The spin damping of body row `row` per axis [1/s]: its own column, else its wing's,
+else none on a body without aero and 150 about y on a wing."""
+body_angular_damping(body) = per_axis(something(wing_column(body, :angular_damping),
+    body.model isa BodyModel{AeroNone} ? 0.0 : [0.0, 150.0, 0.0]))
+
+"""
+    origin_ENU(row::Body)
+
+The origin of body row `row`'s frame in the world [m]: its `pos_ENU`, the centre of its own
+mass, less that centre's offset from the origin.
+"""
+origin_ENU(body) = KVec3(body.pos_ENU) -
+    quaternion_to_rotation_matrix(body.Q_KA2ENU) * body.model.extra_com_offset_b
+
+"""Put the origin of `body`'s frame at `origin` [m] in the world, keeping its rotation."""
+set_origin_ENU!(body, origin) = body.pos_ENU =
+    origin + quaternion_to_rotation_matrix(body.Q_KA2ENU) * body.model.extra_com_offset_b
 
 """Column `column` of the model of body row `row`, else the same column of its wing's
 `wings` row, `nothing` where neither gives it."""
-function wing_column(row::Body, column)
-    model = body_model(row)
-    value = getfield(model, column)
+function wing_column(body, column)
+    model = body.model
+    value = getproperty(model, column)
     wing = model.wing_definition
     isnothing(value) && !isnothing(wing) && return getproperty(wing.model, column)
     return value
@@ -213,7 +192,7 @@ The frame the mesh of body row `row`'s wing is authored in: the KA frame of its 
 `wings` row, origin [m] and rotation into the world, else the world frame.
 """
 function mesh_frame(row::Body)
-    wing = body_model(row).wing_definition
+    wing = row.model.wing_definition
     isnothing(wing) && return zeros(KVec3), Matrix{SimFloat}(I, 3, 3)
     return KVec3(wing.pos_ENU), quaternion_to_rotation_matrix(wing.Q_KA2ENU)
 end
@@ -225,33 +204,32 @@ The vector column `field` of the model of `row`, a zero vector the model then ho
 the row leaves it unset.
 """
 @inline function held_vector!(row, field)
-    model = getfield(row, :model)
-    values = getfield(model, field)
+    values = getproperty(row.model, field)
     isnothing(values) || return values
     values = zeros(3)
-    setfield!(model, field, values)
+    setproperty!(row.model, field, values)
     return values
 end
 
 """
-    body_row(name, aero, dynamics; extra_mass, extra_inertia_b, pos_ENU, Q_KA_to_ENU,
+    body_row(name, aero, dynamics; extra_mass, extra_inertia_b, pos_ENU, Q_KA2ENU,
              model_fields...)
 
 The `bodies` row of a body named `name` with aero model `aero` and
 [`WingDynamics`](@ref) `dynamics`: its own mass `extra_mass` and inertia
 `extra_inertia_b` about its body-frame origin, which sits at its initial pose `pos_ENU`,
-`Q_KA_to_ENU`, and a model holding `model_fields`. The row stands at the body's own centre
+`Q_KA2ENU`, and a model holding `model_fields`. The row stands at the body's own centre
 of mass.
 """
 function body_row(name, aero::A, ::Type{D}; extra_mass, extra_inertia_b, pos_ENU,
-                  Q_KA_to_ENU, model_fields...) where {A, D}
+                  Q_KA2ENU, fixed=false, model_fields...) where {A, D}
     model = BodyModel{A, D}(; aero, model_fields...,
         extra_inertia_b=Matrix{SimFloat}(extra_inertia_b))
-    mass_centre = pos_ENU + quaternion_to_rotation_matrix(Q_KA_to_ENU) *
+    mass_centre = pos_ENU + quaternion_to_rotation_matrix(Q_KA2ENU) *
         model.extra_com_offset_b
     return KiteGeometry.Body(; name=Symbol(name), pos_ENU=mass_centre,
-        Q_KA2ENU=Q_KA_to_ENU, extra_mass, extra_inertia_KA=extra_inertia_b,
-        fixed=model.type == "STATIC", model)
+        Q_KA2ENU=Q_KA2ENU, extra_mass, extra_inertia_KA=extra_inertia_b,
+        fixed, model)
 end
 
 """`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
@@ -394,7 +372,6 @@ function Body(name;
     body_damping_vec = broadcast_damping(body_frame_damping)
     type in (DYNAMIC, STATIC) || error(
         "Body $name: type must be DYNAMIC or STATIC, got $type.")
-    wing_ref = isnothing(wing) ? 0 : wing
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
             "Body $name: give `inertia` or `inertia_principal`, not both.")
@@ -404,8 +381,7 @@ function Body(name;
     end
     extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
     return body_row(name, AeroNone(), RigidDynamics; extra_mass, extra_inertia_b,
-        pos_ENU=pos, Q_KA_to_ENU=Q_b_to_w, type=string(type),
-        wing=reference_column(wing_ref),
+        pos_ENU=pos, Q_KA2ENU=Q_b_to_w, fixed=type == STATIC, wing,
         angular_damping=Vector(damping_vec), world_frame_damping=Vector(world_damping_vec),
         body_frame_damping=Vector(body_damping_vec), fix_sphere, fix_static,
         ext_force_w=Vector{Float64}(ext_force_w), ext_force_b=Vector{Float64}(ext_force_b),
@@ -419,9 +395,9 @@ end
 """
     initial_rotation(body) -> Matrix
 
-The body→world rotation matrix of `body`'s initial pose `Q_KA_to_ENU`.
+The body→world rotation matrix of `body`'s initial pose `Q_KA2ENU`.
 """
-initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
+initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA2ENU)
 
 """
     initial_body_position(body, point) -> Vector
@@ -429,7 +405,7 @@ initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
 Where `point` sits in `body`'s frame, from the body origin, in the initial pose.
 """
 initial_body_position(body, point) =
-    initial_rotation(body)' * (point.pos_ENU - body.origin_ENU)
+    initial_rotation(body)' * (point.pos_ENU - origin_ENU(body))
 
 """
     initial_chord_position(wing, point) -> SimFloat
@@ -628,15 +604,6 @@ they resolve to; `idx`, `anchor_a_b` and `anchor_b_b` read its model.
 """
 const Tube{M <: AbstractTubeModel} = KiteGeometry.Tube{M}
 
-row_property(row::Tube, ::Val{:law}) = getfield(row, :material)
-@inline row_property(row::Tube, ::Val{:body_a_ref}) = getfield(row, :bodies)[1]
-@inline row_property(row::Tube, ::Val{:body_b_ref}) = getfield(row, :bodies)[2]
-@inline row_property(row::Tube, ::Val{:body_a_idx}) = Int(getfield(row, :bodies)[1])
-@inline row_property(row::Tube, ::Val{:body_b_idx}) = Int(getfield(row, :bodies)[2])
-set_row_property!(row::Tube, ::Val{:body_a_idx}, idx) =
-    row.bodies = (idx, getfield(row, :bodies)[2])
-set_row_property!(row::Tube, ::Val{:body_b_idx}, idx) =
-    row.bodies = (getfield(row, :bodies)[1], idx)
 
 """
     Tube(name, body_a, body_b; diameter, pressure, law=:breukels2011,
@@ -679,15 +646,15 @@ end
     tube_initial_frames(tube, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
 
 World rotations of the two connected bodies and the world positions of the tube's
-two anchors, in the bodies' initial poses (`pos_ENU`, `Q_KA_to_ENU`).
+two anchors, in the bodies' initial poses (`pos_ENU`, `Q_KA2ENU`).
 """
 function tube_initial_frames(tube::Tube, bodies)
     body_a = bodies[tube.bodies[1]]
     body_b = bodies[tube.bodies[2]]
     R_a = initial_rotation(body_a)
     R_b = initial_rotation(body_b)
-    anchor_a_w = body_a.origin_ENU .+ R_a * tube.anchor_a_b
-    anchor_b_w = body_b.origin_ENU .+ R_b * tube.anchor_b_b
+    anchor_a_w = origin_ENU(body_a) .+ R_a * tube.anchor_a_b
+    anchor_b_w = origin_ENU(body_b) .+ R_b * tube.anchor_b_b
     return R_a, R_b, anchor_a_w, anchor_b_w
 end
 
@@ -748,7 +715,7 @@ end
 
 `true` if the station reads its deflection off two ordered flap bodies.
 """
-has_body_flap(station) = length(station.flap_body_idxs) == 2
+has_body_flap(station) = length(something(station.flap_bodies, ())) == 2
 
 """
     has_point_flap(station) -> Bool
@@ -756,7 +723,7 @@ has_body_flap(station) = length(station.flap_body_idxs) == 2
 `true` if the station reads its deflection off three structural points
 `[fore, hinge, aft]` ([`point_flap_delta`](@ref)).
 """
-has_point_flap(station) = length(station.flap_point_idxs) == 3
+has_point_flap(station) = length(something(station.flap_points, ())) == 3
 
 """
     has_flap(station) -> Bool
@@ -788,7 +755,7 @@ with `R_wing` the owning wing's orientation. The same
 truth for tests.
 """
 function point_flap_delta(station, points, R_wing)
-    fore, hinge, aft = station.flap_point_idxs
+    fore, hinge, aft = station.flap_points
     return point_flap_delta_expression(station, points[fore].pos_w,
         points[hinge].pos_w, points[aft].pos_w, R_wing)
 end
@@ -798,13 +765,13 @@ end
 
 Capture a flapped `KINEMATIC` station's rest geometry from the initial pose, so the
 undeformed configuration reads δ = 0. A body flap defaults its reference chords to
-each body's x-axis and measures the two bodies' `Q_KA_to_ENU`; a point flap measures
+each body's x-axis and measures the two bodies' `Q_KA2ENU`; a point flap measures
 its three points' `pos_ENU`. No-op for surfaces without a flap.
 """
 function init_station_flap!(station, sys_struct)
     if has_point_flap(station)
         points = sys_struct.points
-        fore, hinge, aft = station.flap_point_idxs
+        fore, hinge, aft = station.flap_points
         station.flap_rest_delta = 0.0
         station.flap_rest_delta = point_flap_delta_expression(station,
             points[fore].pos_ENU, points[hinge].pos_ENU, points[aft].pos_ENU,
@@ -815,33 +782,10 @@ function init_station_flap!(station, sys_struct)
     bodies = sys_struct.bodies
     isempty(station.flap_chord_refs) &&
         (station.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
-    R_main = initial_rotation(bodies[station.flap_body_idxs[1]])
-    R_flap = initial_rotation(bodies[station.flap_body_idxs[2]])
+    R_main = initial_rotation(bodies[station.flap_bodies[1]])
+    R_flap = initial_rotation(bodies[station.flap_bodies[2]])
     station.flap_rest_delta = 0.0
     station.flap_rest_delta = flap_delta(station, R_main, R_flap)
     return nothing
 end
 
-const ComponentRow = Union{Point, Station, KiteGeometry.Segment, Pulley, Tether, Winch,
-                          Body, Tube}
-
-@inline Base.getproperty(row::ComponentRow, property::Symbol) =
-    row_property(row, Val(property))
-Base.setproperty!(row::ComponentRow, property::Symbol, value) =
-    set_row_property!(row, Val(property), value)
-
-# what an unset column of a row's model reads as
-for (row, model, defaults) in (
-    (Point, :point_model, (area=0.0, drag_coeff=0.0, fix_sphere=false, fix_static=false)),
-    (Station, :station_model, (moment_frac=0.0, damping=50.0, stiffness=0.0,
-                              flap_axis=SVector(0.0, 1.0, 0.0))),
-    (Pulley, :pulley_model, (efficiency=0.95, damping=0.0, brake=false,
-                            friction_epsilon=0.1)),
-    (Winch, :winch_model, (init_vel=0.0, brake=0.0, speed_controlled=false)),
-    (Body, :body_model, (fix_sphere=false, fix_static=false)),
-)
-    for (property, default) in pairs(defaults)
-        @eval @inline row_property(row::$row, ::Val{$(QuoteNode(property))}) =
-            something(getfield($model(row), $(QuoteNode(property))), $default)
-    end
-end

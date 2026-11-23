@@ -1287,7 +1287,7 @@ the absolute spin, `world_frame_damping` on the COM velocity on the world axes, 
 `body_frame_damping` through the same [`body_frame_damp_accel`](@ref) a wing node uses
 — the velocity relative to the parent wing, resolved on the wing's axes, so it damps
 deformation and not rigid flight. `wing_frame`/`wing_vel` carry that parent's frame
-and velocity; a body with no parent wing (`wing_idx == 0`) gets its own frame and a
+and velocity; a body with no parent wing (`wing` unset) gets its own frame and a
 resting parent.
 
 `frozen` holds all four derivatives at zero, clamping a body that is integrated but
@@ -1926,7 +1926,7 @@ with no aero sections has nothing to drive it with, and `station_eqs!` binds
 its moment to zero instead.
 """
 station_aero_driven(station) =
-    !(station.type == STATIC &&
+    !(station_type(station) == STATIC &&
       isempty(station.unrefined_section_idxs))
 
 """

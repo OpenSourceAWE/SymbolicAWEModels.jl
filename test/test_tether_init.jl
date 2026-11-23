@@ -528,14 +528,15 @@ winches:
         place!(sys)
 
         tip = sys.bodies[:tip]
-        @test tip.origin_ENU[3] > 0.5
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_KA_to_ENU)
-        anchor_w = tip.origin_ENU .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
+        @test SymbolicAWEModels.origin_ENU(tip)[3] > 0.5
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_KA2ENU)
+        anchor_w = SymbolicAWEModels.origin_ENU(tip) .+
+            R_b_to_w * sys.points[:tip_anchor].anchor_b
         @test sys.points[:tip_anchor].pos_ENU ≈ anchor_w
         @test norm(sys.points[:tip_anchor].pos_ENU -
                    sys.points[:ground].pos_ENU) ≈ 6.0
         # The clamped root body must not move.
-        @test sys.bodies[:root].origin_ENU ≈ KVec3(0.5seg_len, 0, 0)
+        @test SymbolicAWEModels.origin_ENU(sys.bodies[:root]) ≈ KVec3(0.5seg_len, 0, 0)
     end
 
     # ================================================================
@@ -610,9 +611,10 @@ winches:
         @test norm(le_center - ground) ≈ 5.0990195135927845
         # The wing body translated with its points (the regression: the body
         # stayed where it was authored while the points moved).
-        @test wing.origin_ENU ≈ authored_origin .+ delta
+        @test SymbolicAWEModels.origin_ENU(wing) ≈ authored_origin .+ delta
         # Body and its WING points stay rigid: point→origin offset preserved.
-        @test le_center .- wing.origin_ENU ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
+        @test le_center .- SymbolicAWEModels.origin_ENU(wing) ≈
+              KVec3(-0.5, 0.0, 2.5) .- authored_origin
     end
 
     # ================================================================
@@ -661,7 +663,8 @@ winches:
         # Every beam body translates, including node4, which no point rides and
         # which is reachable only through the joint graph.
         for (i, body) in enumerate(sys.bodies)
-            @test body.origin_ENU ≈ KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
+            @test SymbolicAWEModels.origin_ENU(body) ≈
+                  KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
         end
         # tail hangs off the far end of the beam, reachable from the tether's
         # free end only through the rigid-sibling hop across the beam.
@@ -678,8 +681,9 @@ winches:
     @testset "YAML, Julia and re-placement agree (tube riders)" begin
         same_pose(a, b) = all(
             [all(p.pos_ENU ≈ q.pos_ENU for (p, q) in zip(a.points, b.points)),
-             all(p.origin_ENU ≈ q.origin_ENU for (p, q) in zip(a.bodies, b.bodies)),
-             all(p.Q_KA_to_ENU ≈ q.Q_KA_to_ENU for (p, q) in zip(a.bodies, b.bodies)),
+             all(SymbolicAWEModels.origin_ENU(p) ≈ SymbolicAWEModels.origin_ENU(q)
+                 for (p, q) in zip(a.bodies, b.bodies)),
+             all(p.Q_KA2ENU ≈ q.Q_KA2ENU for (p, q) in zip(a.bodies, b.bodies)),
              all(p.rest_length ≈ q.rest_length
                  for (p, q) in zip(a.segments, b.segments))])
 

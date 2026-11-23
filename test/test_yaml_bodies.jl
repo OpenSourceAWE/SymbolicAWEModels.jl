@@ -118,20 +118,20 @@ end
 
     @testset "Structure wiring from YAML" begin
         @test length(sys.bodies) == 2
-        @test sys.bodies[:nodeA].type == STATIC
-        @test sys.bodies[:nodeB].type == DYNAMIC
+        @test sys.bodies[:nodeA].fixed
+        @test !sys.bodies[:nodeB].fixed
         @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.tubes) == 1
         tube = SymbolicAWEModels.SystemState(sys).tubes[:tube]
         @test tube.bodies[1] == sys.bodies[:nodeA].idx
         @test tube.bodies[2] == sys.bodies[:nodeB].idx
-        @test (tube.diameter, tube.pressure, tube.law) == (0.1, 30000.0, :breukels2011)
+        @test (tube.diameter, tube.pressure, tube.material) == (0.1, 30000.0, :breukels2011)
         @test tube.model isa TimoshenkoTube
         @test tube.model.rest_length ≈ 1.0     # taken from placed geometry
         @test tube.model.EA ≈ 10000.0
         anchor = sys.points[:tip_anchor]
-        @test anchor.type == BODY_STATIC
-        @test anchor.body_idx == sys.bodies[:nodeB].idx
+        @test !anchor.fixed
+        @test anchor.body == sys.bodies[:nodeB].idx
     end
 
     @testset "a tube row without rigidities takes them from its law" begin

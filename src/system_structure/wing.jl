@@ -104,7 +104,7 @@ end
 function Wing end
 
 """
-    Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia_principal;
+    Wing(name, stations, Q_KA2ENU, pos_ENU, inertia_principal;
          angular_damping=[0.0, 150.0, 0.0], dynamics_type=RIGID_DYNAMICS, aero=nothing,
          z_ref_points=nothing, y_ref_points=nothing, origin=nothing, vsm=nothing)
 
@@ -114,7 +114,7 @@ Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
 # Arguments
 - `name::Symbol`: Name/identifier (e.g. `:main_wing`).
 - `stations::Vector`: References to attached stations (names or indices).
-- `Q_KA_to_ENU`: Body→world orientation quaternion before [`place!`](@ref) turns it.
+- `Q_KA2ENU`: Body→world orientation quaternion before [`place!`](@ref) turns it.
 - `pos_ENU::KVec3`: Body-origin position before [`place!`](@ref) moves it [m].
 - `inertia_principal::KVec3`: Principal moments of inertia `[Ixx, Iyy, Izz]`.
 
@@ -130,7 +130,7 @@ Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame reference points (raw refs).
   A VSM engine, when needed, lives in the `aero` mode (built by the VSM constructors).
 """
-function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
+function Wing(name, stations::AbstractVector, Q_KA2ENU::AbstractVector,
               pos_ENU, inertia_principal;
               angular_damping=[0.0, 150.0, 0.0], world_frame_damping=0.0,
               body_frame_damping=0.0,
@@ -152,11 +152,10 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
     origin_rp = isnothing(origin) ? nothing : WeightedRefPoints(origin)
 
     # Mass properties and frames are placeholders filled by SystemDefinition.
-    body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
     damping_vec = broadcast_damping(angular_damping)
     return body_row(name, aero, wing_dynamics(dynamics_type); extra_mass=0.0,
-        extra_inertia_b=Diagonal(inertia_principal), pos_ENU, Q_KA_to_ENU,
-        type=string(body_type), angular_damping=Vector(damping_vec),
+        extra_inertia_b=Diagonal(inertia_principal), pos_ENU, Q_KA2ENU,
+        angular_damping=Vector(damping_vec),
         world_frame_damping=Vector(broadcast_damping(world_frame_damping)),
         body_frame_damping=Vector(broadcast_damping(body_frame_damping)),
         fix_sphere=false, fix_static=false, ext_force_w=zeros(3), ext_force_b=zeros(3),
@@ -262,7 +261,7 @@ its [`VSMEngine`](@ref) from it.
 - `stations::Vector`: References to stations (names or indices).
 
 # Keyword Arguments
-- `Q_KA_to_ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemDefinition`](@ref)
+- `Q_KA2ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemDefinition`](@ref)
   overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
   per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and
@@ -277,7 +276,7 @@ its [`VSMEngine`](@ref) from it.
 """
 function VSMWing(name, set::Settings,
                  stations::AbstractVector;
-                 Q_KA_to_ENU::Union{Nothing,AbstractVector}=nothing,
+                 Q_KA2ENU::Union{Nothing,AbstractVector}=nothing,
                  pos_ENU::Union{Nothing,AbstractVector}=nothing,
                  angular_damping=[0.0, 150.0, 0.0], inertia_diag=nothing,
                  extra_mass=nothing,
@@ -311,16 +310,16 @@ function VSMWing(name, set::Settings,
         AeroLinearized() : AeroDirect())
 
     # Placeholders — overwritten by SystemDefinition
-    isnothing(Q_KA_to_ENU) && (Q_KA_to_ENU = SimFloat[1, 0, 0, 0])
+    isnothing(Q_KA2ENU) && (Q_KA2ENU = SimFloat[1, 0, 0, 0])
     isnothing(pos_ENU) && (pos_ENU = zeros(KVec3))
     inertia_vec = isnothing(inertia_diag) ?
         ones(MVector{3, SimFloat}) : inertia_diag
 
-    wing = Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia_vec;
+    wing = Wing(name, stations, Q_KA2ENU, pos_ENU, inertia_vec;
         angular_damping, dynamics_type, aero, group_points_moment, z_ref_points,
         y_ref_points, origin, principal_frame_method)
     isnothing(extra_mass) || (wing.extra_mass = SimFloat(extra_mass))
-    model = body_model(wing)
+    model = wing.model
     model.aero_scale_chord = aero_scale_chord
     model.aero_z_offset = aero_z_offset
     aero isa AeroSpec && seed_wing_inertia!(model, set, com, unit_inertia)
@@ -503,9 +502,9 @@ mass in the body frame, from the initial pose.
 """
 function init_undeformed_offsets!(bodies, points)
     for body in bodies
-        body.dynamics_type == RIGID_DYNAMICS || continue
+        body_dynamics_type(body) == RIGID_DYNAMICS || continue
         R_initial = initial_rotation(body)
-        com_initial = body.origin_ENU .+ R_initial * body.com_offset_b
+        com_initial = origin_ENU(body) .+ R_initial * body.com_offset_b
         for point in points
             if point.is_wing_node && point.wing_idx == body.idx
                 point.pos_undeformed_b .= R_initial' * (point.pos_ENU - com_initial)

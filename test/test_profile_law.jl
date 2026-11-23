@@ -133,10 +133,10 @@ system:
         @test haskey(sys.points, :dynamic_point)
 
         # Verify probe types and positions
-        @test sys.points[:probe_10m].type == SymbolicAWEModels.STATIC
+        @test point_type(sys.points[:probe_10m]) == SymbolicAWEModels.STATIC
         @test sys.points[:probe_10m].pos_ENU == KVec3(0.0, 0.0, 10.0)
         @test sys.points[:probe_500m].pos_ENU == KVec3(0.0, 0.0, 500.0)
-        @test sys.points[:dynamic_point].type == SymbolicAWEModels.DYNAMIC
+        @test point_type(sys.points[:dynamic_point]) == SymbolicAWEModels.DYNAMIC
 
         println("\n  ====== Loaded 5 static probes at heights: 10m, 50m, 100m, 200m, 500m ======\n")
     end

@@ -137,9 +137,9 @@ The generic VSM particle setup plus the [`ContinuousAero`](@ref) mesh maps
 """
 function setup_aero!(mode::ContinuousAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
-    wing.dynamics_type == PARTICLE_DYNAMICS || error(
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || error(
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
-        "$(wing.name) is $(wing.dynamics_type).")
+        "$(wing.name) is $(body_dynamics_type(wing)).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
            mode, wing, points, stations; prn, vsm_set)
     mode.vsm_wing.spanwise_distribution == VortexStepMethod.BILLOWING || error(

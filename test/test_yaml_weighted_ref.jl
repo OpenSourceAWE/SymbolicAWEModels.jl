@@ -135,7 +135,8 @@ transforms:
     @test wing.origin.weights ≈ [0.7, 0.3]
 
     # The wing origin is the weighted centroid of points 7 and 9
-    @test wing.origin_ENU ≈ 0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
+    @test SymbolicAWEModels.origin_ENU(wing) ≈
+          0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
 
     # N-point (4-point) weighted origin should also parse
     # and resolve correctly

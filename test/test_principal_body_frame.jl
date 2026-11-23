@@ -48,7 +48,7 @@ using LinearAlgebra
 
     state = SystemState(sys; set, vsm_set)
     wing = state.wings[:main_wing]
-    @test wing.dynamics_type == RIGID_DYNAMICS
+    @test body_dynamics_type(wing) == RIGID_DYNAMICS
     @test !isnothing(wing.origin)
     @test !isnothing(wing.z_ref_points)
 

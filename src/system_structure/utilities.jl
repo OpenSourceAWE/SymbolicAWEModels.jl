@@ -57,7 +57,7 @@ function validate_sys_struct(sys_struct)
         end
 
         # Check mass before NaN position: NaN pos is often caused by zero mass.
-        if point.type == DYNAMIC && point.total_mass <= 0
+        if point_type(point) == DYNAMIC && point.total_mass <= 0
             error("Point $(point.name) has non-positive total_mass ($(point.total_mass)). " *
                   "This will cause division by zero in acceleration calculations.")
         end
@@ -76,7 +76,7 @@ function validate_sys_struct(sys_struct)
                   "This will cause division by zero in acceleration calculations.")
         end
 
-        if wing.dynamics_type == RIGID_DYNAMICS
+        if body_dynamics_type(wing) == RIGID_DYNAMICS
             I_b = wing.inertia_principal
 
             # Check for zero or suspiciously small inertia (before NaN checks)
@@ -242,7 +242,7 @@ end
     reset_to_initial_pose!(state::SystemState; reset_vel=true)
 
 Put every point and body back at its initial pose (`pos_ENU`, `origin_ENU`,
-`Q_KA_to_ENU`), zero the twist of every non-`STATIC` station and set every winch's
+`Q_KA2ENU`), zero the twist of every non-`STATIC` station and set every winch's
 reel-out speed to `init_vel`. `reset_vel` zeroes point and body velocities as well.
 """
 function reset_to_initial_pose!(state::SystemState; reset_vel::Bool=true)
@@ -254,12 +254,12 @@ function reset_to_initial_pose!(state::SystemState; reset_vel::Bool=true)
         reset_vel && (point.vel_w .= 0.0)
     end
     for body in state.bodies
-        body.pos_w .= body.origin_ENU
-        body.Q_b_to_w .= body.Q_KA_to_ENU
+        body.pos_w .= origin_ENU(body)
+        body.Q_b_to_w .= body.Q_KA2ENU
         reset_vel && (body.vel_w .= 0.0; body.ω_b .= 0.0)
     end
     for station in state.spanwise_stations
-        station.type == STATIC && continue
+        station_type(station) == STATIC && continue
         station.twist = 0.0
         station.twist_ω = 0.0
     end
@@ -297,7 +297,7 @@ function init_wind!(state, set::Settings)
         end
     end
     for wing in wings
-        wing.dynamics_type == PARTICLE_DYNAMICS && continue
+        body_dynamics_type(wing) == PARTICLE_DYNAMICS && continue
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         init_aero_state!(wing.aero, wing, R_b_to_w' *
             (per_point_wind(state) ? wing.wind_vec : set.wind_vec))
@@ -430,7 +430,8 @@ function set_transform_velocities!(state::SystemState, transforms)
     foreach((point, vel) -> point.vel_w .= vel, state.points, point_vel)
     for (body, vel, spin) in zip(state.bodies, body_vel, body_spin)
         body.vel_w .= vel
-        body.ω_b .= body.dynamics_type == RIGID_DYNAMICS ? body.R_b_to_w' * spin : 0.0
+        body.ω_b .= body_dynamics_type(body) == RIGID_DYNAMICS ?
+            body.R_b_to_w' * spin : 0.0
     end
     return state
 end
@@ -444,7 +445,7 @@ pose ([`init_undeformed_offsets!`](@ref)).
 """
 function fit_body_frames!(points, bodies)
     for body in bodies
-        body.dynamics_type == PARTICLE_DYNAMICS || continue
+        body_dynamics_type(body) == PARTICLE_DYNAMICS || continue
         (isnothing(body.z_ref_points) || isnothing(body.y_ref_points) ||
          isnothing(body.origin)) && continue
         R_b_to_w, origin = calc_particle_dynamics_wing_frame(
@@ -652,10 +653,8 @@ never leak into the others.
 """
 function assign_damping!(components, field::Symbol,
                          damping::Union{Real, AbstractVector}, idxs)
-    damp_vec = damping isa Real ?
-        SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
     for idx in idxs
-        setproperty!(components[idx], field, damp_vec)
+        setproperty!(components[idx], field, axis_column(damping))
     end
     return nothing
 end

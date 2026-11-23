@@ -117,15 +117,15 @@ and inject them as `disturb` forces on the dynamic interior nodes.
 Each quad cell (i,j) is split into two triangles. The force on each
 triangle is `P × area_triangle`. This force is divided equally among
 the three corners, and only DYNAMIC corners accumulate the contribution.
-The model reads each point's `disturb` at every step, so setting it
+The model reads each point's `ext_force_w` at every step, so setting it
 here takes effect at the next integration step.
 """
 function apply_pressure!(sam, pressure)
     pts = sam.state.points
 
-    # Reset all disturb forces to zero
+    # Reset all external forces to zero
     for pt in pts
-        pt.disturb .= 0.0
+        pt.ext_force_w .= 0.0
     end
 
     for j in 0:N-1, i in 0:N-1
@@ -146,7 +146,7 @@ function apply_pressure!(sam, pressure)
             # P × triangle_area / 3 per corner; triangle_area = |n|/2
             fvec1 = (pressure / 6) .* n1
             for idx in (ia, ib, ic)
-                pts[idx].type == DYNAMIC && (pts[idx].disturb .+= fvec1)
+                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w .+= fvec1)
             end
         end
 
@@ -156,7 +156,7 @@ function apply_pressure!(sam, pressure)
         if mag2 > 1e-12
             fvec2 = (pressure / 6) .* n2
             for idx in (ia, ic, id)
-                pts[idx].type == DYNAMIC && (pts[idx].disturb .+= fvec2)
+                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w .+= fvec2)
             end
         end
     end

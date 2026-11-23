@@ -20,35 +20,37 @@ and its point count. Errors loudly on an inconsistent combination:
 """
 function validate_station_modes(stations, bodies)
     for station in stations
-        if station.type == KINEMATIC
+        if station_type(station) == KINEMATIC
             # KINEMATIC surfaces are derived (no twist DOF, no owning-body couple);
             # a flap variant needs its owning wing and an ordered [main, flap] pair.
-            has_body_flap(station) || isempty(station.flap_body_idxs) || error(
+            has_body_flap(station) || isnothing(station.flap_bodies) || error(
                 "Station $(station.name): flap needs exactly 2 flap " *
-                "bodies [main, flap], got $(length(station.flap_body_idxs)).")
+                "bodies [main, flap], got $(length(station.flap_bodies)).")
             continue
         end
         owners = [body for body in bodies if station.idx in body.station_idxs]
         length(owners) == 1 || error(
             "Station $(station.name) is in $(length(owners)) bodies; must be in exactly 1.")
         wing = owners[1]
-        rigid = wing.dynamics_type == RIGID_DYNAMICS
+        rigid = body_dynamics_type(wing) == RIGID_DYNAMICS
         npoints = length(station.points)
-        if station.type == DYNAMIC
+        if station_type(station) == DYNAMIC
             rigid || error(
-                "Station $(station.name): $(station.type) twist requires a " *
+                "Station $(station.name): $(station_type(station)) twist requires a " *
                 "RIGID_DYNAMICS wing (differential/algebraic twist is a rigid " *
-                "body DOF), but wing $(wing.name) is $(wing.dynamics_type).")
+                "body DOF), but wing $(wing.name) is $(body_dynamics_type(wing)).")
             npoints >= 2 || error(
-                "Station $(station.name): $(station.type) twist needs a bridle couple " *
+                "Station $(station.name): $(station_type(station)) twist needs a bridle " *
+                "couple " *
                 "(≥2 points), got $npoints. A 1-point station must use STATIC twist.")
-        elseif station.type == STATIC
+        elseif station_type(station) == STATIC
             # STATIC = prescribed twist (default 0). On a rigid wing it imposes
             # the section twist; on a PARTICLE wing the free points carry the
             # deformation, so a multi-point STATIC surface is an inert
             # aero-section membership marker (its prescribed twist is unused).
         else
-            error("Station $(station.name): unsupported twist mode $(station.type).")
+            error("Station $(station.name): unsupported twist mode " *
+                  "$(station_type(station)).")
         end
     end
     return nothing
@@ -107,7 +109,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
 
     for station in stations
         # KINEMATIC surfaces have no twist DOF; zero-bind their vars (δ is emitted by station_delta_eqs!).
-        if station.type == KINEMATIC
+        if station_type(station) == KINEMATIC
             eqs = [
                 eqs
                 twist_angle[station.idx] ~ 0
@@ -151,7 +153,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
             station_le_pos[:, station.idx] ~ params.spanwise_stations[station.idx].le_pos
         ]
 
-        if station.type == STATIC
+        if station_type(station) == STATIC
             eqs = [
                 eqs
                 twist_angle[station.idx] ~ params.spanwise_stations[station.idx].twist
@@ -222,7 +224,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
             twist_α[station.idx] ~ twist.twist_acc
             twist_angle[station.idx] ~ twist.angle
         ]
-        if station.type == DYNAMIC
+        if station_type(station) == DYNAMIC
             eqs = [
                 eqs
                 D(free_twist_angle[station.idx]) ~
@@ -268,7 +270,7 @@ function station_delta_eqs!(eqs, stations;
             continue
         end
         if has_point_flap(station)
-            fore, hinge, aft = station.flap_point_idxs
+            fore, hinge, aft = station.flap_points
             eqs = [eqs
                    station_delta[j] ~ point_flap_delta_expression(station,
                        collect(pos[:, fore]), collect(pos[:, hinge]),
@@ -276,8 +278,8 @@ function station_delta_eqs!(eqs, stations;
                        collect(body_R_b_to_w[:, :, station.wing]))]
             continue
         end
-        R_main = collect(body_R_b_to_w[:, :, station.flap_body_idxs[1]])
-        R_flap = collect(body_R_b_to_w[:, :, station.flap_body_idxs[2]])
+        R_main = collect(body_R_b_to_w[:, :, station.flap_bodies[1]])
+        R_flap = collect(body_R_b_to_w[:, :, station.flap_bodies[2]])
         eqs = [eqs
                station_delta[j] ~
                    flap_delta_expression(station, R_main, R_flap)]

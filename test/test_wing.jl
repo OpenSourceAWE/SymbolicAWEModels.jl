@@ -38,8 +38,8 @@ function reset_state!(sam, set)
     tf.elevation_vel = 0.0
     tf.azimuth_vel = 0.0
 
-    for point in sam.sys_struct.points
-        if point.type == SymbolicAWEModels.DYNAMIC
+    for point in sam.state.points
+        if point_type(point) == SymbolicAWEModels.DYNAMIC
             point.fix_sphere = false
             point.fix_static = false
         end
@@ -121,7 +121,7 @@ end
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
                 wing = sys.bodies[:main_wing]
-                @test wing.dynamics_type == expected_dynamics_type
+                @test body_dynamics_type(wing) == expected_dynamics_type
 
                 @test haskey(sys.points, :le_left)
                 @test haskey(sys.points, :te_left)
@@ -276,8 +276,8 @@ end
             @testset "fix_sphere" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                for point in sam.sys_struct.points
-                    if point.type == SymbolicAWEModels.DYNAMIC
+                for point in sam.state.points
+                    if point_type(point) == SymbolicAWEModels.DYNAMIC
                         point.fix_sphere = true
                     end
                 end
@@ -325,8 +325,8 @@ end
             @testset "fix_static" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                for point in sam.sys_struct.points
-                    if point.type == SymbolicAWEModels.DYNAMIC
+                for point in sam.state.points
+                    if point_type(point) == SymbolicAWEModels.DYNAMIC
                         point.fix_static = true
                     end
                 end

@@ -890,14 +890,14 @@ function Makie.plot!(ax, sys::SystemState;
             aero_forces_raw = Vec3f[]
 
             for wing in sys.wings
-                if wing.dynamics_type == RIGID_DYNAMICS
+                if body_dynamics_type(wing) == RIGID_DYNAMICS
                     # For RIGID_DYNAMICS wings, use wing.aero_force_b
                     if !iszero(wing.aero_force_b)
                         aero_force_w = wing.R_b_to_w * wing.aero_force_b
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
-                elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                elseif body_dynamics_type(wing) == SymbolicAWEModels.PARTICLE_DYNAMICS
                     # For PARTICLE_DYNAMICS wings, plot both point forces and total wing force
                     # Plot individual point forces
                     for point in sys.points
@@ -935,13 +935,13 @@ function Makie.plot!(ax, sys::SystemState;
                 forces_raw = Vec3f[]
 
                 for wing in sys_ref.wings
-                    if wing.dynamics_type == RIGID_DYNAMICS
+                    if body_dynamics_type(wing) == RIGID_DYNAMICS
                         if !iszero(wing.aero_force_b)
                             aero_force_w = wing.R_b_to_w * wing.aero_force_b
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
-                    elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                    elseif body_dynamics_type(wing) == SymbolicAWEModels.PARTICLE_DYNAMICS
                         for point in sys_ref.points
                             if point.is_wing_node && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
@@ -3928,7 +3928,7 @@ Where wing node `point` is in `wing`'s body frame: a particle wing's from its cu
 world position, a rigid wing's its undeformed offset.
 """
 function wing_node_position_b(wing, point)
-    wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS ||
+    body_dynamics_type(wing) == SymbolicAWEModels.PARTICLE_DYNAMICS ||
         return point.pos_undeformed_b
     return wing.R_b_to_w' * (point.pos_w - wing.pos_w)
 end

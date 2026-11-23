@@ -24,7 +24,7 @@ Body frame ─────────────────────▶ Wo
 ## Initial Pose
 
 Every point and body holds an initial pose in the world frame: `pos_ENU`, and for a
-body `Q_KA_to_ENU`, its body→world orientation. It is where a run starts from, and
+body `Q_KA2ENU`, its body→world orientation. It is where a run starts from, and
 a run never changes it; what moves is `pos_w` and `Q_b_to_w`.
 
 - Everything derived from geometry is derived from the initial pose, by

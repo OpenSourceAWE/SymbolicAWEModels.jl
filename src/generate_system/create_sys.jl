@@ -114,7 +114,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     end
 
     # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
-    has_particle_dynamics_wings = any(wing.dynamics_type === PARTICLE_DYNAMICS for wing in wings)
+    has_particle_dynamics_wings =
+        any(body_dynamics_type(wing) === PARTICLE_DYNAMICS for wing in wings)
 
     @variables begin
         # Point states
@@ -263,7 +264,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
 
     # Rigid wing aero wrench (body→world, transported to COM) into body loads.
     for wing in wings
-        wing.dynamics_type == RIGID_DYNAMICS || continue
+        body_dynamics_type(wing) == RIGID_DYNAMICS || continue
         widx = wing.idx
         Rbw = body_R_b_to_w[:, :, widx]
         com_off = collect(params.bodies[widx].com_offset_b)

@@ -13,7 +13,7 @@ function point_aero_force_array(sys_struct, sys)
     hasproperty(sys, :aero_force_point_b) || return nothing
     particle_node(point) = point.is_wing_node &&
         has_aero(sys_struct.bodies[point.wing_idx]) &&
-        sys_struct.bodies[point.wing_idx].dynamics_type == PARTICLE_DYNAMICS
+        body_dynamics_type(sys_struct.bodies[point.wing_idx]) == PARTICLE_DYNAMICS
     any(particle_node, sys_struct.points) || return nothing
     force = [particle_node(point) ?
                  collect(sys.body_R_b_to_w[:, :, point.wing_idx] *
@@ -104,7 +104,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
         aero_inputs = [
             getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
             for wing in sys_struct.wings
-            if wing.dynamics_type === RIGID_DYNAMICS && hasproperty(
+            if body_dynamics_type(wing) === RIGID_DYNAMICS && hasproperty(
                 getproperty(sys, Symbol("aero_$(wing.idx)")), :aero_input)]
         get_aero_input = isempty(aero_inputs) ? nothing :
             getu(sys, collect.(aero_inputs))
@@ -766,8 +766,9 @@ function get_sys_struct_hash(state::SystemState)
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
         # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
-        push!(data_parts, ("point", point.idx, point.wing_idx, something(point.body, 0),
-                           something(point.tube, 0), Int(point.type)))
+        push!(data_parts, ("point", point.idx, something(point.wing_idx, 0),
+                           something(point.body, 0), something(point.tube, 0),
+                           Int(point_type(point))))
     end
     for segment in state.segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
@@ -777,11 +778,13 @@ function get_sys_struct_hash(state::SystemState)
     end
     for station in stations
         push!(data_parts, ("station", station.idx, station.points,
-                           Int(station.type), station.flap_body_idxs,
-                           station.flap_point_idxs))
+                           Int(station_type(station)),
+                           something(station.flap_bodies, Int[]),
+                           something(station.flap_points, Int[])))
     end
     for pulley in pulleys
-        push!(data_parts, ("pulley", pulley.idx, pulley.segments, Int(pulley.type)))
+        push!(data_parts, ("pulley", pulley.idx, pulley.segments,
+                           Int(pulley_type(pulley))))
     end
     for tether in tethers
         push!(data_parts, ("tether", tether.idx, tether.segments))
@@ -797,7 +800,7 @@ function get_sys_struct_hash(state::SystemState)
         # flow_curvature adds a moment term and the lag adds states, so both are
         # structure; their constants are parameters, as is the apparent mass.
         wing_data = ("wing", wing.idx, wing.station_idxs,
-                     Int(wing.dynamics_type),
+                     Int(body_dynamics_type(wing)),
                      nameof(typeof(wing.aero)),
                      aero_hash_id(wing.aero), polar_format,
                      flow_curvature_enabled(wing), wagner_enabled(wing))
@@ -816,8 +819,8 @@ function get_sys_struct_hash(state::SystemState)
     end
     per_point_wind(state) && push!(data_parts, ("wind_mode", :per_point))
     for rigid_body in bodies
-        push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
-                           rigid_body.wing_idx))
+        push!(data_parts, ("rigid_body", rigid_body.idx, Int(body_type(rigid_body)),
+                           something(rigid_body.wing, 0)))
     end
     for tube in tubes
         # Rigidity type selects the generated law (scalar vs callable of strain).

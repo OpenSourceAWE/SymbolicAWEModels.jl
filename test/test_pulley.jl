@@ -213,21 +213,22 @@ system:
         @test haskey(sys.points, :weight)
 
         # Verify attachment points are STATIC
-        @test sys.points[:attach_left].type == SymbolicAWEModels.STATIC
-        @test sys.points[:attach_right].type == SymbolicAWEModels.STATIC
+        state = SystemState(sys)
+        @test point_type(state.points[:attach_left]) == SymbolicAWEModels.STATIC
+        @test point_type(state.points[:attach_right]) == SymbolicAWEModels.STATIC
         @test sys.points[:attach_left].pos_ENU == KVec3(-2.0, 0.0, 10.0)
         @test sys.points[:attach_right].pos_ENU == KVec3(2.0, 0.0, 10.0)
 
         # Verify pulley point is DYNAMIC with no extra mass
-        pulley_point = sys.points[:pulley_point]
-        @test pulley_point.type == SymbolicAWEModels.DYNAMIC
+        pulley_point = state.points[:pulley_point]
+        @test point_type(pulley_point) == SymbolicAWEModels.DYNAMIC
         @test pulley_point.pos_ENU[1] == 0.5  # Off-center at x=0.5
         @test pulley_point.extra_mass == 0.0
         @test pulley_point.body_frame_damping == KVec3(50.0, 50.0, 50.0)
 
         # Verify weight is DYNAMIC with 1.0 kg mass
-        weight = sys.points[:weight]
-        @test weight.type == SymbolicAWEModels.DYNAMIC
+        weight = state.points[:weight]
+        @test point_type(weight) == SymbolicAWEModels.DYNAMIC
         @test weight.extra_mass == 1.0
 
         # Verify segments
@@ -254,8 +255,7 @@ system:
         @test length(sys.pulleys) == 1
         @test haskey(sys.pulleys, :main_pulley)
 
-        pulley = sys.pulleys[:main_pulley]
-        @test pulley.type == SymbolicAWEModels.DYNAMIC
+        @test pulley_type(state.pulleys[:main_pulley]) == SymbolicAWEModels.DYNAMIC
 
         println("\n  ====== Loaded pulley system: $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.pulleys)) pulley ======\n")
     end
@@ -591,7 +591,7 @@ system:
         @test imbalance ≈ -2 * (unit_damping / len) * speed
 
         # The rate the segments see is the one the split integrates, brake included.
-        pulley = sys.pulleys[:main_pulley]
+        pulley = SystemState(sys).pulleys[:main_pulley]
         @test SymbolicAWEModels.pulley_len_rate(pulley, 0.4) ≈ 0.4
         pulley.brake = true
         @test SymbolicAWEModels.pulley_len_rate(pulley, 0.4) ≈ 0.0

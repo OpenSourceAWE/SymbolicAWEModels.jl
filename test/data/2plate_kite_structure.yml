@@ -33,7 +33,6 @@ points:
     - "body"
     - "pos_ENU"
     - "extra_mass"
-    - "type"
     - "body_frame_damping"
     - "world_frame_damping"
     - "area"
@@ -45,7 +44,6 @@ points:
     - "-"
     - "m"
     - "kg"
-    - "-"
     - "N*s/m"
     - "N*s/m"
     - "m^2"
@@ -61,12 +59,11 @@ points:
         - 1.0
         - 17.174371553460784
       - 0.1
-      - "BODY_STATIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "te_left"
       - false
@@ -76,12 +73,11 @@ points:
         - 1.0
         - 16.76139727670994
       - 0.1
-      - "BODY_STATIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "le_center"
       - false
@@ -91,12 +87,11 @@ points:
         - 0.0
         - 17.557393775020273
       - 0.1
-      - "BODY_STATIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "te_center"
       - false
@@ -106,12 +101,11 @@ points:
         - 0.0
         - 17.14441949826943
       - 0.1
-      - "BODY_STATIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "le_right"
       - false
@@ -121,12 +115,11 @@ points:
         - -1.0
         - 17.174371553460784
       - 0.1
-      - "BODY_STATIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "te_right"
       - false
@@ -136,12 +129,11 @@ points:
         - -1.0
         - 16.76139727670994
       - 0.1
-      - "BODY_STATIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "steering_left"
       - false
@@ -151,12 +143,11 @@ points:
         - 0.5
         - 15.70391108393905
       - 0.1
-      - "DYNAMIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "steering_right"
       - false
@@ -166,12 +157,11 @@ points:
         - -0.5
         - 15.70391108393905
       - 0.1
-      - "DYNAMIC"
       - 10.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "kcu"
       - false
@@ -181,12 +171,11 @@ points:
         - 0.0
         - 15.32088886237956
       - 1.0
-      - "BODY_STATIC"
       - 0.0
       - 0.0
       - 0.1
       - 1.0
-      - "main_wing"
+      - 1
     -
       - "ground"
       - true
@@ -196,12 +185,11 @@ points:
         - 0.0
         - 0.0
       - 0.0
-      - "STATIC"
       - 0.0
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
+      - 1
     -
       - "main_tether_point_1"
       - false
@@ -211,7 +199,6 @@ points:
         - 0.0
         - 12.767407385316302
       - 0.0
-      - ~
       - ~
       - ~
       - ~
@@ -231,7 +218,6 @@ points:
       - ~
       - ~
       - ~
-      - ~
     -
       - "main_tether_point_3"
       - false
@@ -241,7 +227,6 @@ points:
         - 0.0
         - 7.66044443118978
       - 0.0
-      - ~
       - ~
       - ~
       - ~
@@ -261,7 +246,6 @@ points:
       - ~
       - ~
       - ~
-      - ~
     -
       - "main_tether_point_5"
       - false
@@ -271,7 +255,6 @@ points:
         - 0.0
         - 2.5534814770632592
       - 0.0
-      - ~
       - ~
       - ~
       - ~

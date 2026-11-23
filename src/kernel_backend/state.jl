@@ -232,7 +232,7 @@ by [`kinematic_wing_readouts`](@ref) instead.
 function rigid_wing_readouts(model::KernelModel, sys_struct)
     readouts = RigidWingReadout[]
     for wing in sys_struct.wings
-        wing.dynamics_type == RIGID_DYNAMICS || continue
+        body_dynamics_type(wing) == RIGID_DYNAMICS || continue
         instance = model.body_instances[wing.idx]
         instance == 0 && continue
         base_point = transform_base_point(sys_struct.transforms, wing.idx)
@@ -253,7 +253,7 @@ reference points and its aerodynamic surface points, resolved once.
 function kinematic_wing_readouts(sys_struct)
     readouts = KinematicWingReadout[]
     for (idx, body) in enumerate(sys_struct.bodies)
-        body.type == KINEMATIC || continue
+        body_type(body) == KINEMATIC || continue
         aero = [i for (i, point) in enumerate(sys_struct.points)
                 if point.is_wing_node && point.wing_idx == idx]
         push!(readouts, KinematicWingReadout(idx, body.z_ref_points[1],
@@ -311,7 +311,7 @@ end
 """The body whose frame point `idx`'s `va_b` is expressed in when the point has no
 [`AeroInflowPoint`](@ref) to read it from: the wing it belongs to, or 0 for a point
 belonging to none, where `va_b` stays zero as it does in the monolith."""
-va_frame_body(sys_struct, idx) = sys_struct.points[idx].wing_idx
+va_frame_body(sys_struct, idx) = something(sys_struct.points[idx].wing_idx, 0)
 
 """The slot `instance` gathers its incident segments' half-masses into, or 0 if it
 has no `mass_in` input. With `extra_mass` this is the monolith's `point_mass`, which

@@ -190,7 +190,7 @@ system:
 
         # Verify point properties
         test_point = sys.points[:test_point]
-        @test test_point.type == SymbolicAWEModels.DYNAMIC
+        @test point_type(sys.points[:test_point]) == SymbolicAWEModels.DYNAMIC
         @test test_point.pos_ENU == KVec3(0.0, 0.0, 100.0)
         @test test_point.extra_mass == 0.69
         @test test_point.area == 0.1
@@ -209,7 +209,7 @@ system:
         # Use no-drag YAML for cleaner test
         sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
             system_name="point_no_drag_test", set=set)
-        @test sys.points[:test_point].area == 0.0
+        @test SystemState(sys).points[:test_point].area == 0.0
 
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
@@ -310,8 +310,9 @@ system:
         sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
             system_name="point_no_drag_test", set=set)
 
-        @test sys.points[:test_point].area == 0.0
-        @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
+        @test SystemState(sys).points[:test_point].area == 0.0
+        @test SystemState(sys).points[:test_point].world_frame_damping ==
+              KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 0.69
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -357,8 +358,9 @@ system:
         sys, transforms = load_sys_struct_from_yaml(yaml_damping_path;
             system_name="damping_test", set=set)
 
-        @test sys.points[:test_point].world_frame_damping == KVec3(0.7, 0.7, 0.7)
-        @test sys.points[:test_point].area == 0.0
+        @test SystemState(sys).points[:test_point].world_frame_damping ==
+              KVec3(0.7, 0.7, 0.7)
+        @test SystemState(sys).points[:test_point].area == 0.0
         @test sys.points[:test_point].extra_mass == 2.3
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -402,13 +404,14 @@ system:
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
-        @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
+        @test SystemState(sys).points[:test_point].world_frame_damping ==
+              KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 2.3
-        @test sys.points[:test_point].total_mass == 2.3
+        @test SystemState(sys).points[:test_point].total_mass == 2.3
 
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
-        @test sys.points[:test_point].total_mass == 2.3
+        @test SystemState(sys).points[:test_point].total_mass == 2.3
 
         # Verify point properties are preserved after init
         point = sam.state.points[:test_point]
@@ -522,15 +525,15 @@ system:
 end
 
 # ============================================================================
-# `point.wing_idx` is the wing the point belongs to, and 0 means none
+# `point.wing_idx` is the wing the point belongs to, and `nothing` means none
 # ============================================================================
 @testset "Point without a wing" begin
     @testset "a point names no wing unless it says so" begin
         for type in (STATIC, DYNAMIC, KINEMATIC)
-            @test Point(:free, zeros(3), type).wing_ref == 0
+            @test isnothing(Point(:free, zeros(3), type).wing_idx)
         end
-        @test Point(:rider, zeros(3), BODY_STATIC; body=:b).wing_ref == 0
-        @test Point(:node, zeros(3), DYNAMIC; wing=:main_wing).wing_ref == :main_wing
+        @test isnothing(Point(:rider, zeros(3), BODY_STATIC; body=:b).wing_idx)
+        @test Point(:node, zeros(3), DYNAMIC; wing=:main_wing).wing_idx == :main_wing
     end
 
     tmpdir = mktempdir()
@@ -556,7 +559,7 @@ end
     @testset "free point with no wing builds and flies" begin
         sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
             system_name="point_no_wing", set)
-        @test sys.points[:kcu].wing_idx == 0
+        @test isnothing(sys.points[:kcu].wing_idx)
         @test !sys.points[:kcu].is_wing_node
 
         sam = SymbolicAWEModel(set, sys; transforms, vsm_set)

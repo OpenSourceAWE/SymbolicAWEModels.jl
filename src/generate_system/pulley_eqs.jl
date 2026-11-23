@@ -32,7 +32,7 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
         pulley_acc(t)[eachindex(pulleys)]
     end
     for pulley in pulleys
-        pulley.type == DYNAMIC || error("Wrong pulley type")
+        pulley_type(pulley) == DYNAMIC || error("Wrong pulley type")
         mass = pulley_rope_mass(params, pulley.idx, pulley.segments[1])
         line_tension = 0.5 * (spring_force[pulley.segments[1]] +
                               spring_force[pulley.segments[2]])

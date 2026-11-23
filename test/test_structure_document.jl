@@ -83,13 +83,14 @@ function pretensioned_tether(set; winches=Winch[])
 end
 
 """World position of `body`'s centre of mass."""
-com_w(body) =
-    body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
+com_w(body) = SymbolicAWEModels.origin_ENU(body) .+
+    SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
     body = sys.bodies[tube.bodies[2]]
-    return body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
+    return SymbolicAWEModels.origin_ENU(body) .+
+        SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
 end
 
 """The `header` cells of the rows of `block` in `document`, by row name."""
@@ -240,8 +241,9 @@ end
                                           prn=false)
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
-        @test reread.bodies[:main_wing].origin_ENU ≈ sys.bodies[:main_wing].origin_ENU
-        @test reread.bodies[:main_wing].Q_KA_to_ENU ≈ sys.bodies[:main_wing].Q_KA_to_ENU
+        @test SymbolicAWEModels.origin_ENU(reread.bodies[:main_wing]) ≈
+              SymbolicAWEModels.origin_ENU(sys.bodies[:main_wing])
+        @test reread.bodies[:main_wing].Q_KA2ENU ≈ sys.bodies[:main_wing].Q_KA2ENU
     end
 
     @testset "bodies and tubes round-trip through $extension" for
@@ -253,14 +255,15 @@ end
         save_structure_document(path, sys)
         reread = load_structure_document(path; set, prn=false)
         @test structure_document(reread) == document
-        @test reread.bodies[:root].type == STATIC
+        @test reread.bodies[:root].fixed
         @test SymbolicAWEModels.SystemState(reread).tubes[:beam].bodies[1] ==
               reread.bodies[:root].idx
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
-        @test reread.points[:hub_anchor].body_idx == reread.bodies[:hub].idx
+        @test reread.points[:hub_anchor].body == reread.bodies[:hub].idx
+        state, reread_state = SystemState(sys), SystemState(reread)
         for name in (:tip, :hub)
-            body, reread_body = sys.bodies[name], reread.bodies[name]
+            body, reread_body = state.bodies[name], reread_state.bodies[name]
             @test reread_body.total_mass ≈ body.total_mass
             @test reread_body.inertia_principal ≈ body.inertia_principal
             @test com_w(reread_body) ≈ com_w(body)

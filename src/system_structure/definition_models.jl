@@ -11,8 +11,6 @@ builds the structure, which no document holds.
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct PointModel <: KiteGeometry.AbstractModel
-    "Dynamics type, such as `DYNAMIC`, `STATIC` or `BODY_STATIC`."
-    type::Union{Nothing, String} = nothing
     "Damping in the body frame [N·s/m], one value or one per axis."
     body_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Damping in the world frame [N·s/m], one value or one per axis."
@@ -31,12 +29,6 @@ $(TYPEDFIELDS)
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
     "Index in the structure's points."
     idx::Int64 = 0
-    "Index of the wing the point belongs to; 0 for none."
-    resolved_wing_idx::Int64 = 0
-    "Index of the body the point rides; 0 for none."
-    resolved_body_idx::Int64 = 0
-    "Index of the tube the point rides; 0 for none."
-    resolved_tube_idx::Int64 = 0
     "Where the point sits in the frame of the body it rides [m]: `anchor_b`, else where its
     position puts it."
     resolved_anchor_b::KVec3 = zeros(KVec3)
@@ -56,14 +48,14 @@ $(TYPEDFIELDS)
     beam_offset_b::KVec3 = zeros(KVec3)
 end
 
-PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff,
+PointModel(body_frame_damping, world_frame_damping, area, drag_coeff,
            fix_sphere, fix_static, wing_idx, anchor_b) =
-    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff,
+    PointModel(; body_frame_damping, world_frame_damping, area, drag_coeff,
                fix_sphere, fix_static, wing_idx, anchor_b,
                resolved_anchor_b=KVec3(something(anchor_b, zeros(3))))
 
 KiteGeometry.model_columns(::Type{PointModel}) =
-    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff,
+    (:body_frame_damping, :world_frame_damping, :area, :drag_coeff,
      :fix_sphere, :fix_static, :wing_idx, :anchor_b)
 
 """
@@ -114,14 +106,6 @@ $(TYPEDFIELDS)
     flap_axis::Union{Nothing, Vector{Float64}} = nothing
     "Index in the structure's stations."
     idx::Int64 = 0
-    "Index of the body whose twist the station carries; 0 for none."
-    resolved_wing_idx::Int64 = 0
-    "Indices of the bodies the station twists with."
-    body_idxs::Vector{Int64} = Int64[]
-    "Indices of the main and the flap body of a body flap."
-    flap_body_idxs::Vector{Int64} = Int64[]
-    "Indices of the three points of a point flap."
-    flap_point_idxs::Vector{Int64} = Int64[]
     "Leading edge position, body frame [m]."
     le_pos::KVec3 = zeros(KVec3)
     "Chord vector, body frame [m]."
@@ -371,7 +355,7 @@ default, and `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m");
+                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m");
                     default=true)
     register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
@@ -385,7 +369,7 @@ function register_definition_models()
     register_model!(:pulleys, "sam_pulley", PulleyModel,
                     ("-", "-", "N*s/m", "-", "m/s"); default=true)
     register_model!(:bodies, "sam_body", BodyModel,
-                    ("-", "-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
+                    ("-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
                     default=true)
     register_model!(:tethers, "sam_tether", TetherModel, (); default=true)
     register_model!(:winches, "sam_winch", WinchModel, ("m/s", "-", "-", "m/s");

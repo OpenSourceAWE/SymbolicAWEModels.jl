@@ -101,23 +101,23 @@ function classify_points(sys_struct)
             roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.tube)
             continue
         end
-        if point.type == BODY_STATIC
+        if point_type(point) == BODY_STATIC
             !isnothing(point.body) || error(
                 "KernelBackend: BODY_STATIC point $(point.name) is anchored to " *
                 "neither a body nor a beam.")
             roles[i] = PointRole(:ride, 0, 0, 0, point.body, 0)
             continue
         end
-        point.type in (STATIC, DYNAMIC) || error(
-            "KernelBackend: point $(point.name) has type $(point.type); only " *
+        point_type(point) in (STATIC, DYNAMIC) || error(
+            "KernelBackend: point $(point.name) has type $(point_type(point)); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
         wing = kinematic_wing_of(sys_struct, point)
-        kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
+        kind = point_type(point) == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
         roles[i] = PointRole(kind, 0, 0, 0, wing, 0)
     end
     for pulley in sys_struct.pulleys
-        pulley.type == DYNAMIC || error(
-            "KernelBackend: pulley $(pulley.name) has type $(pulley.type); " *
+        pulley_type(pulley) == DYNAMIC || error(
+            "KernelBackend: pulley $(pulley.name) has type $(pulley_type(pulley)); " *
             "only DYNAMIC pulleys exist.")
         index = pulley_point_index(sys_struct, pulley)
         roles[index] = PointRole(:pulley, pulley.idx, pulley.segments[1],
@@ -125,7 +125,7 @@ function classify_points(sys_struct)
     end
     for winch in sys_struct.winches
         index = winch.winch_point
-        sys_struct.points[index].type == STATIC || error(
+        point_type(sys_struct.points[index]) == STATIC || error(
             "KernelBackend: winch $(winch.name) is at a non-STATIC point.")
         roles[index] = PointRole(:winch, 0, 0, winch.idx, 0, 0)
     end
@@ -142,7 +142,7 @@ and so does [`classify_points`](@ref).
 """
 rigid_wing_node(sys_struct, point) =
     point.is_wing_node &&
-    sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
+    body_dynamics_type(sys_struct.bodies[point.wing_idx]) == RIGID_DYNAMICS
 
 """
     station_of(sys_struct, idx) -> Int
@@ -168,8 +168,8 @@ a steering or pulley point with `body_frame_damping` needs it too.
 """
 function kinematic_wing_of(sys_struct, point)
     idx = point.wing_idx
-    idx > 0 || return 0
-    return sys_struct.bodies[idx].type == KINEMATIC ? idx : 0
+    isnothing(idx) && return 0
+    return body_type(sys_struct.bodies[idx]) == KINEMATIC ? idx : 0
 end
 
 """
@@ -357,7 +357,7 @@ function assemble(sam; verbose = false)
                       point_instances, segment_instances, wrench_instances)
     end
     for (idx, body) in enumerate(sys_struct.bodies)
-        body.type == KINEMATIC || continue
+        body_type(body) == KINEMATIC || continue
         wire_kinematic_body!(builder, sys_struct, idx, body_instances[idx],
                           point_instances)
     end
@@ -369,10 +369,10 @@ function assemble(sam; verbose = false)
                  point_instances[idx], :wing_velocity)
     end
     for (idx, body) in enumerate(sys_struct.bodies)
-        (body.type == DYNAMIC && body.wing_idx != 0) || continue
-        connect!(builder, body_instances[body.wing_idx], :frame,
+        (body_type(body) == DYNAMIC && !isnothing(body.wing)) || continue
+        connect!(builder, body_instances[body.wing], :frame,
                  body_instances[idx], :wing_frame)
-        connect!(builder, body_instances[body.wing_idx], :vel,
+        connect!(builder, body_instances[body.wing], :vel,
                  body_instances[idx], :wing_velocity)
     end
     for tube in sys_struct.tubes
@@ -424,14 +424,14 @@ function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
         instance = add_instance!(builder, entry.index)
         push!(bindings, (instance, entry, Dict(:spanwise_stations => surface.idx)))
         if point_flap
-            for (k, idx) in enumerate(surface.flap_point_idxs)
+            for (k, idx) in enumerate(surface.flap_points)
                 connect!(builder, points[idx], :pos, instance,
                          Symbol(:point_pos_, k))
             end
             connect!(builder, bodies[surface.wing], :frame, instance,
                      :wing_frame)
         else
-            main, flap = surface.flap_body_idxs
+            main, flap = surface.flap_bodies
             connect!(builder, bodies[main], :frame, instance, :main_frame)
             connect!(builder, bodies[flap], :frame, instance, :flap_frame)
         end
@@ -455,7 +455,7 @@ frame, then the aero, then the derivatives.
 """
 function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
                         twists, wrenches, inflow_instances, aero_force_outputs)
-    wing.dynamics_type == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
         builder, table, bindings, sam, wing, bodies, twists)
     supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
         builder, table, bindings, sam, wing, bodies, points, flaps, wrenches,
@@ -776,15 +776,15 @@ one is clamped, and a `KINEMATIC` one is fitted from reference points.
 """
 function add_body!(builder, table, bindings, sam, idx)
     body = sam.state.bodies[idx]
-    body.type == KINEMATIC && return add_kinematic_body!(builder, table, bindings,
+    body_type(body) == KINEMATIC && return add_kinematic_body!(builder, table, bindings,
                                                       sam, idx)
-    body.type in (DYNAMIC, STATIC) || error(
-        "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
+    body_type(body) in (DYNAMIC, STATIC) || error(
+        "KernelBackend: body $(body.name) has type $(body_type(body)); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
-    parented = body.type != STATIC && body.wing_idx != 0
-    key = body.type == STATIC ? :static_body :
+    parented = body_type(body) != STATIC && !isnothing(body.wing)
+    key = body_type(body) == STATIC ? :static_body :
         parented ? :parented_rigid_body : :rigid_body
-    make = body.type == STATIC ?
+    make = body_type(body) == STATIC ?
         (params -> StaticBody(sam, params, idx; name = key)) :
         (params -> RigidBody(sam, params, idx; name = key, parented))
     entry = kernel!(builder, table, sam, key, idx, make,
@@ -948,8 +948,8 @@ Add one twist instance per station that has a section twist to report: a
 function add_stations!(builder, table, bindings, sam)
     instances = zeros(Int, length(sam.state.spanwise_stations))
     for surface in sam.state.spanwise_stations
-        surface.type in (DYNAMIC, STATIC) || continue
-        dynamic = surface.type == DYNAMIC
+        station_type(surface) in (DYNAMIC, STATIC) || continue
+        dynamic = station_type(surface) == DYNAMIC
         key = dynamic ? :station : :prescribed_twist
         make = dynamic ? StationDOF : PrescribedTwist
         entry = kernel!(builder, table, sam, key, surface.idx,
@@ -1013,7 +1013,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     if surface > 0 && twists[surface] != 0
         connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
         connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
-        if sam.state.spanwise_stations[surface].type == DYNAMIC
+        if station_type(sam.state.spanwise_stations[surface]) == DYNAMIC
             connect!(builder, wrench, :node_force, twists[surface], :node_force_in)
             connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
             connect!(builder, wrench, :node_mass, twists[surface], :node_mass_in)
@@ -1368,7 +1368,7 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
     for (idx, instance) in enumerate(twist_instances)
         instance == 0 && continue
         surface = sys_struct.spanwise_stations[idx]
-        surface.type == DYNAMIC || continue
+        station_type(surface) == DYNAMIC || continue
         u0[only(buffer_slots(system, instance, :states, :free_twist_angle))] =
             surface.twist
         u0[only(buffer_slots(system, instance, :states, :twist_omega))] =
@@ -1377,7 +1377,7 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
     for (idx, instance) in enumerate(body_instances)
         body = sys_struct.bodies[idx]
         # Only a DYNAMIC body integrates; a clamped or fitted one has no state.
-        body.type == DYNAMIC || continue
+        body_type(body) == DYNAMIC || continue
         u0[buffer_slots(system, instance, :states, :com_w)] .= body.com_w
         u0[buffer_slots(system, instance, :states, :com_vel)] .= body.com_vel
         u0[buffer_slots(system, instance, :states, :Q)] .= body.Q_p_to_w

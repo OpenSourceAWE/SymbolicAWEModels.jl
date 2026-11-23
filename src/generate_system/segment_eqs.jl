@@ -126,7 +126,7 @@ function segment_eqs!(s, eqs, points, segments,
 
         with_drag = !wing_structural_segment(params.reg.sys_struct, idx)
         rigid_link = !with_drag &&
-            bodies[points[src].wing_idx].dynamics_type == RIGID_DYNAMICS
+            body_dynamics_type(bodies[points[src].wing_idx]) == RIGID_DYNAMICS
         if rigid_link
             seg_vec, seg_len, axis, closing_vel =
                 segment_geometry(src_pos, dst_pos, src_vel, dst_vel)

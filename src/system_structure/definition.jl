@@ -12,7 +12,7 @@ function definition_rows(sys)
     materials = sys.materials
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
-        points=[point_row!(point) for point in sys.points],
+        points=collect(sys.points),
         segments=collect(sys.segments),
         spanwise_stations=[station_row(sys, station) for station in sys.spanwise_stations],
         pulleys=collect(sys.pulleys),
@@ -39,35 +39,29 @@ end
 
 """`station` with the wing whose twist it carries."""
 function station_row(sys, station)
-    station.wing_ref = station_wing_idx(sys, station)
+    station.wing = station_wing_idx(sys, station)
     return station
 end
 
 """The wing whose twist `station` carries: its own, else the one listing it, refusing a
 station on no wing."""
 function station_wing_idx(sys, station)
-    station.wing_idx in eachindex(sys.wings) && return station.wing_idx
+    station.wing isa Int && station.wing in eachindex(sys.wings) && return station.wing
     idx = findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
     isnothing(idx) && error("Station $(station.name) is on no wing: a spanwise station " *
                             "is part of a wing.")
     return idx
 end
 
-"""`point` naming the body and the tube it rides by the indices they resolve to."""
-function point_row!(point)
-    point.body = reference_column(point.body_idx)
-    point.tube = reference_column(point.tube_idx)
-    return point
-end
-
 function wing_row(sys, wing)
     origin, R = mesh_frame(wing)
     return KiteGeometry.Wing(; name=definition_name(wing), pos_ENU=origin,
         Q_KA2ENU=rotation_matrix_to_quaternion(R), body=wing.idx,
-        model=WingModel(aero_mode_name(wing.aero), Vector(wing.angular_damping),
+        model=WingModel(aero_mode_name(wing.aero), Vector(body_angular_damping(wing)),
             wing_engine_field(wing, :aero_scale_chord),
-            wing_engine_field(wing, :aero_z_offset), string(wing.principal_frame_method),
-            string(wing.dynamics_type), ref_points_cell(sys, wing.origin),
+            wing_engine_field(wing, :aero_z_offset),
+            string(body_principal_frame_method(wing)),
+            string(body_dynamics_type(wing)), ref_points_cell(sys, wing.origin),
             ref_pair_cell(sys, wing.z_ref_points), ref_pair_cell(sys, wing.y_ref_points),
             nothing, nothing, nothing, wing_drag_corr(wing.aero),
             references_column(wing.station_idxs)))
@@ -79,7 +73,7 @@ aero_mode_name(::AeroSpec{M}) where {M} = string(nameof(M))
 
 """A VSM adjustment of `wing`, `nothing` for a wing flown without VSM."""
 wing_engine_field(wing, field) =
-    wing.aero isa AeroSpec ? Float64(getfield(body_model(wing), field)) : nothing
+    wing.aero isa AeroSpec ? Float64(getfield(wing.model, field)) : nothing
 
 """The drag correction of a flat-plate aero model, `nothing` for another."""
 wing_drag_corr(aero) = hasproperty(aero, :drag_corr) ? aero.drag_corr : nothing
@@ -115,6 +109,7 @@ function tube_row!(materials, sys, tube)
         TimoshenkoTubeModel(rigidities..., model.shear_coeff, model.damping, anchors...)
     return KiteGeometry.Tube(; name=definition_name(tube),
         bodies=(tube.bodies[1], tube.bodies[2]), tube.diameter, tube.pressure,
-        material=material!(materials, string(tube.law), tube_law_parameters(tube.law)),
+        material=material!(materials, string(tube.material),
+                           tube_law_parameters(tube.material)),
         model=row_model)
 end

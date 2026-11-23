@@ -101,7 +101,7 @@ normalized_inertia(::AbstractAeroModel, wing, points) =
     normalized_point_inertia(wing, points)
 
 function normalized_inertia(::AeroSpec, wing, points)
-    model = body_model(wing)
+    model = wing.model
     tensor = model.mesh_unit_inertia
     (isnothing(tensor) || all(iszero, tensor)) &&
         return normalized_point_inertia(wing, points)
@@ -507,7 +507,7 @@ function apply_apparent_mass!(sys_struct, wing, rho)
     end
     scale = unsteady_aero(wing).apparent_mass
     scale == 0 && return nothing
-    wing.dynamics_type == PARTICLE_DYNAMICS || error(
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || error(
         "Wing $(wing.name): apparent_mass acts on the nodes' own acceleration, " *
         "which a RIGID_DYNAMICS wing does not integrate.")
     supports_panel_decomposition(wing.aero) || error(
@@ -1074,7 +1074,7 @@ Check the built aero `subsys` exposes the connectors the wiring layer needs for
 the wing's `dynamics_type`; error naming the missing connector otherwise.
 """
 function validate_aero_component(subsys, wing)
-    if wing.dynamics_type == RIGID_DYNAMICS
+    if body_dynamics_type(wing) == RIGID_DYNAMICS
         required = Symbol[:va, :rho, :R_b_w, :omega, :force, :moment]
         length(wing.station_idxs) > 0 &&
             append!(required, [:twist, :twist_vel, :twist_moment])
@@ -1248,7 +1248,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
     end
 
     for wing in wings
-        wing.dynamics_type == RIGID_DYNAMICS || continue
+        body_dynamics_type(wing) == RIGID_DYNAMICS || continue
         try
             refresh_rigid_aero!(wing.aero, wing, sam.am, stations;
                                 vsm_min_wind)
@@ -1257,14 +1257,14 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
         end
     end
 
-    any(w.dynamics_type === PARTICLE_DYNAMICS for w in wings) ||
+    any(body_dynamics_type(w) === PARTICLE_DYNAMICS for w in wings) ||
         return nothing
     va_point_b_vals = Matrix{SimFloat}(undef, 3, length(points))
     for point in points
         @views va_point_b_vals[:, point.idx] .= point.va_b
     end
     for wing in wings
-        wing.dynamics_type == PARTICLE_DYNAMICS || continue
+        body_dynamics_type(wing) == PARTICLE_DYNAMICS || continue
         apply_flap_delta!(wing.aero, wing, sam.state)
         try
             refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
@@ -1337,7 +1337,7 @@ remake_aero!(::AbstractAeroModel, wing, set, vsm_set, state) = nothing
 function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, state)
     wing.vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-    wing.vsm_solver = build_vsm_solver(wing.vsm_aero, vsm_set, wing.dynamics_type,
+    wing.vsm_solver = build_vsm_solver(wing.vsm_aero, vsm_set, body_dynamics_type(wing),
                                        length(wing.station_idxs))
     return setup_model_aero!(wing, state)
 end
@@ -1364,7 +1364,7 @@ need no mapping).
 validate_aero_structure(::AbstractAeroModel, wing, points; prn=false) = nothing
 
 function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
-    wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return nothing
     @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
 
     n_sections = length(wing.vsm_wing.unrefined_sections)
@@ -1421,14 +1421,14 @@ The initial pose of `wing`'s body in the frame its mesh is authored in.
 """
 function body_in_mesh_frame(wing)
     origin, R = mesh_frame(wing)
-    return R' * (wing.origin_ENU - origin), R' * initial_rotation(wing)
+    return R' * (origin_ENU(wing) - origin), R' * initial_rotation(wing)
 end
 
 """Record the pose of a VSM `wing`'s body in its mesh's frame, on the wing's model."""
 store_mesh_pose!(wing) = store_mesh_pose!(wing.aero, wing)
 store_mesh_pose!(::AbstractAeroModel, wing) = nothing
 function store_mesh_pose!(::AeroSpec, wing)
-    model = body_model(wing)
+    model = wing.model
     origin, R_b_to_mesh = body_in_mesh_frame(wing)
     model.mesh_origin_b = KVec3(origin)
     model.R_b_to_mesh = Matrix{SimFloat}(R_b_to_mesh)
@@ -1437,8 +1437,8 @@ end
 
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
-    model = body_model(getfield(wing, :row))
-    if wing.dynamics_type == RIGID_DYNAMICS
+    model = (getfield(wing, :row)).model
+    if body_dynamics_type(wing) == RIGID_DYNAMICS
         transform_vsm_sections_to_body!(wing, model.mesh_origin_b, model.R_b_to_mesh;
                                         aero_z_offset=wing.aero_z_offset)
 
@@ -1473,7 +1473,7 @@ sizing estimated from `n_unrefined`). Default no-op; VSM modes resize
 resize_aero_state!(::AbstractAeroModel, wing) = nothing
 
 function resize_aero_state!(mode::AbstractVSMAero, wing)
-    wing.dynamics_type == RIGID_DYNAMICS || return nothing
+    body_dynamics_type(wing) == RIGID_DYNAMICS || return nothing
     n_stations = length(wing.station_idxs)
     num_aero_outputs = 6 + n_stations
     num_aero_inputs = 5 + n_stations
@@ -1764,7 +1764,7 @@ read_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
 function read_aero_log_points!(mode::AbstractVSMAero, wing, sys_struct,
                                sys_state, point_idx)
     n_corners = 4 * length(mode.vsm_aero.panels)
-    wing.dynamics_type == RIGID_DYNAMICS && return point_idx + n_corners
+    body_dynamics_type(wing) == RIGID_DYNAMICS && return point_idx + n_corners
     R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
     for panel in mode.vsm_aero.panels
         for j in 1:4
@@ -1787,7 +1787,7 @@ modes deform the unrefined sections and reinit the panels.
 restore_aero_twist!(::AbstractAeroModel, wing, stations) = nothing
 
 function restore_aero_twist!(mode::AbstractVSMAero, wing, stations)
-    wing.dynamics_type == RIGID_DYNAMICS || return nothing
+    body_dynamics_type(wing) == RIGID_DYNAMICS || return nothing
     isempty(wing.station_idxs) && return nothing
     vsm = mode.vsm_wing
     isempty(vsm.non_deformed_sections) && return nothing

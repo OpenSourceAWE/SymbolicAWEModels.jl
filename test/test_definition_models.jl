@@ -30,7 +30,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         system = load_kite(dynamics)
         le_left = named(system.points, "le_left")
         @test le_left.model isa SymbolicAWEModels.PointModel
-        @test le_left.model.type == point_type
+        @test string(SymbolicAWEModels.point_type(le_left)) == point_type
         @test le_left.model.body_frame_damping == 10.0
         @test le_left.model.world_frame_damping == 0.0
         @test le_left.area == 0.0
@@ -64,7 +64,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
             """)
         body = named(first(load_authoring(file; set)).bodies, "hub")
         @test body.model isa SymbolicAWEModels.BodyModel
-        @test body.model.type == "STATIC"
+        @test body.fixed
     end
 
     @testset "a point's damping reads as one number or one per axis" begin
@@ -109,7 +109,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         @test tube.stiffness_bending == 100.0
         @test tube.anchor_a == [0.5, 0.0, 0.0]
         @test only(system.points).anchor_b == zeros(3)
-        @test named(system.bodies, "nodeA").model.type == "STATIC"
+        @test named(system.bodies, "nodeA").fixed
         tube = only(load_beam("""
               headers: [name, bodies, diameter, pressure, law, EA, damping]
               data:
@@ -143,7 +143,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         sys, _ = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
                                            aero_mode=AeroNone(), prn=false)
         rider = sys.points[:rider]
-        @test rider.tube_idx == findfirst(tube -> tube.name == :strut, sys.tubes)
+        @test rider.tube == findfirst(tube -> tube.name == :strut, sys.tubes)
     end
 
     @testset "a segment's damping is resolved when its model is built" begin

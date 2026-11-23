@@ -228,11 +228,11 @@ function model_aero(spec::AeroSpec{M}, body, set, vsm_set) where {M}
     isnothing(set) && return spec
     isnothing(vsm_set) && error("Wing $(body.name): aero mode $(nameof(M)) needs VSM " *
         "geometry, but the model has no `vsm_set` and the project names no `vsm_settings`.")
-    return M(build_vsm_engine(set, vsm_set, body.dynamics_type;
+    return M(build_vsm_engine(set, vsm_set, body_dynamics_type(body);
         n_stations=length(body.station_idxs),
-        aero_scale_chord=body_model(body).aero_scale_chord,
-        aero_z_offset=body_model(body).aero_z_offset,
-        unsteady=copy_unsteady(body_model(body).unsteady)); spec.options...)
+        aero_scale_chord=body.model.aero_scale_chord,
+        aero_z_offset=body.model.aero_z_offset,
+        unsteady=copy_unsteady(body.model.unsteady)); spec.options...)
 end
 
 """A new [`UnsteadyAero`](@ref) with the values of `unsteady`."""
@@ -284,97 +284,28 @@ the structure resolves it to, and `anchor_b` where it rides its body, given or d
 """
 const Point = KiteGeometry.Point{PointModel}
 
-"""
-    row_property(row, Val(property))
-
-Property `property` of the component KiteGeometry row `row` is: a field of the row, else
-of its model, an unset column reading as its default.
-"""
-@inline function row_property(row::KiteGeometry.Component, ::Val{property}) where {property}
-    hasfield(typeof(row), property) && return getfield(row, property)
-    return getfield(getfield(row, :model), property)
-end
-"""The [`PointModel`](@ref) of point row `row`."""
-@inline point_model(row::Point) = getfield(row, :model)
-row_property(row::Point, ::Val{:type}) = point_type(row)
-@inline row_property(row::Point, ::Val{:disturb}) = row_property(row, Val(:ext_force_w))
-@inline row_property(row::Point, ::Val{:extra_mass}) =
-    something(getfield(row, :extra_mass), 0.0)
-@inline row_property(row::Point, ::Val{:body_frame_damping}) =
-    per_axis(point_model(row).body_frame_damping)
-@inline row_property(row::Point, ::Val{:world_frame_damping}) =
-    per_axis(point_model(row).world_frame_damping)
-@inline row_property(row::Point, ::Val{:anchor_b}) = point_model(row).resolved_anchor_b
-@inline row_property(row::Point, ::Val{:wing_ref}) = reference(point_model(row).wing_idx)
-@inline row_property(row::Point, ::Val{:body_ref}) = reference(getfield(row, :body))
-@inline row_property(row::Point, ::Val{:tube_ref}) = reference(getfield(row, :tube))
-@inline row_property(row::Point, ::Val{:wing_idx}) = point_model(row).resolved_wing_idx
-@inline row_property(row::Point, ::Val{:body_idx}) = point_model(row).resolved_body_idx
-@inline row_property(row::Point, ::Val{:tube_idx}) = point_model(row).resolved_tube_idx
-
-"""A reference column as a component reads it: its name or index, 0 for none."""
-reference(::Nothing) = 0
-reference(ref::KiteGeometry.NameRef) = ref
 
 """A reference as a column holds it: `nothing` for none (0)."""
 reference_column(ref) = ref == 0 ? nothing : ref
 
-"""
-    set_row_property!(row, Val(property), value)
 
-Write `value` to what property `property` of KiteGeometry row `row` reads: a field of the
-row or of its model, a vector as a `Vector{Float64}`.
-"""
-function set_row_property!(row::KiteGeometry.Component, ::Val{property},
-                           value) where {property}
-    hasfield(typeof(row), property) && return invoke(setproperty!,
-        Tuple{KiteGeometry.Component, Symbol, Any}, row, property, value)
-    model = getfield(row, :model)
-    ismutable(model) || return setfield!(row, :model, with_field(model, property, value))
-    setfield!(model, property, field_value(fieldtype(typeof(model), property), value))
-    return value
-end
-
-"""`value` as a field of type `T` holds it: a vector as a `Vector{Float64}` where `T` is a
-column of one."""
-field_value(T, value) = convert(T, value)
-field_value(T, values::AbstractVector{<:Real}) =
-    Vector{Float64} <: T ? Vector{Float64}(values) : convert(T, values)
-function set_row_property!(row::Point, ::Val{:type}, type::DynamicsType)
-    row.model.type = string(type)
-    row.fixed = type == STATIC
-    return type
-end
-set_row_property!(row::Point, ::Val{:disturb}, value) =
-    set_row_property!(row, Val(:ext_force_w), value)
-set_row_property!(row::Point, ::Val{:wing_ref}, ref) =
-    row.model.wing_idx = reference_column(ref)
-set_row_property!(row::Point, ::Val{:body_ref}, ref) = row.body = reference_column(ref)
-set_row_property!(row::Point, ::Val{:tube_ref}, ref) = row.tube = reference_column(ref)
-set_row_property!(row::Point, ::Val{:wing_idx}, idx) = row.model.resolved_wing_idx = idx
-set_row_property!(row::Point, ::Val{:body_idx}, idx) = row.model.resolved_body_idx = idx
-set_row_property!(row::Point, ::Val{:tube_idx}, idx) = row.model.resolved_tube_idx = idx
-function set_row_property!(row::Point, ::Val{:anchor_b}, anchor)
-    row.model.anchor_b = isnothing(anchor) ? nothing : Vector{Float64}(anchor)
-    row.model.resolved_anchor_b .= something(anchor, zeros(3))
-    return anchor
-end
-
-"""`model` with field `field` set to `value`."""
-with_field(model::T, field, value) where {T} =
-    T((name === field ? value : getfield(model, name) for name in fieldnames(T))...)
 
 """A value one per axis: a vector column as it is, one number on every axis, zero unset."""
 per_axis(values::Vector{Float64}) = values
 per_axis(value::Float64) = SVector(value, value, value)
 per_axis(::Nothing) = zero(SVector{3, Float64})
 
-"""The dynamics type of the point `row` describes: its `type`, else what `fixed` and
-`body` give."""
-function point_type(row::KiteGeometry.Point)
-    type = row.model.type
-    isnothing(type) || return parse_dynamics_type(type)
-    return row.fixed ? STATIC : isnothing(row.body) ? DYNAMIC : BODY_STATIC
+"""The dynamics type of the twist of `station`, from its `type` column."""
+station_type(station) = parse_dynamics_type(station.type)
+
+"""The dynamics type of `pulley`, from its `type` column."""
+pulley_type(pulley) = parse_dynamics_type(pulley.type)
+
+"""The dynamics type of `point`: `STATIC` where it is held, `BODY_STATIC` where it rides a
+body or a tube, `DYNAMIC` otherwise."""
+function point_type(point)
+    point.fixed && return STATIC
+    return isnothing(point.body) && isnothing(point.tube) ? DYNAMIC : BODY_STATIC
 end
 
 """
@@ -428,41 +359,32 @@ function Point(name, pos_ENU, type::DynamicsType;
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
-    model = PointModel(; type=string(type),
+    if type == BODY_STATIC
+        all(isnothing, (body, tube, wing)) && error(
+            "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
+            "reference (a wing is a body, so `wing` rides that wing's body).")
+        !isnothing(body) && !isnothing(tube) && error("Point $name: set either `body` " *
+            "(rigid rider) or `tube` (beam rider), not both.")
+        isnothing(body) && isnothing(tube) && (body = wing)
+    else
+        isnothing(body) || error("Point $name: `body` is only valid with type BODY_STATIC.")
+        isnothing(tube) || error(
+            "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
+    end
+    model = PointModel(;
         body_frame_damping=axis_column(body_frame_damping),
         world_frame_damping=axis_column(world_frame_damping), area, drag_coeff,
         fix_sphere, fix_static, wing_idx=wing,
         anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
         resolved_anchor_b=KVec3(something(anchor_b, zeros(3))), apparent_mass)
-    point = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body, tube,
+    return KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body, tube,
         pos_ENU=KVec3(pos_ENU...), extra_mass, model)
-    check_point_anchor(point)
-    return point
 end
 
 """A per-axis damping as a column of one value per axis, zero for `nothing`."""
 axis_column(::Nothing) = zeros(3)
 axis_column(value::Real) = fill(Float64(value), 3)
 axis_column(values::AbstractVector) = Vector{Float64}(values)
-
-"""Refuse a point whose type does not fit what it rides: a `BODY_STATIC` point rides a
-body, tube or wing, and only it rides a body or a tube, never both."""
-function check_point_anchor(point::Point)
-    name, type = point.name, point.type
-    body, tube, wing = point.body_ref, point.tube_ref, point.wing_ref
-    if type == BODY_STATIC
-        body == tube == wing == 0 && error(
-            "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
-            "reference (a wing is a body, so `wing` rides that wing's body).")
-    elseif body != 0
-        error("Point $name: `body` is only valid with type BODY_STATIC.")
-    end
-    body != 0 && tube != 0 && error(
-        "Point $name: set either `body` (rigid rider) or `tube` (beam rider), not both.")
-    tube != 0 && type != BODY_STATIC && error(
-        "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
-    return point
-end
 
 
 # ==================== STATION ==================== #
@@ -479,24 +401,7 @@ the indices the structure resolves them to.
 const Station = KiteGeometry.SpanwiseStation{StationModel}
 
 """The [`StationModel`](@ref) of station row `row`."""
-@inline station_model(row::Station) = getfield(row, :model)
-row_property(row::Station, ::Val{:type}) = parse_dynamics_type(station_model(row).type)
-@inline row_property(row::Station, ::Val{:wing_ref}) = getfield(row, :wing)
-@inline row_property(row::Station, ::Val{:wing_idx}) = station_model(row).resolved_wing_idx
-row_property(row::Station, ::Val{:body_refs}) = references(station_model(row).bodies)
-row_property(row::Station, ::Val{:flap_body_refs}) =
-    references(station_model(row).flap_bodies)
-row_property(row::Station, ::Val{:flap_point_refs}) =
-    references(station_model(row).flap_points)
-set_row_property!(row::Station, ::Val{:type}, type::DynamicsType) =
-    station_model(row).type = string(type)
-set_row_property!(row::Station, ::Val{:wing_ref}, ref) = row.wing = ref
-set_row_property!(row::Station, ::Val{:wing_idx}, idx) =
-    station_model(row).resolved_wing_idx = idx
 
-"""The references a list column gives, none where it is unset."""
-references(::Nothing) = KiteGeometry.NameRef[]
-references(refs::Vector{KiteGeometry.NameRef}) = refs
 
 """A list of references as a column holds it: `nothing` for none."""
 references_column(refs) =
@@ -710,30 +615,10 @@ end
 to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
 
 """The [`SegmentSpring`](@ref) of segment row `row`."""
-@inline segment_spring(row::KiteGeometry.Segment) = getfield(row, :model)
-@inline segment_spring(row::DraftSegment) = getfield(row, :model).spring
+@inline segment_spring(row::KiteGeometry.Segment) = row.model
+@inline segment_spring(row::DraftSegment) = row.model.spring
 
-@inline function row_property(row::KiteGeometry.Segment, ::Val{property}) where {property}
-    hasfield(typeof(row), property) && return getfield(row, property)
-    return getproperty(segment_spring(row), property)
-end
-@inline row_property(row::KiteGeometry.Segment, ::Val{:diameter}) =
-    something(getfield(row, :diameter), 0.0)
-@inline row_property(row::DraftSegment, ::Val{:unit_stiffness}) =
-    material_unit_stiffness(getfield(row, :model).material, row.diameter)
-@inline row_property(row::DraftSegment, ::Val{:density}) =
-    getfield(row, :model).material.parameters["density"]
 
-function set_row_property!(row::KiteGeometry.Segment, ::Val{property},
-                           value) where {property}
-    hasfield(typeof(row), property) &&
-        return setfield!(row, property, convert(fieldtype(typeof(row), property), value))
-    return setproperty!(segment_spring(row), property, value)
-end
-set_row_property!(row::DraftSegment, ::Val{:unit_stiffness}, unit_stiffness) =
-    set_material_stiffness!(getfield(row, :model).material, unit_stiffness, row.diameter)
-set_row_property!(row::DraftSegment, ::Val{:density}, density) =
-    getfield(row, :model).material.parameters["density"] = SimFloat(density)
 
 """
     set_material_stiffness!(material, unit_stiffness, diameter)
@@ -906,11 +791,6 @@ to.
 """
 const Pulley = KiteGeometry.Pulley{PulleyModel}
 
-"""The [`PulleyModel`](@ref) of pulley row `row`."""
-@inline pulley_model(row::Pulley) = getfield(row, :model)
-row_property(row::Pulley, ::Val{:type}) = parse_dynamics_type(pulley_model(row).type)
-set_row_property!(row::Pulley, ::Val{:type}, type::DynamicsType) =
-    pulley_model(row).type = string(type)
 
 """
     Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
@@ -984,12 +864,6 @@ again and overwrites it.
 """
 const Tether = KiteGeometry.Tether{TetherModel}
 
-"""The [`TetherModel`](@ref) of tether row `row`."""
-@inline tether_model(row::Tether) = getfield(row, :model)
-row_property(row::Tether, ::Val{:start_point_ref}) =
-    reference_column(getfield(row, :start_point))
-row_property(row::Tether, ::Val{:end_point_ref}) =
-    reference_column(getfield(row, :end_point))
 
 
 """
@@ -1132,10 +1006,6 @@ reel-out velocity through the run's `winch.vel` instead of integrating the dynam
 """
 const Winch{W} = KiteGeometry.Winch{WinchModel{W}}
 
-"""The [`WinchModel`](@ref) of winch row `row`."""
-@inline winch_model(row::Winch) = getfield(row, :model)
-@inline row_property(row::Winch, ::Val{:gear_ratio}) = getfield(row, :gear_ratio)::Float64
-@inline row_property(row::Winch, ::Val{:drum_radius}) = getfield(row, :drum_radius)::Float64
 
 """
     Winch(name, set, tethers; winch_point, ...)

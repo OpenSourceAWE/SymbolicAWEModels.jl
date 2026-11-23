@@ -129,7 +129,7 @@ function match_aero_sections_to_structure!(
         p.is_wing_node && p.wing_idx == wing.idx
     ]
 
-    if wing.dynamics_type == RIGID_DYNAMICS
+    if body_dynamics_type(wing) == RIGID_DYNAMICS
         wing.wing_segments = identify_wing_segments(
             wing, wing_points; stations=stations,
             wing_station_idxs=wing.station_idxs)
@@ -340,7 +340,8 @@ section, which `refined_panel_mapping` names (1:1).
 - `points::AbstractVector`: All structural points (filtered to this wing's nodes)
 """
 function distribute_panel_forces_to_points!(wing, points::AbstractVector)
-    @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
+    @assert(body_dynamics_type(wing) == PARTICLE_DYNAMICS,
+            "Can only distribute forces for PARTICLE_DYNAMICS wings")
 
     sol = wing.vsm_solver.sol
     panels = wing.vsm_aero.panels
@@ -427,7 +428,8 @@ Each structural wing node maps 1:1 onto a VSM section point through
 - `points::AbstractVector`: All structural points (filtered to this wing's nodes)
 """
 function update_vsm_wing_from_structure!(wing, points::AbstractVector)
-    @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
+    @assert(body_dynamics_type(wing) == PARTICLE_DYNAMICS,
+            "Can only update wing geometry for PARTICLE_DYNAMICS wings")
 
     # R_b_to_w and origin are updated during simulation from structural geometry.
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}

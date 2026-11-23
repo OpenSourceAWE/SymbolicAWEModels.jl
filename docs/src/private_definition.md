@@ -48,25 +48,11 @@ SymbolicAWEModels.register_definition_models
 ## Component definition rows
 
 ```@docs
-SymbolicAWEModels.row_property
-SymbolicAWEModels.set_row_property!
-SymbolicAWEModels.with_field
-SymbolicAWEModels.point_type
 SymbolicAWEModels.per_axis
-SymbolicAWEModels.point_model
 SymbolicAWEModels.material_unit_stiffness
 SymbolicAWEModels.to_float64
-SymbolicAWEModels.station_model
-SymbolicAWEModels.pulley_model
-SymbolicAWEModels.tether_model
-SymbolicAWEModels.body_model
-SymbolicAWEModels.winch_model
-SymbolicAWEModels.field_value
-SymbolicAWEModels.reference
 SymbolicAWEModels.reference_column
-SymbolicAWEModels.references
 SymbolicAWEModels.references_column
-SymbolicAWEModels.check_point_anchor
 SymbolicAWEModels.tether_row
 SymbolicAWEModels.body_row
 SymbolicAWEModels.wing_column
@@ -74,16 +60,18 @@ SymbolicAWEModels.mesh_frame
 SymbolicAWEModels.held_vector!
 SymbolicAWEModels.principal_axes
 SymbolicAWEModels.axis_column
+SymbolicAWEModels.body_principal_frame_method
+SymbolicAWEModels.body_angular_damping
+SymbolicAWEModels.origin_ENU
+SymbolicAWEModels.set_origin_ENU!
 ```
 
 ## Definition writer internals
 
 ```@docs
-SymbolicAWEModels.system_definition
+SymbolicAWEModels.definition_rows
+SymbolicAWEModels.resolve_refs
 SymbolicAWEModels.station_row
-SymbolicAWEModels.point_row!
-SymbolicAWEModels.with_ends!
-SymbolicAWEModels.winch_row!
 SymbolicAWEModels.segment_with_material
 SymbolicAWEModels.settings_segment
 SymbolicAWEModels.stiffness_law

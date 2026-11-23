@@ -125,7 +125,7 @@ end
         system_name="frame_invariance", set,
         aero_mode=AeroLinearized())
     wing = sys.bodies[1]
-    @test wing.dynamics_type == RIGID_DYNAMICS
+    @test body_dynamics_type(wing) == RIGID_DYNAMICS
 
     sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     ref = run_case(sam)

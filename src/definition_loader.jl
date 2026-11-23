@@ -104,7 +104,7 @@ function system_definition(definition::SystemDefinition, set::Settings;
     wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
                  for w in 1:n_wings]
     return system_definition(definition.metadata.name, set;
-        points=Point[check_point_anchor(point) for point in definition.points],
+        points=collect(Point, definition.points),
         stations,
         segments=Segment[segment for segment in definition.segments],
         pulleys=Pulley[typed_row(pulley, "pulley") for pulley in definition.pulleys],
@@ -162,11 +162,11 @@ end
 """The body `body` of a definition is: the row itself, with what the structure derives
 from its mass, inertia and pose."""
 function definition_body(body)
-    body.type in (DYNAMIC, STATIC) ||
-        error("Body $(body.name): type must be DYNAMIC or STATIC, got $(body.type).")
-    model = body_model(body)
+    body_type(body) in (DYNAMIC, STATIC) ||
+        error("Body $(body.name): type must be DYNAMIC or STATIC, got $(body_type(body)).")
+    model = body.model
     inertia = Matrix{SimFloat}(something(getfield(body, :extra_inertia_KA), zeros(3, 3)))
-    inertia_principal, R_b_to_p = principal_axes(inertia, body.principal_frame_method)
+    inertia_principal, R_b_to_p = principal_axes(inertia, body_principal_frame_method(body))
     model.total_mass = body.extra_mass
     model.inertia_principal .= inertia_principal
     model.R_b_to_p = R_b_to_p
@@ -183,7 +183,7 @@ function definition_tube(definition, tube)
     model = tube_model isa ElasticTubeModel ? ElasticTube(; columns...) :
         TimoshenkoTube(; columns...)
     # Row anchors are from each body's mass centre, a Tube's from its frame origin.
-    com_offsets = map(idx -> body_model(definition.bodies[idx]).extra_com_offset_b,
+    com_offsets = map(idx -> definition.bodies[idx].model.extra_com_offset_b,
                       tube.bodies)
     anchors = map((anchor, offset) -> something(anchor, zeros(3)) + offset,
                   (tube_model.anchor_a, tube_model.anchor_b), com_offsets)
@@ -213,7 +213,7 @@ end
 """Wing body row `built` in place of the definition's row `body` of wing `wing`: what
 `body` gives, its columns among them, and what the structure derives in `built`."""
 function in_place_of(body, built, wing)
-    model = body_model(built)
+    model = built.model
     for column in KiteGeometry.model_columns(typeof(model))
         setfield!(model, column, getfield(body.model, column))
     end

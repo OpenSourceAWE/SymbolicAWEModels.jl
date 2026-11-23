@@ -50,7 +50,7 @@ the raw VSM solution (`1 + aero_scale_chord`, falling back to the package
 default). `RIGID_DYNAMICS` uses the body force directly, so its scale is 1.
 """
 function particle_force_scale(wing)
-    wing.dynamics_type == PARTICLE_DYNAMICS || return 1.0
+    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return 1.0
     return 1.0 + (isfinite(wing.aero_scale_chord) ?
         wing.aero_scale_chord : AERO_SCALE_CHORD)
 end
@@ -224,7 +224,7 @@ aero_poses = [
                 system_name="aero_modes_$(idx)", set,
                 aero_mode=case.make())
             wing = sys.bodies[1]
-            @test wing.dynamics_type == case.dynamics
+            @test body_dynamics_type(wing) == case.dynamics
 
             sam = SymbolicAWEModel(set, sys; transforms, vsm_set=case.vsm_set)
             wing = sam.state.bodies[1]

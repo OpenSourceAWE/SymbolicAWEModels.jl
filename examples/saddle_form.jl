@@ -91,7 +91,7 @@ function run_saddle(; yaml_file)
     display(scene)
 
     fixed = Set(i for (i, p) in enumerate(points)
-                if p.type == STATIC)
+                if p.fixed)
     disp = [norm(sam.state.points[i].pos_w .-
                  points[i].pos_ENU)
             for i in eachindex(points) if i ∉ fixed]

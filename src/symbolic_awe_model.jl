@@ -652,7 +652,7 @@ function get_model_name(set::Settings, sys_struct::SystemState; precompile=false
     end
 
     # Determine wing type and aero mode
-    dynamics_types = [wing.dynamics_type for wing in sys_struct.wings]
+    dynamics_types = [body_dynamics_type(wing) for wing in sys_struct.wings]
     dynamics_type_str = if isempty(dynamics_types)
         "no_wing"
     elseif all(wt -> wt === RIGID_DYNAMICS, dynamics_types)

@@ -103,8 +103,8 @@ environment:
 
     @testset "Spin-up under applied moment" begin
         rb = sam.state.bodies[:body1]
-        rb.origin_ENU = [0.0, 0.0, 10.0]
-        rb.Q_KA_to_ENU = [1.0, 0.0, 0.0, 0.0]
+        rb.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
+        SymbolicAWEModels.set_origin_ENU!(rb, [0.0, 0.0, 10.0])
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
         torque = 0.05
@@ -162,15 +162,15 @@ environment:
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
-        @test rb.origin_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test SymbolicAWEModels.origin_ENU(rb) ≈ KVec3(r, 0.0, r) atol=1e-6
         # body x-axis followed the radial from +x to the 45° elevation direction
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA_to_ENU)
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA2ENU)
         @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
         # the body-anchored point rides the rotated body
-        @test sys3.points[:tip].pos_ENU ≈ rb.origin_ENU atol=1e-6
+        @test sys3.points[:tip].pos_ENU ≈ SymbolicAWEModels.origin_ENU(rb) atol=1e-6
         # idempotent across a second reinit!
         place!(sys3, [tf])
-        @test rb.origin_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test SymbolicAWEModels.origin_ENU(rb) ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     # A KCU-like point riding 1 m out moves the COM a third of the way to it, and
@@ -182,7 +182,7 @@ environment:
                     extra_mass=1.0)
         sys4 = system_definition("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])
-        rb = sys4.bodies[:carrier]
+        rb = SystemState(sys4).bodies[:carrier]
         @test rb.extra_mass == 2.0
         @test rb.total_mass ≈ 3.0
         @test rb.com_offset_b ≈ [1/3, 0.0, 0.0] atol=1e-12

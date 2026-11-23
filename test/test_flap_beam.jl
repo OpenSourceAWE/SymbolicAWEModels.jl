@@ -107,11 +107,11 @@ end
             bodies = [main, flap]
             ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
                 wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
-            ts.flap_body_idxs = [1, 2]
+            ts.flap_bodies = [1, 2]
             S.init_station_flap!(ts, (; bodies))
             @test ts.flap_rest_delta ≈ 0.0 atol=1e-12
             @test ts.flap_chord_refs == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
-            R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA_to_ENU)
+            R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA2ENU)
             R_flap = S.quaternion_to_rotation_matrix(quat_y(phi))
             @test S.flap_delta(ts, R_main, R_flap) ≈ phi atol=1e-10
         end
@@ -124,10 +124,10 @@ end
         bodies = [main, flap]
         ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
             wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
-        ts.flap_body_idxs = [1, 2]
+        ts.flap_bodies = [1, 2]
         S.init_station_flap!(ts, (; bodies))
         @test ts.flap_rest_delta ≈ phi0 atol=1e-10
-        R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA_to_ENU)
+        R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA2ENU)
         R_flap = S.quaternion_to_rotation_matrix(quat_y(phi0 + delta))
         @test S.flap_delta(ts, R_main, R_flap) ≈ delta atol=1e-10
     end
@@ -169,8 +169,8 @@ end
     sys = build_beam_sys("flap_beam_test")
 
     @testset "structural resolution" begin
-        @test sys.spanwise_stations[:flap].flap_body_idxs == [1, 2]
-        @test sys.points[:bridle].tube_idx == 1
+        @test sys.spanwise_stations[:flap].flap_bodies == [1, 2]
+        @test sys.points[:bridle].tube == 1
         @test sys.points[:bridle].beam_frac ≈ 0.5 atol=1e-6
         @test sys.points[:bridle].beam_offset_b[3] ≈ 0.1 atol=1e-6
     end

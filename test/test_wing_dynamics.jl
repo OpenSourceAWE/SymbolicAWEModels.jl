@@ -221,8 +221,8 @@ end
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
-        wing = sys.bodies[:main_wing]
-        @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
+        wing = SystemState(sys).bodies[:main_wing]
+        @test body_dynamics_type(wing) == SymbolicAWEModels.RIGID_DYNAMICS
         @test wing.aero isa AeroNone
         @test wing.extra_mass == 0
         @test wing.total_mass ≈ 3.0  # 6 points * 0.5 kg

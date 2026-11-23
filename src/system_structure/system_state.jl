@@ -153,7 +153,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
             tethers=typed_rows(Tether, sys.tethers),
             winches=typed_rows(Winch, sys.winches))
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat),
-                        zeros(SimFloat, length(sys.segments)),
+                        SimFloat[segment.rest_length for segment in sys.segments],
                         zeros(SimFloat, length(sys.points)),
                         zeros(SimFloat, length(sys.bodies)),
                         zeros(SimFloat, length(sys.spanwise_stations)),
@@ -168,6 +168,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                                  for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)
     setfield!(state, :wings, Rows(ComponentState[bodies[i] for i in eachindex(sys.wings)]))
+    init_derived_properties!(state; prn=false)
     foreach(wing -> setup_model_aero!(wing, state), state.wings)
     return start_run!(state)
 end
@@ -345,6 +346,16 @@ A point of a run's state: its position and velocity and the forces on it.
     total_mass => (point_total_mass(r), derived(:total_mass))
     apparent_mass => (run_state(r).point_apparent_mass[index(r)],
                       run_state(r).point_apparent_mass[index(r)] = value)
+    extra_mass => (something(r.row.extra_mass, 0.0), r.row.extra_mass = value)
+    body_frame_damping => (per_axis(r.row.body_frame_damping),
+                           r.row.body_frame_damping = Vector{Float64}(value))
+    world_frame_damping => (per_axis(r.row.world_frame_damping),
+                            r.row.world_frame_damping = Vector{Float64}(value))
+    area => (something(r.row.area, 0.0), r.row.area = value)
+    drag_coeff => (something(r.row.drag_coeff, 0.0), r.row.drag_coeff = value)
+    fix_sphere => (something(r.row.fix_sphere, false), r.row.fix_sphere = value)
+    fix_static => (something(r.row.fix_static, false), r.row.fix_static = value)
+    anchor_b => (r.row.resolved_anchor_b, derived(:anchor_b))
 end
 
 @state_record StationState """
@@ -359,6 +370,11 @@ A station of a run's state: its twist and the moments on it.
     tether_moment => (station_tether_load(r).moment, derived(:tether_moment))
     aero_moment => (run_state(r).station_aero_moment[index(r)],
                     run_state(r).station_aero_moment[index(r)] = value)
+    moment_frac => (something(r.row.moment_frac, 0.0), r.row.moment_frac = value)
+    damping => (something(r.row.damping, 50.0), r.row.damping = value)
+    stiffness => (something(r.row.stiffness, 0.0), r.row.stiffness = value)
+    flap_axis => (something(r.row.flap_axis, SVector(0.0, 1.0, 0.0)),
+                  r.row.flap_axis = Vector{Float64}(value))
 end
 
 @state_record SegmentState """
@@ -384,6 +400,7 @@ its material.
             derived(:len))
     force => (sysstate(r).spring_force[index(r)],
               sysstate(r).spring_force[index(r)] = value)
+    diameter => (something(r.row.diameter, 0.0), r.row.diameter = value)
 end
 
 @state_record PulleyState """
@@ -393,6 +410,11 @@ A pulley of a run's state: how the rope over it is split.
 """ begin
     len => (sysstate(r).pulley_len[index(r)], sysstate(r).pulley_len[index(r)] = value)
     vel => (sysstate(r).pulley_vel[index(r)], sysstate(r).pulley_vel[index(r)] = value)
+    efficiency => (something(r.row.efficiency, 0.95), r.row.efficiency = value)
+    damping => (something(r.row.damping, 0.0), r.row.damping = value)
+    brake => (something(r.row.brake, false), r.row.brake = value)
+    friction_epsilon => (something(r.row.friction_epsilon, 0.1),
+                         r.row.friction_epsilon = value)
 end
 
 @state_record TetherState """
@@ -423,6 +445,10 @@ A winch of a run's state: its reel-out speed, its setpoint and the forces on it.
     acc => (sysstate(r).winch_acc[index(r)], sysstate(r).winch_acc[index(r)] = value)
     friction => (sysstate(r).winch_friction[index(r)],
                  sysstate(r).winch_friction[index(r)] = value)
+    init_vel => (something(r.row.init_vel, 0.0), r.row.init_vel = value)
+    brake => (something(r.row.brake, 0.0), r.row.brake = value)
+    speed_controlled => (something(r.row.speed_controlled, false),
+                         r.row.speed_controlled = value)
 end
 
 """The position slot of `body` in its run's `sysstate.X/Y/Z`."""
@@ -462,6 +488,21 @@ aero mode, with this run's VSM engine where it has one.
     wind_vec => ColumnVec3(sysstate(r).wind_x, sysstate(r).wind_y, sysstate(r).wind_z,
                            body_slot(r))
     va_b => (body_apparent_wind(r), derived(:va_b))
+    principal_frame_method => (body_principal_frame_method(r.row),
+                               r.row.principal_frame_method = string(value))
+    extra_mass => (something(r.row.extra_mass, 0.0), r.row.extra_mass = value)
+    origin_ENU => (origin_ENU(r.row), derived(:origin_ENU))
+    angular_damping => (body_angular_damping(r.row),
+                        r.row.angular_damping = Vector{Float64}(value))
+    world_frame_damping => (per_axis(r.row.world_frame_damping),
+                            r.row.world_frame_damping = Vector{Float64}(value))
+    body_frame_damping => (per_axis(r.row.body_frame_damping),
+                           r.row.body_frame_damping = Vector{Float64}(value))
+    ext_force_w => held_vector!(r.row, :ext_force_w)
+    ext_force_b => held_vector!(r.row, :ext_force_b)
+    ext_moment_b => held_vector!(r.row, :ext_moment_b)
+    fix_sphere => (something(r.row.fix_sphere, false), r.row.fix_sphere = value)
+    fix_static => (something(r.row.fix_static, false), r.row.fix_static = value)
     apparent_mass => (run_state(r).body_apparent_mass[index(r)],
                       run_state(r).body_apparent_mass[index(r)] = value)
     aero_force_b => ColumnVec3(sysstate(r).aero_force_KA_x, sysstate(r).aero_force_KA_y,
@@ -487,7 +528,7 @@ end true
 none."""
 function point_apparent_wind(point)
     wing_idx = point.wing_idx
-    wing_idx > 0 || return zero(SVector{3, SimFloat})
+    isnothing(wing_idx) && return zero(SVector{3, SimFloat})
     wing = getfield(point, :state).bodies[wing_idx]
     return SVector{3}(wing.R_b_to_w' * (point.wind_vec - point.vel_w))
 end
@@ -496,7 +537,7 @@ end
 none."""
 function point_aero_force_b(point)
     wing_idx = point.wing_idx
-    wing_idx > 0 || return zero(SVector{3, SimFloat})
+    isnothing(wing_idx) && return zero(SVector{3, SimFloat})
     wing = getfield(point, :state).bodies[wing_idx]
     return SVector{3}(wing.R_b_to_w' * point.aero_force)
 end
@@ -520,7 +561,7 @@ end
 points, zero for a station that does not twist."""
 function station_tether_load(station)
     state = getfield(station, :state)
-    station.type == KINEMATIC && return (; force = 0.0, moment = 0.0)
+    station_type(station) == KINEMATIC && return (; force = 0.0, moment = 0.0)
     orientation = state.bodies[station.wing].R_b_to_w
     force, moment = 0.0, 0.0
     for point_idx in station.points

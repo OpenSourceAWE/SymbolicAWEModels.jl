@@ -86,6 +86,7 @@ export membrane_linear_rigidities
 export frame_quaternion, frame_quaternion_xy
 # Enums
 export DynamicsType, DYNAMIC, STATIC, BODY_STATIC, KINEMATIC
+export point_type, body_type, body_dynamics_type, station_type, pulley_type
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION

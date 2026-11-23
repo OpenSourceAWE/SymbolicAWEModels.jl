@@ -241,7 +241,7 @@ end
     wing = sam.state.wings[1]
     station = sys.spanwise_stations[:flap]
     @test has_point_flap(station)
-    @test isempty(station.flap_body_idxs)
+    @test isnothing(station.flap_bodies)
     @test any(!=(0), wing.aero.panel_station)
 
     test_init!(sam; prn=false)

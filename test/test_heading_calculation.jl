@@ -154,7 +154,7 @@ function heading_after_reinit(base_pos, dx, target_heading)
 
     placed = sys.bodies[:kite]
     return calc_heading(
-        quaternion_to_rotation_matrix(placed.Q_KA_to_ENU),
+        quaternion_to_rotation_matrix(placed.Q_KA2ENU),
         placed.pos_ENU - sys.points[:ground].pos_ENU)
 end
 

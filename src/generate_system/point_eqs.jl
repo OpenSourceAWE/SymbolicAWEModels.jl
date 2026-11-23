@@ -12,7 +12,7 @@ in that wing's frame against the point's velocity relative to the wing.
 """
 function point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w)
     accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
-    point.wing_idx > 0 || return accel
+    isnothing(point.wing_idx) && return accel
     R = R_b_to_w[:, :, point.wing_idx]
     coeff = params.points[point.idx].body_frame_damping
     vel_diff_w = vel_w - wing_vel[:, point.wing_idx]
@@ -173,7 +173,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
         wind_source = point_wind_source(params, point.idx, wind_gnd)
         drag_rhs = point_drag_force(collect(va_point_w[:, point.idx]),
             air_density(s.am, height[point.idx]), drag_coeff, area)
-        va_point_b_rhs = point.wing_idx > 0 ?
+        va_point_b_rhs = !isnothing(point.wing_idx) ?
             R_b_to_w[:, :, point.wing_idx]' * va_point_w[:, point.idx] : zeros(3)
         eqs = [
             eqs
@@ -194,7 +194,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
 
         # A rigid wing's own VSM wrench replaces the per-node aero force.
         rigid_wing_node = point.is_wing_node &&
-            s.state.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
+            body_dynamics_type(s.state.bodies[point.wing_idx]) == RIGID_DYNAMICS
         aero_force_w = (!rigid_wing_node && point.is_wing_node &&
                         has_aero(s.state.bodies[point.wing_idx])) ?
             collect(R_b_to_w[:, :, point.wing_idx] *
@@ -290,7 +290,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             eqs = [eqs; body_ride_eqs(point, point.body, force_on_point,
                 params; pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                 body_com_vel, body_ω_b, body_force, body_moment)]
-        elseif point.type == STATIC
+        elseif point_type(point) == STATIC
             eqs = [
                 eqs
                 pos[:, point.idx] ~ params.points[point.idx].pos_w

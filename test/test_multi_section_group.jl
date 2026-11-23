@@ -117,7 +117,7 @@ end
 """The total mass of the points riding `wing`: extra_mass plus their segment halves."""
 function riding_mass(sys, wing)
     riders = [point.idx for point in sys.points
-              if point.type == SymbolicAWEModels.BODY_STATIC && point.body_idx == wing.idx]
+              if point.body == wing.idx]
     mass = sum(sys.points[idx].extra_mass for idx in riders)
     state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
     for segment in state.segments, idx in segment.points
@@ -148,8 +148,9 @@ end
         both_yaml; system_name="rigid_total_mass", set,
         dynamics_type=RIGID_DYNAMICS)
     both, _ = @test_logs min_level=Base.CoreLogging.Warn load_both()
-    @test both.bodies[1].extra_mass == 2.0
-    @test both.bodies[1].total_mass ≈ 2.0 + riding_mass(both, both.bodies[1])
+    both_wing = SymbolicAWEModels.SystemState(both; set, vsm_set).wings[1]
+    @test both_wing.extra_mass == 2.0
+    @test both_wing.total_mass ≈ 2.0 + riding_mass(both, both_wing)
 end
 
 @testset "n_stations > n_unrefined errors" begin

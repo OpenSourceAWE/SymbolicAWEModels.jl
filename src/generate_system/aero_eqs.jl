@@ -29,7 +29,7 @@ function aero_eqs!(
         push!(aero_subsystems, subsys)
         validate_aero_component(subsys, wing)
 
-        if wing.dynamics_type == PARTICLE_DYNAMICS
+        if body_dynamics_type(wing) == PARTICLE_DYNAMICS
             nodes = wing_points(s.state, wing)
             aero_force_point = aero_force_point_b::AbstractArray
             wiring = particle_wing_aero_wiring(s, subsys;
