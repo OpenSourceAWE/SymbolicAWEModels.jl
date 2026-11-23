@@ -184,8 +184,6 @@ $(TYPEDFIELDS)
     friction_epsilon::Union{Nothing, Float64} = nothing
     "Index in the structure's pulleys."
     idx::Int64 = 0
-    "Sum of the lengths of the pulley's two segments [m]."
-    sum_len::SimFloat = 0.0
 end
 
 PulleyModel(type, efficiency, damping, brake, friction_epsilon) =

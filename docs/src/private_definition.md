@@ -112,6 +112,7 @@ SymbolicAWEModels.set_run_value!
 SymbolicAWEModels.segment_rest_length
 SymbolicAWEModels.station_aero_moment!
 SymbolicAWEModels.point_anchor_b
+SymbolicAWEModels.pulley_sum_len
 SymbolicAWEModels.point_undeformed_b
 SymbolicAWEModels.point_beam_anchor
 SymbolicAWEModels.beam_anchor

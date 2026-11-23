@@ -354,7 +354,6 @@ function start_lengths!(state)
         tether.len = sum(rest_length, tether.segments; init=0.0)
     end
     for pulley in state.pulleys
-        pulley.sum_len = rest_length(pulley.segments[1]) + rest_length(pulley.segments[2])
         pulley.len = rest_length(pulley.segments[1])
         pulley.vel = 0.0
     end

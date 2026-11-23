@@ -397,6 +397,13 @@ function point_beam_anchor(r)
     return beam_anchor(getfield(r, :row).pos_ENU, state.tubes[tube], state.bodies)
 end
 
+"""The length of the rope over pulley record `r` [m]: its two segments' rest lengths in the
+definition."""
+function pulley_sum_len(r)
+    segments = getfield(run_state(r), :structure).segments
+    return sum(something(segments[idx].rest_length, 0.0) for idx in r.segments)
+end
+
 """Write station record `r`'s aerodynamic moment [N·m] where its run reads it."""
 function station_aero_moment!(r, value)
     run_state(r).station_aero_moment[index(r)] = value
@@ -559,6 +566,7 @@ A pulley of a run's state: how the rope over it is split.
     friction_epsilon => (run_value(r, :friction_epsilon,
                                    something(r.row.friction_epsilon, 0.1)),
                          set_run_value!(r, :friction_epsilon, value))
+    sum_len => (pulley_sum_len(r), derived(:sum_len))
 end
 
 @state_record TetherState """
