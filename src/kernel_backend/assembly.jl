@@ -1320,7 +1320,7 @@ the path it reads, which names the segment and so is unique.
 function retarget_tether_rest_lengths!(readers, segment_roles)
     for (idx, role) in enumerate(segment_roles)
         (role.tether_idx > 0 && role.kind !== :tether) || continue
-        path = (:segments, idx, :l0)
+        path = (:segments, idx, :rest_length)
         position = findfirst(reader -> reader isa PathReader && reader.path == path,
                              readers)
         position === nothing && error(
