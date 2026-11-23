@@ -7,7 +7,7 @@
     winch_component(model::AbstractWinchModel, sys_struct, winch_idx; name, params)
 
 Build the winch motor subsystem for `sys_struct.winches[winch_idx]`, selected by
-dispatch on the winch's `model`. The component is pure-algebraic at its connector
+dispatch on the winch's `model.dynamics`. The component is pure-algebraic at its connector
 boundary (see [`validate_winch_component`](@ref)) but may declare arbitrary
 internal `D(x) ~ …` states. Common drum parameters are read live via the flat
 `params` view (`params.winches[winch_idx].gear_ratio` etc.); a model's own extra

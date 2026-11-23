@@ -18,7 +18,7 @@ assembles their equations into a single `System`.
 # Returns
 - `set_values`: The symbolic variable representing the control inputs (winch torques).
 """
-function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
+function create_sys!(s::SymbolicAWEModel, system::SystemState;
                      prn=true, tunable_params::Bool=false)
     eqs = Equation[]
     defaults = Pair{Num, Any}[]

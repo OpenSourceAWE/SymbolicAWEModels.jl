@@ -70,8 +70,8 @@ end
 """
     load_pressure_sys(data_path, aero_mode)
 
-`Settings` and `SystemStructure` for the particle 2plate kite carrying
-`aero_mode`, reading the fixture-patched geometry under `data_path`.
+`Settings` and the `SystemState` a run of the particle 2plate kite carrying
+`aero_mode` starts from, reading the fixture-patched geometry under `data_path`.
 """
 function load_pressure_sys(data_path, aero_mode)
     set_data_path(data_path)
@@ -79,7 +79,7 @@ function load_pressure_sys(data_path, aero_mode)
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
-    sys = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
+    sys, _ = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
         set, vsm_set, aero_mode)
-    return set, sys
+    return set, SystemState(sys)
 end

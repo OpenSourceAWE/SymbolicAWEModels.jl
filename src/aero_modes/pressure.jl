@@ -150,7 +150,7 @@ aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.blend_point,
 # ==================== equation builder ==================== #
 
 """
-    aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct; name, params)
+    aero_component(mode::AeroPressure, wing::ParticleWingState, sys_struct; name, params)
 
 Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
 fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
@@ -162,7 +162,7 @@ per refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
 `traction_net` and the `cl/cd/cm` polars are flat params refreshed every
 `vsm_interval`.
 """
-function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
+function aero_component(mode::AeroPressure, wing::ParticleWingState, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind

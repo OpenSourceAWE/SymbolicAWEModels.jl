@@ -271,7 +271,7 @@ instance.
 function kernel!(builder, table, sam, key, source, make, inputs, outputs)
     entry = get(table, key, nothing)
     entry === nothing || return entry
-    registry = ParamRegistry(sam.sys_struct)
+    registry = ParamRegistry(sam.state)
     seconds = @elapsed kernel = compile_kernel(make(ParamView(registry)), inputs,
                                                outputs; name = key)
     fresh = KernelEntry(add_kernel!(builder, kernel, seconds), registry, source)
@@ -290,7 +290,7 @@ components that differ there cannot share a kernel even though they are the same
 kind, and writing one's law into the other's slot fails on type.
 """
 function callable_field_key(key::Symbol, component, fields)
-    callable = filter(field -> !(getfield(component, field) isa Real), fields)
+    callable = filter(field -> !(getproperty(component, field) isa Real), fields)
     isempty(callable) && return key
     return Symbol(key, :_, join(callable, '_'))
 end
@@ -329,13 +329,13 @@ end
 """
     assemble(sam) -> KernelModel
 
-Translate `sam.sys_struct` into a [`KernelModel`](@ref). Kernels are compiled once per
+Translate `sam.state` into a [`KernelModel`](@ref). Kernels are compiled once per
 component type, one instance is added per component, the wiring is recorded, and
 the parameters and initial state are bound from the struct afterwards, when every
 instance's buffer slice is final.
 """
 function assemble(sam; verbose = false)
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     point_roles = classify_points(sys_struct)
     segment_roles = classify_segments(sys_struct)
     builder = SystemBuilder(; verbose)
@@ -412,7 +412,7 @@ unconnected and so reads the zero `station_delta_eqs!` binds it to.
 """
 function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
     instances = Dict{Int, Int}()
-    for surface in sam.sys_struct.stations
+    for surface in sam.state.stations
         has_flap(surface) || continue
         point_flap = has_point_flap(surface)
         key = point_flap ? :point_flap_delta : :flap_delta
@@ -460,7 +460,7 @@ function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, fla
     supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
         builder, table, bindings, sam, wing, bodies, points, flaps, wrenches,
         inflow_instances, aero_force_instances)
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     nodes = wing_points(sys_struct, wing)
     surfaces = wing_flap_surfaces(wing)
     key = Symbol(:wing_aero_, wing.idx)
@@ -508,7 +508,7 @@ size; this decomposition is not, which is what makes a large wing buildable.
 function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
                               flaps, wrenches, inflow_instances,
                               aero_force_instances)
-    nodes = wing_points(sam.sys_struct, wing)
+    nodes = wing_points(sam.state, wing)
     body = bodies[wing.idx]
     inflow_points = add_aero_inflow_points!(builder, table, bindings, sam, nodes,
                                             points, body)
@@ -759,7 +759,7 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        station_aero_driven(sam.sys_struct.stations[surface]) &&
+        station_aero_driven(sam.state.stations[surface]) &&
             connect!(builder, instance, Symbol(:twist_moment_, surface),
                      twists[surface], :aero_moment_in)
     end
@@ -774,7 +774,7 @@ because which one a body is, is topology: a `DYNAMIC` body integrates, a `STATIC
 one is clamped, and a `KINEMATIC` one is fitted from reference points.
 """
 function add_body!(builder, table, bindings, sam, idx)
-    body = sam.sys_struct.bodies[idx]
+    body = sam.state.bodies[idx]
     body.type == KINEMATIC && return add_kinematic_body!(builder, table, bindings,
                                                       sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
@@ -845,7 +845,7 @@ wired to its body here.
 """
 function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                     twists)
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     index_map = Dict(:points => idx)
     role.kind === :ride && return add_ride_point!(builder, table, bindings, sam, idx,
                                                   role, bodies, wrenches)
@@ -905,11 +905,11 @@ point, which is what the incident segments connect to.
 """
 function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
     body = bodies[role.body_idx]
-    point = sam.sys_struct.points[idx]
+    point = sam.state.points[idx]
     kinematics = kernel!(builder, table, sam, :ride_point, idx,
                          params -> RidePoint(sam, params, idx; name = :ride_point),
                          RIDE_INPUTS, RIDE_OUTPUTS)
-    gravity = carrier_body_idx(point, sam.sys_struct.bodies) == 0
+    gravity = carrier_body_idx(point, sam.state.bodies) == 0
     key = gravity ? :ride_wrench : :riding_wrench
     statics = kernel!(builder, table, sam, key, idx,
                       params -> RideWrench(sam, params, idx; name = key,
@@ -945,8 +945,8 @@ Add one twist instance per station that has a section twist to report: a
 [`FlapDelta`](@ref) instead.
 """
 function add_stations!(builder, table, bindings, sam)
-    instances = zeros(Int, length(sam.sys_struct.stations))
-    for surface in sam.sys_struct.stations
+    instances = zeros(Int, length(sam.state.stations))
+    for surface in sam.state.stations
         surface.type in (DYNAMIC, STATIC) || continue
         dynamic = surface.type == DYNAMIC
         key = dynamic ? :station : :prescribed_twist
@@ -976,7 +976,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
                          twists)
     body = bodies[role.body_idx]
     surface = role.element_idx
-    gated = surface > 0 && !sam.sys_struct.bodies[role.body_idx].group_points_moment
+    gated = surface > 0 && !sam.state.bodies[role.body_idx].group_points_moment
     index_map = Dict(:points => idx)
     surface > 0 && (index_map[:stations] = surface)
     suffix = surface > 0 ? "" : "_free"
@@ -1012,7 +1012,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     if surface > 0 && twists[surface] != 0
         connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
         connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
-        if sam.sys_struct.stations[surface].type == DYNAMIC
+        if sam.state.stations[surface].type == DYNAMIC
             connect!(builder, wrench, :node_force, twists[surface], :node_force_in)
             connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
             connect!(builder, wrench, :node_mass, twists[surface], :node_mass_in)
@@ -1032,7 +1032,7 @@ which is what the incident segments connect to.
 """
 function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodies,
                                  wrenches)
-    tube = sam.sys_struct.tubes[role.element_idx]
+    tube = sam.state.tubes[role.element_idx]
     index_map = Dict(:points => idx, :tubes => role.element_idx)
     kinematics = kernel!(builder, table, sam, :hermite_ride_point, idx,
                          params -> HermiteRidePoint(sam, params, idx;
@@ -1106,7 +1106,7 @@ Add the instance for segment `idx` and record its parameter remapping.
 function add_segment!(builder, table, bindings, sam, idx, role)
     index_map = Dict(:segments => idx)
     stiffness = (:unit_stiffness,)
-    segment = sam.sys_struct.segments[idx]
+    segment = sam.state.segments[idx]
     entry = if role.kind === :pulley
         index_map[:pulleys] = role.pulley_idx
         kernel!(builder, table, sam,

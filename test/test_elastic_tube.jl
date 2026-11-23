@@ -104,10 +104,22 @@ end
         @test sys.tubes[:j1].body_b_idx == 2
     end
 
+    @testset "Tubes built from one element keep their own anchors" begin
+        element = ElasticTube(stiffness_axial=1.0, stiffness_shear=1.0,
+                              stiffness_torsion=1.0, stiffness_bending=1.0)
+        first_tube = Tube(1, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
+                          anchor_a=[0.5, 0.0, 0.0])
+        second_tube = Tube(2, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
+                           anchor_a=[0.25, 0.0, 0.0])
+        @test first_tube.anchor_a_b == [0.5, 0.0, 0.0]
+        @test second_tube.anchor_a_b == [0.25, 0.0, 0.0]
+        @test first_tube.name === Symbol("1")
+    end
+
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
-    b1 = sam.sys_struct.bodies[:b1]
-    b2 = sam.sys_struct.bodies[:b2]
+    b1 = sam.state.bodies[:b1]
+    b2 = sam.state.bodies[:b2]
     jt = sam.sys_struct.tubes[:j1].model
 
     # Reset the initial pose that place! puts the bodies back at.
@@ -128,7 +140,7 @@ end
         reset_bodies!()
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
         b2.vel_w .= [0.5, 0.0, 0.0]
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
         ω_expected = sqrt(100.0 * (1/1.0 + 1/1.0))
@@ -154,7 +166,7 @@ end
         # No external force: a velocity kick conserves total momentum, so the COM
         # drifts at constant velocity while the bodies oscillate internally.
         b2.vel_w .= [0.3, 0.0, 0.0]
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         com0 = (b1.pos_w + b2.pos_w) / 2
         vcom = (b1.vel_w + b2.vel_w) / 2
@@ -179,7 +191,7 @@ end
         reset_bodies!()
         # CAD orientation is unstrained, so excite the torsional mode with a spin kick.
         b2.ω_b .= [0.5, 0.0, 0.0]
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
         ω_expected = sqrt(5.0 / Ixx)
@@ -218,11 +230,11 @@ end
         sam_i = SymbolicAWEModel(set, sys_i)
         test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
 
-        body1 = sam_i.sys_struct.bodies[:b1]
-        body2 = sam_i.sys_struct.bodies[:b2]
+        body1 = sam_i.state.bodies[:b1]
+        body2 = sam_i.state.bodies[:b2]
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
         body2.vel_w .= [0.5, 0.0, 0.0]
-        place!(sam_i.sys_struct; reset_vel=false)
+        place!(sam_i; reset_vel=false)
         test_init!(sam_i; prn=false)
 
         ω_expected = sqrt(EA * (1/1.0 + 1/1.0))
@@ -264,7 +276,7 @@ end
         @test jr.rest_offset_a ≈ [1.0, 0.0, 0.0] atol=1e-9
         @test norm(jr.R_rel0 - Rz30) < 1e-9
 
-        nodeB = sam_r.sys_struct.bodies[:b2]
+        nodeB = sam_r.state.bodies[:b2]
         pos0 = copy(nodeB.pos_w)
         for _ in 1:50
             next_step!(sam_r; dt=0.01, vsm_interval=0)
@@ -278,7 +290,7 @@ end
 
     @testset "init! derives mass and rest geometry from the initial pose" begin
         reset_bodies!()
-        place!(sam.sys_struct)
+        place!(sam)
         Q_rot = Float64[cos(π / 12), 0.0, 0.0, sin(π / 12)]
         b2.Q_KA_to_ENU .= Q_rot
         b2.extra_mass = 2.5

@@ -15,22 +15,22 @@ This file contains:
 # ==================== SHARED HELPERS ==================== #
 
 """
-    segment_initial_length(segment::Segment, points)
+    segment_initial_length(segment, points)
 
 Compute segment length from endpoint `pos_ENU` positions.
 """
-function segment_initial_length(segment::Segment, points)
+function segment_initial_length(segment, points)
     point1 = points[segment.point_idxs[1]]
     point2 = points[segment.point_idxs[2]]
     return norm(point1.pos_ENU - point2.pos_ENU)
 end
 
 """
-    segment_world_length(segment::Segment, points)
+    segment_world_length(segment, points)
 
 Compute segment length from endpoint `pos_w` positions.
 """
-function segment_world_length(segment::Segment, points)
+function segment_world_length(segment, points)
     point1 = points[segment.point_idxs[1]]
     point2 = points[segment.point_idxs[2]]
     return norm(point1.pos_w - point2.pos_w)
@@ -59,7 +59,7 @@ numerical problems: warnings for suspicious values, assertions for definite erro
 - **Pulleys**: zero total length constraint.
 - **Stations**: inconsistent `moment_frac`.
 """
-function validate_sys_struct(sys_struct::SystemStructure)
+function validate_sys_struct(sys_struct)
     (; points, stations, segments, pulleys, wings, winches) = sys_struct
 
     # ==================== POINT VALIDATIONS ==================== #
@@ -432,9 +432,9 @@ function station_tethers_by_overlap(specified, reach)
             parent[root_i] = root_j
         end
     end
-    stations = Dict{Int64, Vector{Tether}}()
+    stations = Dict{Int64, Vector{eltype(specified)}}()
     for i in 1:n
-        push!(get!(() -> Tether[], stations, find_root(i)), specified[i])
+        push!(get!(() -> eltype(specified)[], stations, find_root(i)), specified[i])
     end
     return collect(values(stations))
 end
@@ -549,7 +549,6 @@ function apply_cluster_init_stretched_len!(
     end
     for body_idx in translated_body_idxs(seeds, bodies, body_neighbors)
         bodies[body_idx].pos_w .+= delta
-        bodies[body_idx].com_w .+= delta
     end
 
     for snap in snaps
@@ -565,10 +564,10 @@ function apply_cluster_init_stretched_len!(
 end
 
 """
-    apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
+    apply_tether_init_stretched_lens!(sys_struct::SystemState; prn=true)
 
 Scale `pos_w` so each tether with an explicit `init_stretched_len` sits at
-that standoff. Call after `copy_initial_pose!`. Rest length is derived
+that standoff. Call after [`reset_to_initial_pose!`](@ref). Rest length is derived
 separately by `apply_tether_init_forces!`.
 
 Only tethers with one endpoint on a boundary (`STATIC` or winch point) are
@@ -580,7 +579,7 @@ structure form a cluster, placed at their mean length
 
 Errors if a downstream segment connects back to the anchor.
 """
-function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
+function apply_tether_init_stretched_lens!(sys_struct::SystemState;
                                            prn=true)
     (; points, segments, tethers, winches, wings) = sys_struct
 
@@ -686,13 +685,13 @@ function init_unstretched_len(tether, segments)
 end
 
 """
-    set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+    set_unstretched_length!(sys_struct::SystemState, tether, len)
 
 Set `tether`'s unstretched length [m] and share it equally over its segments'
 `l0`. Point positions, body poses, tube rest geometry and station flap
 references are left as they are.
 """
-function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+function set_unstretched_length!(sys_struct::SystemState, tether, len)
     len > 0 || error("Tether $(tether.name): unstretched length $len m " *
         "must be positive")
     isempty(tether.segment_idxs) && error("Tether $(tether.name): " *
@@ -706,12 +705,12 @@ function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, le
 end
 
 """
-    apply_tether_init_forces!(sys_struct::SystemStructure)
+    apply_tether_init_forces!(sys_struct::SystemState)
 
 Set every tether's `len` to its [`init_unstretched_len`](@ref), and its segments'
 `l0` with it. Must be called after segment world lengths are current.
 """
-function apply_tether_init_forces!(sys_struct::SystemStructure)
+function apply_tether_init_forces!(sys_struct::SystemState)
     (; segments, tethers) = sys_struct
     for tether in tethers
         isempty(tether.segment_idxs) && continue
@@ -721,19 +720,19 @@ function apply_tether_init_forces!(sys_struct::SystemStructure)
 end
 
 """
-    seed_per_point_wind!(sys_struct::SystemStructure)
+    seed_per_point_wind!(state::SystemState)
 
 Give every point and every wing the ground wind `set.wind_vec` as its own wind, so a
 [`PerPointWind`](@ref) model that is never written to flies in the uniform wind the
 settings describe. Called from [`init_wind!`](@ref); from then on these winds belong to the
 caller, who writes them between steps.
 """
-function seed_per_point_wind!(sys_struct::SystemStructure)
-    for point in sys_struct.points
-        point.wind_vec .= sys_struct.set.wind_vec
+function seed_per_point_wind!(state)
+    for point in state.points
+        point.wind_vec .= state.set.wind_vec
     end
-    for wing in sys_struct.wings
-        wing.wind_vec .= sys_struct.set.wind_vec
+    for wing in state.wings
+        wing.wind_vec .= state.set.wind_vec
     end
     return nothing
 end
@@ -741,19 +740,26 @@ end
 # ==================== PLACEMENT ==================== #
 
 """
-    reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel=true)
+    reset_to_initial_pose!(state::SystemState; reset_vel=true)
 
 Put every point and body back at its initial pose (`pos_ENU`, `Q_KA_to_ENU`), zero the
 twist of every non-`STATIC` station and set every winch's reel-out speed to
 `init_vel`. `reset_vel` zeroes point and body velocities as well.
 """
-function reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel::Bool=true)
-    for winch in sys_struct.winches
+function reset_to_initial_pose!(state::SystemState; reset_vel::Bool=true)
+    for winch in state.winches
         winch.vel = winch.init_vel
     end
-    copy_initial_pose!(sys_struct.points, sys_struct.bodies; update_vel=reset_vel)
-    init_rigid_body!.(sys_struct.bodies)
-    for station in sys_struct.stations
+    for point in state.points
+        point.pos_w .= point.pos_ENU
+        reset_vel && (point.vel_w .= 0.0)
+    end
+    for body in state.bodies
+        body.pos_w .= body.pos_ENU
+        body.Q_b_to_w .= body.Q_KA_to_ENU
+        reset_vel && (body.vel_w .= 0.0; body.ω_b .= 0.0)
+    end
+    for station in state.stations
         station.type == STATIC && continue
         station.twist = 0.0
         station.twist_ω = 0.0
@@ -762,29 +768,27 @@ function reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel::Bool=tru
 end
 
 """
-    update_segment_lengths!(sys_struct::SystemStructure)
+    update_segment_lengths!(state::SystemState)
 
-Set every segment's `len` to its world length, and a zero `l0` to that length.
+Set a zero `l0` of a segment to its world length.
 """
-function update_segment_lengths!(sys_struct::SystemStructure)
-    for segment in sys_struct.segments
-        len = segment_world_length(segment, sys_struct.points)
-        (segment.l0 ≈ 0) && (segment.l0 = len)
-        segment.len = len
+function update_segment_lengths!(state::SystemState)
+    for segment in state.segments
+        (segment.l0 ≈ 0) && (segment.l0 = segment.len)
     end
     return nothing
 end
 
 """
-    init_pulley_lengths!(sys_struct::SystemStructure)
+    init_pulley_lengths!(state::SystemState)
 
 Set every pulley's `sum_len` to its two segments' summed `l0`, split it between
 them in proportion to their current `len` into `len` and the two segments' `l0`, and
 stop the pulley.
 """
-function init_pulley_lengths!(sys_struct::SystemStructure)
-    (; segments) = sys_struct
-    for pulley in sys_struct.pulleys
+function init_pulley_lengths!(state::SystemState)
+    (; segments) = state
+    for pulley in state.pulleys
         segment1 = segments[pulley.segment_idxs[1]]
         segment2 = segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
@@ -797,32 +801,32 @@ function init_pulley_lengths!(sys_struct::SystemStructure)
 end
 
 """
-    remake_wing_aero!(sys_struct::SystemStructure, set::Settings)
+    remake_wing_aero!(state::SystemState, set::Settings)
 
 Rebuild every wing's aero engine from `set` and the structure's `vsm_set`, e.g.
 after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
 """
-function remake_wing_aero!(sys_struct::SystemStructure, set::Settings)
-    for wing in sys_struct.wings
-        remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
-                     sys_struct.points, sys_struct.stations)
+function remake_wing_aero!(state, set::Settings)
+    for wing in state.wings
+        remake_aero!(wing.aero, wing, set, state.vsm_set,
+                     state.points, state.stations)
     end
     return nothing
 end
 
 """
-    init_wind!(sys_struct::SystemStructure, set::Settings)
+    init_wind!(state::SystemState, set::Settings)
 
 Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, or
 seed every point and wing with it under [`PerPointWind`](@ref), and initialise each
 wing's aerodynamic operating point from that wind.
 """
-function init_wind!(sys_struct::SystemStructure, set::Settings)
-    (; wings) = sys_struct
-    if per_point_wind(sys_struct)
-        seed_per_point_wind!(sys_struct)
+function init_wind!(state, set::Settings)
+    (; wings) = state
+    if per_point_wind(state)
+        seed_per_point_wind!(state)
     else
-        wind_factor = WindFactor(sys_struct.am, set.profile_law)
+        wind_factor = WindFactor(state.am, set.profile_law)
         for wing in wings
             wing.wind_vec .= wind_factor(wing.pos_w[3]) * set.wind_vec
         end
@@ -834,36 +838,34 @@ function init_wind!(sys_struct::SystemStructure, set::Settings)
             wing.va_b .= R_b_to_w' * va_wing_w
         else
             init_aero_state!(wing.aero, wing, R_b_to_w' *
-                (per_point_wind(sys_struct) ? wing.wind_vec : set.wind_vec))
+                (per_point_wind(state) ? wing.wind_vec : set.wind_vec))
         end
     end
     return nothing
 end
 
 """
-    init_sys_struct!(sys_struct::SystemStructure, set::Settings; remake_vsm=false, prn=true)
+    init_sys_struct!(state::SystemState, set::Settings; remake_vsm=false, prn=true)
 
 Bring a placed structure to the start of a run: derive its mass properties and rest
-geometry ([`init_derived_properties!`](@ref)) and every body's principal-frame state
-from its body-frame one ([`init_rigid_body!`](@ref)), rebuild every wing's aero engine
-when `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating
-point ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
+geometry ([`init_derived_properties!`](@ref)), rebuild every wing's aero engine when
+`remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating point
+([`init_wind!`](@ref)). [`init!`](@ref) runs it.
 """
-function init_sys_struct!(sys_struct::SystemStructure, set::Settings;
+function init_sys_struct!(state, set::Settings;
                           remake_vsm::Bool=false, prn::Bool=true)
-    init_derived_properties!(sys_struct; prn)
-    init_rigid_body!.(sys_struct.bodies)
-    remake_vsm && remake_wing_aero!(sys_struct, set)
-    init_wind!(sys_struct, set)
+    init_derived_properties!(state; prn)
+    remake_vsm && remake_wing_aero!(state, set)
+    init_wind!(state, set)
     return nothing
 end
 
 """
-    relax_segments!(sys_struct::SystemStructure)
+    relax_segments!(sys_struct::SystemState)
 
 Set every segment's `l0` to its current world length, so no segment is stretched.
 """
-function relax_segments!(sys_struct::SystemStructure)
+function relax_segments!(sys_struct::SystemState)
     for segment in sys_struct.segments
         segment.l0 = segment_world_length(segment, sys_struct.points)
     end
@@ -876,7 +878,7 @@ end
 Capture every tube's rest configuration and every flap station's rest deflection
 from the initial pose, so the structure is unstrained there.
 """
-function init_rest_geometry!(sys_struct::SystemStructure)
+function init_rest_geometry!(sys_struct)
     init_tube_rest!.(sys_struct.tubes, Ref(sys_struct.bodies))
     init_station_flap!.(sys_struct.stations, Ref(sys_struct))
     return nothing
@@ -889,69 +891,190 @@ Derive from the initial pose every body's mass properties
 ([`update_mass_properties!`](@ref)) and the rest geometry of its tubes and flap
 stations ([`init_rest_geometry!`](@ref)).
 """
-function init_derived_properties!(sys_struct::SystemStructure; prn::Bool=true)
+function init_derived_properties!(sys_struct; prn::Bool=true)
     update_mass_properties!(sys_struct; prn)
     init_rest_geometry!(sys_struct)
     return nothing
 end
 
 """
-    place!(sys_struct::SystemStructure; ignore_l0=false, reset_vel=true, prn=true)
+    place!(sys::SystemStructure, transforms=Transform[]; ignore_l0=false, prn=true)
 
-Place `sys_struct` in the world by its `transforms` and tether lengths, and make where
-it lands its initial pose. Runs, in order:
+Place `sys` in the world by KiteGeometry `transforms` and its tether lengths, and make
+where it lands its initial pose: its points' and bodies' `pos_ENU` and `Q_KA_to_ENU`, its
+segments' `l0` and its tethers' `len`. Runs, on the state a run would start from:
 
 1. [`reset_to_initial_pose!`](@ref)
 2. [`apply_tether_init_stretched_lens!`](@ref)
 3. [`update_segment_lengths!`](@ref)
 4. [`apply_tether_init_forces!`](@ref)
 5. [`init_pulley_lengths!`](@ref)
-6. `reinit!(sys_struct.transforms, sys_struct)`
+6. `place_transforms!(state, transforms)`
 7. [`carry_body_points!`](@ref)
 8. [`relax_segments!`](@ref) — only with `ignore_l0=true`
 9. [`store_initial_pose!`](@ref)
 
-The `SystemStructure` constructor runs it on the authoring geometry, then
-[`init_sys_struct!`](@ref); [`init!`](@ref) takes the structure as placed. Run again
-after a transform changes, it places the structure anew from its initial pose.
-`reset_vel` zeroes point and body velocities in steps 1 and 6; `prn` prints the info
+The `SystemStructure` constructor runs it with no transforms. Run again after a transform
+changes, it places the structure anew from its initial pose. `prn` prints the info
 messages of step 2.
 """
-function place!(sys_struct::SystemStructure; ignore_l0::Bool=false,
-                reset_vel::Bool=true, prn::Bool=true)
-    reset_to_initial_pose!(sys_struct; reset_vel)
-    apply_tether_init_stretched_lens!(sys_struct; prn)
-    update_segment_lengths!(sys_struct)
-    apply_tether_init_forces!(sys_struct)
-    init_pulley_lengths!(sys_struct)
-    reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
-    carry_body_points!(sys_struct)
-    ignore_l0 && relax_segments!(sys_struct)
-    store_initial_pose!(sys_struct)
+function KiteGeometry.place!(sys::SystemStructure, transforms=Transform[];
+                             ignore_l0::Bool=false, prn::Bool=true)
+    state = SystemState(sys; transforms)
+    reset_to_initial_pose!(state)
+    apply_tether_init_stretched_lens!(state; prn)
+    update_segment_lengths!(state)
+    apply_tether_init_forces!(state)
+    init_pulley_lengths!(state)
+    place_transforms!(state, transforms)
+    carry_body_points!(state)
+    ignore_l0 && relax_segments!(state)
+    store_initial_pose!(state)
     return nothing
 end
 
 """
-    start_placed!(sys_struct::SystemStructure)
+    start_run!(state::SystemState; reset_vel=true)
 
-Start a structure whose positions are its initial pose already: put it there
-([`reset_to_initial_pose!`](@ref)) and set its segment and pulley lengths
-([`update_segment_lengths!`](@ref), [`init_pulley_lengths!`](@ref)), keeping every
-tether's `l0`.
+Put `state` at the start of a run from the pose its structure is placed in: every
+point and body at its initial pose ([`reset_to_initial_pose!`](@ref)), the twist of a
+`STATIC` station, masses, segment, tether and pulley lengths from the structure's, and
+points and bodies moving as the rates of its transforms say
+([`set_transform_velocities!`](@ref)). `reset_vel=false` keeps the velocities `state`
+holds.
 """
-function start_placed!(sys_struct::SystemStructure)
-    reset_to_initial_pose!(sys_struct)
-    update_segment_lengths!(sys_struct)
-    init_pulley_lengths!(sys_struct)
-    return nothing
+function start_run!(state; reset_vel::Bool=true)
+    foreach(station -> station.twist = station.row.twist, state.stations)
+    reset_to_initial_pose!(state; reset_vel)
+    for point in state.points
+        point.total_mass = point.row.total_mass
+        point.apparent_mass = point.row.apparent_mass
+    end
+    foreach(body -> body.apparent_mass = body.row.apparent_mass, state.bodies)
+    foreach(segment -> segment.l0 = segment.row.l0, state.segments)
+    update_segment_lengths!(state)
+    for tether in state.tethers
+        tether.len = sum(state.segments[idx].l0 for idx in tether.segment_idxs; init=0.0)
+    end
+    init_pulley_lengths!(state)
+    fit_body_frames!(state.points, state.bodies)
+    reset_vel && set_transform_velocities!(state, state.transforms)
+    return state
 end
 
 """
-    carry_body_points!(sys_struct::SystemStructure)
+    Pose(state::SystemState)
+
+The KiteGeometry `Pose` `state` stands in: the position of each point, and the origin
+and frame of each body.
+"""
+KiteGeometry.Pose(state::SystemState) =
+    Pose([KiteGeometry.Vec3(point.pos_w) for point in state.points],
+         [KiteGeometry.Vec3(body.pos_w) for body in state.bodies],
+         [KiteGeometry.Mat3(body.R_b_to_w) for body in state.bodies])
+
+"""Put the points and bodies of `state` where `pose` has them."""
+function set_pose!(state::SystemState, pose)
+    foreach((point, pos) -> point.pos_w .= pos, state.points, pose.pos)
+    for (body, pos, R) in zip(state.bodies, pose.body_pos, pose.body_R)
+        body.pos_w .= pos
+        body.R_b_to_w = R
+    end
+    return state
+end
+
+"""
+    place_transforms!(state::SystemState, transforms)
+
+Apply KiteGeometry `transforms` to the points and bodies of `state` from where they
+stand ([`Pose`](@ref)), then fit the body frames to them ([`fit_body_frames!`](@ref)).
+"""
+function KiteGeometry.place_transforms!(state::SystemState, transforms)
+    fit_body_frames!(state.points, state.bodies)
+    design = Pose(state)
+    set_pose!(state, place_transforms!(copy(design), design, transforms))
+    fit_body_frames!(state.points, state.bodies)
+    return state
+end
+
+"""
+    reposition!(state::SystemState, transforms=state.transforms; update_vel=false)
+
+Turn the points and bodies of a running `state` to the current elevation, azimuth and
+heading of each of `transforms` about its base where it stands, with KiteGeometry's
+`reposition!`, keeping their velocities. `update_vel` sets them to the transforms' rates
+instead ([`set_transform_velocities!`](@ref)).
+"""
+function KiteGeometry.reposition!(state::SystemState, transforms=state.transforms;
+                                  update_vel::Bool=false)
+    fit_body_frames!(state.points, state.bodies)
+    set_pose!(state, reposition!(Pose(state), transforms))
+    update_vel && set_transform_velocities!(state, transforms)
+    fit_body_frames!(state.points, state.bodies)
+    return state
+end
+
+"""
+    set_transform_velocities!(state::SystemState, transforms)
+
+Set every point and body of `state` to the velocity KiteGeometry's
+`transform_velocities` gives it, zero for one no transform moves; a `RIGID_DYNAMICS`
+body takes the matching `ω_b` as well.
+"""
+function set_transform_velocities!(state::SystemState, transforms)
+    point_vel, body_vel, body_spin = transform_velocities(Pose(state), transforms)
+    foreach((point, vel) -> point.vel_w .= vel, state.points, point_vel)
+    for (body, vel, spin) in zip(state.bodies, body_vel, body_spin)
+        body.vel_w .= vel
+        body.ω_b .= body.dynamics_type == RIGID_DYNAMICS ? body.R_b_to_w' * spin : 0.0
+    end
+    return state
+end
+
+"""
+    fit_body_frames!(points, bodies)
+
+Fit each `PARTICLE_DYNAMICS` body's frame and origin to its reference points and set its
+nodes' undeformed offsets from them, and the rigid wings' nodes' offsets from the initial
+pose ([`init_undeformed_offsets!`](@ref)).
+"""
+function fit_body_frames!(points, bodies)
+    for body in bodies
+        body.dynamics_type == PARTICLE_DYNAMICS || continue
+        (isnothing(body.z_ref_points) || isnothing(body.y_ref_points) ||
+         isnothing(body.origin)) && continue
+        R_b_to_w, origin = calc_particle_dynamics_wing_frame(
+            points, body.z_ref_points, body.y_ref_points, body.origin)
+        body.R_b_to_w = R_b_to_w
+        body.pos_w .= origin
+        for point in points
+            if point.is_wing_node && point.wing_idx == body.idx
+                point.pos_undeformed_b .= R_b_to_w' * (point.pos_w - origin)
+            end
+        end
+    end
+    init_undeformed_offsets!(bodies, points)
+end
+
+"""
+    transform_base_point(transforms, body_idx) -> Int
+
+The base point of the transform among `transforms` moving body `body_idx`, from which its
+elevation and azimuth are measured; 0 for none.
+"""
+function transform_base_point(transforms, body_idx)
+    for transform in transforms
+        body_idx in transform.bodies && return something(transform.base_point, 0)
+    end
+    return 0
+end
+
+"""
+    carry_body_points!(sys_struct::SystemState)
 
 Put every point a body carries at its `anchor_b` on that body, where the body is now.
 """
-function carry_body_points!(sys_struct::SystemStructure)
+function carry_body_points!(sys_struct::SystemState)
     for point in sys_struct.points
         point.body_idx > 0 || continue
         body = sys_struct.bodies[point.body_idx]
@@ -961,19 +1084,23 @@ function carry_body_points!(sys_struct::SystemStructure)
 end
 
 """
-    store_initial_pose!(sys_struct::SystemStructure)
+    store_initial_pose!(state::SystemState)
 
-Make the current pose the initial one: `pos_ENU = pos_w` for every point and body,
-and `Q_KA_to_ENU = Q_b_to_w` for every body.
+Make the pose `state` holds its structure's initial one: `pos_ENU = pos_w` for every
+point and body, `Q_KA_to_ENU = Q_b_to_w` for every body, and the rest lengths `l0` of
+its segments and `len` of its tethers, in the structure and in its definition.
 """
-function store_initial_pose!(sys_struct::SystemStructure)
-    for point in sys_struct.points
+function store_initial_pose!(state::SystemState)
+    store_definition_pose!(state)
+    for point in state.points
         point.pos_ENU .= point.pos_w
     end
-    for body in sys_struct.bodies
+    for body in state.bodies
         body.pos_ENU .= body.pos_w
         body.Q_KA_to_ENU .= body.Q_b_to_w
     end
+    foreach(segment -> segment.row.l0 = segment.l0, state.segments)
+    foreach(tether -> tether.row.len = tether.len, state.tethers)
     return nothing
 end
 
@@ -1098,11 +1225,11 @@ function restore_point_aero_forces!(sys, wing, sys_state)
 end
 
 """
-    update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
+    update_from_sysstate!(sys::SystemState, sys_state::SysState)
 
 Copy the state a `SysState` carries (point positions, wing orientations, winch
-lengths, twist angles, segment spring forces) into an existing `SystemStructure`,
-e.g. to plot one snapshot of a `SysLog` with the Makie extension. Fields `SysState`
+lengths, twist angles, segment spring forces) into a run's state, e.g. to plot one
+snapshot of a `SysLog` with the Makie extension. Fields `SysState`
 cannot supply (net point forces, winch forces, station moments) are set to `NaN` so
 they are not plotted.
 
@@ -1112,7 +1239,7 @@ produced the log; its point count must match the parametric type `P` of `SysStat
 Every field the log can reach is written, whether or not the compiler integrates it,
 because a derived field can still seed `u0` as a torn variable.
 """
-function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
+function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
     (; points, segments, stations, pulleys, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
@@ -1196,8 +1323,6 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
             frame <= length(sys_state.turn_rate_x) &&
                 (rigid_body.ω_b .= (sys_state.turn_rate_x[frame],
                     sys_state.turn_rate_y[frame], sys_state.turn_rate_z[frame]))
-            # The ODE integrates the principal frame; the log stores the body one.
-            init_principal_state!(rigid_body)
         end
     end
 
@@ -1248,9 +1373,9 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         restore_live_shape!(wing.aero, wing, sys.points)
     end
 
-    # Update global wind vector (only if wind_vec mode is active)
-    if sys.set.use_wind_vec
-        sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
+    set = sys.set
+    if !isnothing(set) && set.use_wind_vec
+        set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
     # Only the force is logged; `segment.len` still comes from the symbolic getters.
@@ -1363,7 +1488,7 @@ For pulley segments, the combined length of both legs is used against the pulley
 - `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,
   and index of the segment with maximum stretch (or first pulley segment index)
 """
-function segment_stretch_stats(sys::SystemStructure)
+function segment_stretch_stats(sys::SystemState)
     if isempty(sys.segments)
         return (0.0, 0.0, 0)
     end
@@ -1417,7 +1542,7 @@ the diagnostics see it. The monolith gets the same value from its `point_mass`
 observable; the batched backends compute it here because no single component owns
 it.
 """
-function write_total_mass!(sys_struct::SystemStructure)
+function write_total_mass!(sys_struct)
     for point in sys_struct.points
         point.total_mass = point.extra_mass
     end
