@@ -40,7 +40,7 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
             rhs; mass_matrix = model.system.mass_matrix,
             jac_prototype = prototype, jac = jacobian),
         model.u0, (0.0, step), model.params)
-    sync_params!(model.param_sync, problem, sam.state)
+    sync_run_params!(model.param_sync, problem, sam.state)
     isnothing(jacobian) || check_jacobian_finite(jacobian, problem.u0, problem.p)
     sam.prob = ProbWithAttributes(; prob = problem,
         param_sync = model.param_sync, initial_sync = KernelInitialSync(model),

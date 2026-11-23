@@ -84,6 +84,8 @@ SymbolicAWEModels.CallableGroup
 SymbolicAWEModels.group_callables
 SymbolicAWEModels.sync_callables!
 SymbolicAWEModels.KernelParamSync
+SymbolicAWEModels.reader_class
+SymbolicAWEModels.path_element
 SymbolicAWEModels.KernelInitialSync
 SymbolicAWEModels.KernelBuffers
 SymbolicAWEModels.KernelRHS

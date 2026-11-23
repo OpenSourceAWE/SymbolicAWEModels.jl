@@ -181,8 +181,8 @@ end
     rb = sam.state.bodies[:nodeB]
     br = sam.state.points[:bridle]
 
-    rb.ext_force_w .= [0.0, 0.0, 5.0]
     test_init!(sam; prn=false)
+    rb.ext_force_w = [0.0, 0.0, 5.0]
     for _ in 1:4000
         next_step!(sam; dt=0.01, vsm_interval=0)
         (norm(rb.vel_w) < 1e-8 && norm(rb.ω_b) < 1e-8) && break

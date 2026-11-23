@@ -108,9 +108,9 @@ environment:
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
         torque = 0.05
-        rb.ext_moment_b .= [torque, 0.0, 0.0]
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
+        rb.ext_moment_b = [torque, 0.0, 0.0]
 
         dt = 0.005
         t_before = sam.integrator.t
@@ -123,7 +123,7 @@ environment:
         @test α_measured ≈ torque / inertia[1] atol=0.02
         @test abs(rb.ω_b[2]) < 1e-3
         @test abs(rb.ω_b[3]) < 1e-3
-        rb.ext_moment_b .= 0.0
+        rb.ext_moment_b = zeros(3)
     end
 
     @testset "COM-offset body-frame output" begin

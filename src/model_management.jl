@@ -60,8 +60,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     end
     if length(segments) > 0
         push!(specs, scatter_spec(
-            sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v),
-            sys.l0           => (st, v) -> write_column!(st.segment_l0, v)))
+            sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v)))
     end
     if length(stations) > 0
         push!(specs, scatter_spec(
@@ -637,7 +636,7 @@ function init!(sam::SymbolicAWEModel;
 
         # Sync deserialized prob's flat parameters to the current sys_struct.
         if !isnothing(sam.prob)
-            sync_params!(sam.prob.param_sync, sam.prob.prob, sam.state)
+            sync_run_params!(sam.prob.param_sync, sam.prob.prob, sam.state)
         end
 
         if changed
@@ -701,8 +700,10 @@ function reinit!(
         prob.set_set_values(target,
             SimFloat[winch.set_value for winch in sam.state.winches])
     if fresh
+        # A fresh run starts from the definition, not from an earlier integrator.
+        setfield!(sam.state, :run, nothing)
         # A trailing reinit! would re-solve the DAE init and discard this synced state.
-        sync_aero_params!(prob.param_sync, prob.prob, sam.state)
+        sync_run_params!(prob.param_sync, prob.prob, sam.state)
         sync_initial!(prob.initial_sync, prob.prob, sam.state)
         seed_set_values!(prob.prob)
         prn && @info "JIT-compiling the RHS and building the integrator (first " *
@@ -712,6 +713,7 @@ function reinit!(
             save_on=false, save_everystep=false)
         prn && @info "RHS compiled & integrator built in $(round(jit_time; digits=1)) s."
         sam.integrator = integrator
+        setfield!(sam.state, :run, RunParams(prob, integrator))
     else
         integrator = existing
         sam.integrator = integrator

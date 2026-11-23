@@ -79,18 +79,16 @@ other property, `tubes` among them, is the structure's.
 mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const structure::SS
     const sysstate::ST
-    "each segment's rest length [m], the integrator's parameter a winch reels"
-    const segment_l0::Vector{SimFloat}
-    "each point's apparent mass [kg], an integrator parameter"
-    const point_apparent_mass::Vector{SimFloat}
-    "each body's apparent mass [kg], an integrator parameter"
-    const body_apparent_mass::Vector{SimFloat}
-    "each station's aerodynamic twist moment [N·m], an integrator parameter"
-    const station_aero_moment::Vector{SimFloat}
-    "the segments as this run reads them"
+    "the segments as this run reads them where it holds no value of its own"
     const built_segments::Vector{BuiltSegment}
     "each point's segments"
     const point_segments::Vector{Vector{Int}}
+    "the tether each segment belongs to, 0 for none"
+    const segment_tethers::Vector{Int}
+    "the pulley each segment runs over and its side of it, `(0, 0)` for none"
+    const segment_pulleys::Vector{Tuple{Int, Int}}
+    "each station's aerodynamic twist moment [N·m]"
+    const station_aero_moment::Vector{SimFloat}
     "the position slot before the first body's in `sysstate.X/Y/Z`"
     const body_slot0::Int
     "the number of wings, whose orientation frames come before the bodies'"
@@ -114,6 +112,8 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const am::Union{Nothing, AtmosphericModel}
     "where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)"
     const wind_mode::WindMode
+    "the parameters of the run's integrator, `nothing` before it has one"
+    run::Any
 end
 
 """
@@ -153,21 +153,21 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
             tethers=typed_rows(Tether, sys.tethers),
             winches=typed_rows(Winch, sys.winches))
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat),
-                        SimFloat[segment.rest_length for segment in sys.segments],
-                        zeros(SimFloat, length(sys.points)),
-                        zeros(SimFloat, length(sys.bodies)),
+                        built_segments, point_segments(sys), segment_tethers(sys),
+                        segment_pulleys(sys),
                         zeros(SimFloat, length(sys.spanwise_stations)),
-                        built_segments, point_segments(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
                         run_tubes(sys),
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,
-                        isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
+                        isnothing(set) ? nothing : AtmosphericModel(set), wind_mode,
+                        nothing)
     bodies = Rows(ComponentState[BodyState(body, state, i, modes[i])
                                  for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)
     setfield!(state, :wings, Rows(ComponentState[bodies[i] for i in eachindex(sys.wings)]))
+    start_lengths!(state)
     init_derived_properties!(state; prn=false)
     foreach(wing -> setup_model_aero!(wing, state), state.wings)
     return start_run!(state)
@@ -206,6 +206,24 @@ function point_segments(sys)
         push!(on_point[point_idx], i)
     end
     return on_point
+end
+
+"""The pulley each segment of `sys` runs over and its side of it, `(0, 0)` for none."""
+function segment_pulleys(sys)
+    over = fill((0, 0), length(sys.segments))
+    for (i, pulley) in enumerate(sys.pulleys), (side, segment) in enumerate(pulley.segments)
+        over[segment] = (i, side)
+    end
+    return over
+end
+
+"""The index of the tether each segment of `sys` belongs to, 0 for none."""
+function segment_tethers(sys)
+    tether_of = zeros(Int, length(sys.segments))
+    for (i, tether) in enumerate(sys.tethers), segment in tether.segments
+        tether_of[segment] = i
+    end
+    return tether_of
 end
 
 """
@@ -279,10 +297,71 @@ run_state(record::ComponentState) = getfield(record, :state)
 built(record) = getfield(getfield(record, :state), :built_segments)[index(record)]
 """The stiffness per unit length [N] of a segment record whose stiffness is a number,
 typed `Float64`."""
-numeric_unit_stiffness(record) = material_unit_stiffness(built(record).material,
-    getfield(record, :row).diameter, to_float64)
+numeric_unit_stiffness(record) = to_float64(record.unit_stiffness)
 """The index of a record's component in its collection."""
 index(record::ComponentState) = getfield(record, :idx)
+
+"""
+    run_value(record, name, default)
+
+The value of `record`'s `name` the run's integrator holds, else `default`: before the run
+has an integrator, or where no parameter of it is read from `name`. A vector comes back
+immutable, as writing into it would not reach the integrator.
+"""
+function run_value(record, name, default)
+    run = getfield(run_state(record), :run)
+    isnothing(run) && return default
+    value = run_param(run, (collection(record), index(record), name))
+    isnothing(value) && return default
+    value isa AbstractVector{<:Real} && length(value) == 3 && return SVector{3}(value)
+    return value
+end
+
+"""
+    set_run_value!(record, name, value)
+
+Write `value` to `record`'s `name` in the run's integrator where it is one of its
+parameters, else to the column of its row, refusing a value only a run holds before it
+has started.
+"""
+function set_run_value!(record, name, value)
+    run = getfield(run_state(record), :run)
+    isnothing(run) ||
+        set_run_param!(run, (collection(record), index(record), name), value) &&
+        return value
+    row = getfield(record, :row)
+    hasproperty(row, name) ||
+        error("$(row.name)'s $name is a run's: set it once the run has started")
+    setproperty!(row, name, value)
+    return value
+end
+
+"""The rest length of segment record `r` [m]: its tether's unstretched length shared
+over its segments, its side of the rope over its pulley, else what its run holds, else
+its row's."""
+function segment_rest_length(r)
+    state = run_state(r)
+    tether = getfield(state, :segment_tethers)[index(r)]
+    if tether > 0
+        segments = getfield(state, :structure).tethers[tether].segments
+        return sysstate(r).l_tether[tether] / length(segments)
+    end
+    pulley, side = getfield(state, :segment_pulleys)[index(r)]
+    if pulley > 0
+        len = sysstate(r).pulley_len[pulley]
+        return side == 1 ? len : state.pulleys[pulley].sum_len - len
+    end
+    return run_value(r, :rest_length, something(getfield(r, :row).rest_length, 0.0))
+end
+
+"""Write station record `r`'s aerodynamic moment [N·m] where its run reads it."""
+function station_aero_moment!(r, value)
+    run_state(r).station_aero_moment[index(r)] = value
+    run = getfield(run_state(r), :run)
+    path = (:spanwise_stations, index(r), :aero_moment)
+    isnothing(run) || set_run_param!(run, path, value)
+    return value
+end
 
 """
     @state_record Name docstring begin
@@ -344,17 +423,26 @@ A point of a run's state: its position and velocity and the forces on it.
                            index(r))
     va_b => (point_apparent_wind(r), derived(:va_b))
     total_mass => (point_total_mass(r), derived(:total_mass))
-    apparent_mass => (run_state(r).point_apparent_mass[index(r)],
-                      run_state(r).point_apparent_mass[index(r)] = value)
-    extra_mass => (something(r.row.extra_mass, 0.0), r.row.extra_mass = value)
-    body_frame_damping => (per_axis(r.row.body_frame_damping),
-                           r.row.body_frame_damping = Vector{Float64}(value))
-    world_frame_damping => (per_axis(r.row.world_frame_damping),
-                            r.row.world_frame_damping = Vector{Float64}(value))
-    area => (something(r.row.area, 0.0), r.row.area = value)
-    drag_coeff => (something(r.row.drag_coeff, 0.0), r.row.drag_coeff = value)
-    fix_sphere => (something(r.row.fix_sphere, false), r.row.fix_sphere = value)
-    fix_static => (something(r.row.fix_static, false), r.row.fix_static = value)
+    apparent_mass => (run_value(r, :apparent_mass, r.row.apparent_mass),
+                      set_run_value!(r, :apparent_mass, value))
+    extra_mass => (run_value(r, :extra_mass, something(r.row.extra_mass, 0.0)),
+                   set_run_value!(r, :extra_mass, value))
+    body_frame_damping => (run_value(r, :body_frame_damping,
+                                     per_axis(r.row.body_frame_damping)),
+                           set_run_value!(r, :body_frame_damping, value))
+    world_frame_damping => (run_value(r, :world_frame_damping,
+                                      per_axis(r.row.world_frame_damping)),
+                            set_run_value!(r, :world_frame_damping, value))
+    area => (run_value(r, :area, something(r.row.area, 0.0)),
+             set_run_value!(r, :area, value))
+    drag_coeff => (run_value(r, :drag_coeff, something(r.row.drag_coeff, 0.0)),
+                   set_run_value!(r, :drag_coeff, value))
+    fix_sphere => (run_value(r, :fix_sphere, something(r.row.fix_sphere, false)),
+                   set_run_value!(r, :fix_sphere, value))
+    fix_static => (run_value(r, :fix_static, something(r.row.fix_static, false)),
+                   set_run_value!(r, :fix_static, value))
+    ext_force_w => (run_value(r, :ext_force_w, r.row.ext_force_w),
+                    set_run_value!(r, :ext_force_w, value))
     anchor_b => (r.row.resolved_anchor_b, derived(:anchor_b))
 end
 
@@ -368,13 +456,17 @@ A station of a run's state: its twist and the moments on it.
     twist_ω => (sysstate(r).twist_vel[index(r)], sysstate(r).twist_vel[index(r)] = value)
     tether_force => (station_tether_load(r).force, derived(:tether_force))
     tether_moment => (station_tether_load(r).moment, derived(:tether_moment))
-    aero_moment => (run_state(r).station_aero_moment[index(r)],
-                    run_state(r).station_aero_moment[index(r)] = value)
-    moment_frac => (something(r.row.moment_frac, 0.0), r.row.moment_frac = value)
-    damping => (something(r.row.damping, 50.0), r.row.damping = value)
-    stiffness => (something(r.row.stiffness, 0.0), r.row.stiffness = value)
-    flap_axis => (something(r.row.flap_axis, SVector(0.0, 1.0, 0.0)),
-                  r.row.flap_axis = Vector{Float64}(value))
+    aero_moment => (run_value(r, :aero_moment, run_state(r).station_aero_moment[index(r)]),
+                    station_aero_moment!(r, value))
+    moment_frac => (run_value(r, :moment_frac, something(r.row.moment_frac, 0.0)),
+                    set_run_value!(r, :moment_frac, value))
+    damping => (run_value(r, :damping, something(r.row.damping, 50.0)),
+                set_run_value!(r, :damping, value))
+    stiffness => (run_value(r, :stiffness, something(r.row.stiffness, 0.0)),
+                  set_run_value!(r, :stiffness, value))
+    flap_axis => (run_value(r, :flap_axis,
+                            something(r.row.flap_axis, SVector(0.0, 1.0, 0.0))),
+                  set_run_value!(r, :flap_axis, value))
 end
 
 @state_record SegmentState """
@@ -384,23 +476,25 @@ A segment of a run's state: its index, its rest length, which a winch reels, its
 between its points, its spring force and its spring, its stiffness and density those of
 its material.
 """ begin
-    unit_stiffness => (material_unit_stiffness(built(r).material,
-                                               getfield(r, :row).diameter),
-                       set_material_stiffness!(built(r).material, value,
-                                               getfield(r, :row).diameter))
-    density => (built(r).material.parameters["density"],
-                built(r).material.parameters["density"] = SimFloat(value))
-    unit_damping => (built(r).unit_damping, built(r).unit_damping = value)
-    compression_frac => (built(r).compression_frac, built(r).compression_frac = value)
-    compression_damping_frac => (built(r).compression_damping_frac,
-                                 built(r).compression_damping_frac = value)
-    rest_length => (run_state(r).segment_l0[index(r)],
-                    run_state(r).segment_l0[index(r)] = value)
+    unit_stiffness => (run_value(r, :unit_stiffness,
+                                 material_unit_stiffness(built(r).material, r.diameter)),
+                       set_run_value!(r, :unit_stiffness, value))
+    density => (run_value(r, :density, built(r).material.parameters["density"]),
+                set_run_value!(r, :density, value))
+    unit_damping => (run_value(r, :unit_damping, built(r).unit_damping),
+                     set_run_value!(r, :unit_damping, value))
+    compression_frac => (run_value(r, :compression_frac, built(r).compression_frac),
+                         set_run_value!(r, :compression_frac, value))
+    compression_damping_frac => (run_value(r, :compression_damping_frac,
+                                           built(r).compression_damping_frac),
+                                 set_run_value!(r, :compression_damping_frac, value))
+    rest_length => (segment_rest_length(r), set_run_value!(r, :rest_length, value))
     len => (segment_world_length(getfield(r, :row), getfield(r, :state).points),
             derived(:len))
     force => (sysstate(r).spring_force[index(r)],
               sysstate(r).spring_force[index(r)] = value)
-    diameter => (something(r.row.diameter, 0.0), r.row.diameter = value)
+    diameter => (run_value(r, :diameter, something(r.row.diameter, 0.0)),
+                 set_run_value!(r, :diameter, value))
 end
 
 @state_record PulleyState """
@@ -410,11 +504,15 @@ A pulley of a run's state: how the rope over it is split.
 """ begin
     len => (sysstate(r).pulley_len[index(r)], sysstate(r).pulley_len[index(r)] = value)
     vel => (sysstate(r).pulley_vel[index(r)], sysstate(r).pulley_vel[index(r)] = value)
-    efficiency => (something(r.row.efficiency, 0.95), r.row.efficiency = value)
-    damping => (something(r.row.damping, 0.0), r.row.damping = value)
-    brake => (something(r.row.brake, false), r.row.brake = value)
-    friction_epsilon => (something(r.row.friction_epsilon, 0.1),
-                         r.row.friction_epsilon = value)
+    efficiency => (run_value(r, :efficiency, something(r.row.efficiency, 0.95)),
+                   set_run_value!(r, :efficiency, value))
+    damping => (run_value(r, :damping, something(r.row.damping, 0.0)),
+                set_run_value!(r, :damping, value))
+    brake => (run_value(r, :brake, something(r.row.brake, false)),
+              set_run_value!(r, :brake, value))
+    friction_epsilon => (run_value(r, :friction_epsilon,
+                                   something(r.row.friction_epsilon, 0.1)),
+                         set_run_value!(r, :friction_epsilon, value))
 end
 
 @state_record TetherState """
@@ -446,10 +544,20 @@ A winch of a run's state: its reel-out speed, its setpoint and the forces on it.
     friction => (sysstate(r).winch_friction[index(r)],
                  sysstate(r).winch_friction[index(r)] = value)
     init_vel => (something(r.row.init_vel, 0.0), r.row.init_vel = value)
-    brake => (something(r.row.brake, 0.0), r.row.brake = value)
-    speed_controlled => (something(r.row.speed_controlled, false),
-                         r.row.speed_controlled = value)
+    brake => (run_value(r, :brake, something(r.row.brake, 0.0)),
+              set_run_value!(r, :brake, value))
+    speed_controlled => (run_value(r, :speed_controlled,
+                                   something(r.row.speed_controlled, false)),
+                         set_run_value!(r, :speed_controlled, value))
 end
+
+"""The collection of a run's state a record is one of, as a parameter path names it."""
+collection(::PointState) = :points
+collection(::StationState) = :spanwise_stations
+collection(::SegmentState) = :segments
+collection(::PulleyState) = :pulleys
+collection(::TetherState) = :tethers
+collection(::WinchState) = :winches
 
 """The position slot of `body` in its run's `sysstate.X/Y/Z`."""
 body_slot(body) = getfield(getfield(body, :state), :body_slot0) + index(body)
@@ -492,19 +600,26 @@ aero mode, with this run's VSM engine where it has one.
                                r.row.principal_frame_method = string(value))
     extra_mass => (something(r.row.extra_mass, 0.0), r.row.extra_mass = value)
     origin_ENU => (origin_ENU(r.row), derived(:origin_ENU))
-    angular_damping => (body_angular_damping(r.row),
-                        r.row.angular_damping = Vector{Float64}(value))
-    world_frame_damping => (per_axis(r.row.world_frame_damping),
-                            r.row.world_frame_damping = Vector{Float64}(value))
-    body_frame_damping => (per_axis(r.row.body_frame_damping),
-                           r.row.body_frame_damping = Vector{Float64}(value))
-    ext_force_w => held_vector!(r.row, :ext_force_w)
-    ext_force_b => held_vector!(r.row, :ext_force_b)
-    ext_moment_b => held_vector!(r.row, :ext_moment_b)
-    fix_sphere => (something(r.row.fix_sphere, false), r.row.fix_sphere = value)
-    fix_static => (something(r.row.fix_static, false), r.row.fix_static = value)
-    apparent_mass => (run_state(r).body_apparent_mass[index(r)],
-                      run_state(r).body_apparent_mass[index(r)] = value)
+    angular_damping => (run_value(r, :angular_damping, body_angular_damping(r.row)),
+                        set_run_value!(r, :angular_damping, value))
+    world_frame_damping => (run_value(r, :world_frame_damping,
+                                      per_axis(r.row.world_frame_damping)),
+                            set_run_value!(r, :world_frame_damping, value))
+    body_frame_damping => (run_value(r, :body_frame_damping,
+                                     per_axis(r.row.body_frame_damping)),
+                           set_run_value!(r, :body_frame_damping, value))
+    ext_force_w => (run_value(r, :ext_force_w, held_vector!(r.row, :ext_force_w)),
+                    set_run_value!(r, :ext_force_w, value))
+    ext_force_b => (run_value(r, :ext_force_b, held_vector!(r.row, :ext_force_b)),
+                    set_run_value!(r, :ext_force_b, value))
+    ext_moment_b => (run_value(r, :ext_moment_b, held_vector!(r.row, :ext_moment_b)),
+                     set_run_value!(r, :ext_moment_b, value))
+    fix_sphere => (run_value(r, :fix_sphere, something(r.row.fix_sphere, false)),
+                   set_run_value!(r, :fix_sphere, value))
+    fix_static => (run_value(r, :fix_static, something(r.row.fix_static, false)),
+                   set_run_value!(r, :fix_static, value))
+    apparent_mass => (run_value(r, :apparent_mass, r.row.apparent_mass),
+                      set_run_value!(r, :apparent_mass, value))
     aero_force_b => ColumnVec3(sysstate(r).aero_force_KA_x, sysstate(r).aero_force_KA_y,
                                sysstate(r).aero_force_KA_z, index(r))
     aero_moment_b => ColumnVec3(sysstate(r).aero_moment_KA_x, sysstate(r).aero_moment_KA_y,
@@ -532,6 +647,7 @@ function point_apparent_wind(point)
     wing = getfield(point, :state).bodies[wing_idx]
     return SVector{3}(wing.R_b_to_w' * (point.wind_vec - point.vel_w))
 end
+collection(::BodyState) = :bodies
 
 """The aerodynamic force on `point` in the body frame of its wing [N], zero where it has
 none."""

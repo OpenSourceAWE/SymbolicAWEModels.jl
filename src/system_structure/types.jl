@@ -533,16 +533,16 @@ end
 """
     BuiltSegment
 
-A segment as a run reads it: its row, the material the row names and the spring its model
+A segment as a run starts it: its row, the material the row names and the spring its model
 leaves to be resolved ([`resolve_segment`](@ref)).
 
 $(TYPEDFIELDS)
 """
-mutable struct BuiltSegment
+struct BuiltSegment
     "The segment's row."
-    const row::SegmentRow
+    row::SegmentRow
     "The segment's material."
-    const material::KiteGeometry.Material{KiteGeometry.NoModel}
+    material::KiteGeometry.Material{KiteGeometry.NoModel}
     "Damping per unit length [N·s]."
     unit_damping::SimFloat
     "Compressive over tensile stiffness (0-1)."
@@ -611,24 +611,6 @@ to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
 """The [`SegmentSpring`](@ref) of segment row `row`."""
 @inline segment_spring(row::KiteGeometry.Segment) = row.model
 @inline segment_spring(row::DraftSegment) = row.model.spring
-
-
-
-"""
-    set_material_stiffness!(material, unit_stiffness, diameter)
-
-Give `material` the stiffness per unit length `unit_stiffness`, a number [N] or a force
-law `F(ε)` [N], at `diameter` [m]. Its law changes for every segment sharing it: a number
-on a line with a cross-section becomes its Young's modulus, so a segment of another
-diameter takes that modulus at its own area.
-"""
-function set_material_stiffness!(material, unit_stiffness, diameter)
-    law, stiffness = stiffness_law(unit_stiffness, diameter)
-    material.law = law
-    material.parameters = material_parameters(law, stiffness,
-                                              material.parameters["density"])
-    return unit_stiffness
-end
 
 """
     stiffness_law(unit_stiffness, diameter) -> (law, stiffness)

@@ -1223,6 +1223,12 @@ function winch_state_slots(system, instance::Int, name::Symbol, alias)
     return buffer_slots(system, instance, :states, key)
 end
 
+"""The [`sync_class`](@ref) of the parameter `reader` fills: `:run` for a computed one."""
+function reader_class(reader)
+    inner = path_reader(reader)
+    return isnothing(inner) ? :run : sync_class(inner.path)
+end
+
 """
     bind_params(system, sys_struct, bindings, segment_roles, segment_instances)
 
@@ -1255,10 +1261,9 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
     bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
-    refreshed = [!isnothing(path_reader(reader)) && refreshed_path(path_reader(reader).path)
-                 for reader in readers]
-    sync = KernelParamSync(group_readers(slots[.!refreshed], readers[.!refreshed]),
-                           group_readers(slots[refreshed], readers[refreshed]),
+    classes = map(reader_class, readers)
+    of(class) = group_readers(slots[classes .=== class], readers[classes .=== class])
+    sync = KernelParamSync(of(:live), of(:aero), of(:run),
                            group_callables(callable_targets, callable_readers))
     return KernelParams(numeric, callables), sync
 end

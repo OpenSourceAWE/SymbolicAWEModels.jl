@@ -112,9 +112,9 @@ end
 
     @testset "Transverse tip load (Timoshenko vs Euler)" begin
         load = 5.0
-        rb.ext_force_w .= [0.0, 0.0, load]
-        rb.ext_moment_b .= 0.0
         test_init!(sam; prn=false)
+        rb.ext_force_w = [0.0, 0.0, load]
+        rb.ext_moment_b = zeros(3)
         settle!(sam, rb)
         timoshenko = load * beam_length^3 / (3 * EI) +
                      load * beam_length / (kshear * GA)
@@ -127,9 +127,9 @@ end
 
     @testset "Axial load" begin
         load = 20.0
-        rb.ext_force_w .= [load, 0.0, 0.0]
-        rb.ext_moment_b .= 0.0
         test_init!(sam; prn=false)
+        rb.ext_force_w = [load, 0.0, 0.0]
+        rb.ext_moment_b = zeros(3)
         settle!(sam, rb)
         expected = load * beam_length / EA
         @info "Axial stretch: δ = PL/EA." measured=(rb.pos_w[1] - beam_length) expected=expected
@@ -139,15 +139,15 @@ end
 
     @testset "Torsion moment" begin
         torque = 1.0
-        rb.ext_force_w .= 0.0
-        rb.ext_moment_b .= [torque, 0.0, 0.0]
         test_init!(sam; prn=false)
+        rb.ext_force_w = zeros(3)
+        rb.ext_moment_b = [torque, 0.0, 0.0]
         settle!(sam, rb)
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         twist = asin(clamp(R_b_to_w[3, 2], -1.0, 1.0))
         @info "Torsion: φ = TL/GJ." measured=twist expected=(torque * beam_length / GJ)
         @test twist ≈ torque * beam_length / GJ rtol=5e-4
-        rb.ext_moment_b .= 0.0
+        rb.ext_moment_b = zeros(3)
     end
 
     # Nonlinear rigidities: each callable returns the effective rigidity at the
@@ -178,9 +178,9 @@ end
     @testset "Nonlinear axial (callable rigidity)" begin
         @test !(SymbolicAWEModels.SystemState(sys_nl).tubes[:tube].model.EA isa Real)
         load = 20.0
-        rb_nl.ext_force_w .= [load, 0.0, 0.0]
-        rb_nl.ext_moment_b .= 0.0
         test_init!(sam_nl; prn=false)
+        rb_nl.ext_force_w = [load, 0.0, 0.0]
+        rb_nl.ext_moment_b = zeros(3)
         settle!(sam_nl, rb_nl)
         # P = EA_eff·ε with EA_eff = EA0 - axial_slope·ε ⇒ quadratic, larger root.
         EA_eff = (EA0 + sqrt(EA0^2 - 4 * axial_slope * load)) / 2
@@ -192,9 +192,9 @@ end
 
     @testset "Nonlinear bending (callable rigidity)" begin
         load = 5.0
-        rb_nl.ext_force_w .= [0.0, 0.0, load]
-        rb_nl.ext_moment_b .= 0.0
         test_init!(sam_nl; prn=false)
+        rb_nl.ext_force_w = [0.0, 0.0, load]
+        rb_nl.ext_moment_b = zeros(3)
         settle!(sam_nl, rb_nl)
         # κ = PL/(2·EI_eff), EI_eff = EI0 - bend_slope·κ ⇒ quadratic, larger root.
         EI_eff = (EI0 + sqrt(EI0^2 - 2 * bend_slope * load * beam_length)) / 2

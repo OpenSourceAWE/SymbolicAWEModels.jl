@@ -406,7 +406,15 @@ SymbolicAWEModels.accumulate_point_offset!
 SymbolicAWEModels.restore_point_aero_forces!
 SymbolicAWEModels.point_aero_force_b
 SymbolicAWEModels.sync_aero_params!
+SymbolicAWEModels.sync_run_params!
 SymbolicAWEModels.refreshed_path
+SymbolicAWEModels.sync_class
+SymbolicAWEModels.LIVE_FIELDS
+SymbolicAWEModels.AERO_FIELDS
+SymbolicAWEModels.RunParams
+SymbolicAWEModels.run_param
+SymbolicAWEModels.set_run_param!
+SymbolicAWEModels.param_access
 SymbolicAWEModels.point_aero_force_array
 SymbolicAWEModels.zero_aero_force
 SymbolicAWEModels.PanelAeroList
@@ -492,6 +500,7 @@ SymbolicAWEModels.group_readers
 SymbolicAWEModels.sync_readers!
 SymbolicAWEModels.ParamGroup
 SymbolicAWEModels.ParamSync
+SymbolicAWEModels.ParamKinds
 SymbolicAWEModels.survivor_index
 SymbolicAWEModels.build_param_sync
 SymbolicAWEModels.sync_params!

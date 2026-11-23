@@ -476,8 +476,8 @@ system:
 
     # ========================================================================
     # Physics Test 5: Friction opposes rope travel and is read live
-    # Both terms are struct fields on the Pulley, so changing one and calling
-    # init! again must change the dynamics without rebuilding the model.
+    # Both terms are parameters of the run, so setting one on a running pulley
+    # changes the dynamics without rebuilding the model.
     # ========================================================================
     @testset "Friction opposes rope travel" begin
         set.g_earth = 9.81
@@ -491,10 +491,10 @@ system:
 
         """Peak rope speed over 0.5 s from the off-centre start, at this friction."""
         function peak_rope_speed(efficiency, damping, friction_epsilon)
+            init!(sam; prn=false)
             pulley.efficiency = efficiency
             pulley.damping = damping
             pulley.friction_epsilon = friction_epsilon
-            init!(sam; prn=false)
             peak = 0.0
             for _ in 1:500
                 next_step!(sam; dt=0.001, vsm_interval=0)
@@ -512,8 +512,8 @@ system:
         @test lossy < free
 
         # A braked pulley holds its split, whatever the legs pull.
-        pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, true
         init!(sam; prn=false)
+        pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, true
         held = pulley.len
         for _ in 1:500
             next_step!(sam; dt=0.001, vsm_interval=0)
@@ -623,14 +623,14 @@ system:
 
         """Split speed over the first 30 ms of the transient, at this leg damping."""
         function transient(factor; dt=1e-5, n=3000)
+            sam.sys_struct.points[:pulley_point].body_frame_damping = zeros(3)
+            sam.sys_struct.points[:weight].body_frame_damping = zeros(3)
+            place!(sam)
+            init!(sam; prn=false)
             left.unit_damping = factor * nominal
             right.unit_damping = factor * nominal
             pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, false
-            sam.sys_struct.points[:pulley_point].body_frame_damping = zeros(3)
-            sam.sys_struct.points[:weight].body_frame_damping = zeros(3)
             sam.state.segments[:main_tether].unit_damping = 0.0
-            place!(sam)
-            init!(sam; prn=false)
             speeds = Float64[]
             for _ in 1:n
                 next_step!(sam; dt, vsm_interval=0)

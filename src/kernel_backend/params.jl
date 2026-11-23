@@ -92,36 +92,44 @@ function group_callables(targets, readers)
 end
 
 """
-    KernelParamSync(groups, callable_groups)
+    KernelParamSync(live_groups, aero_groups, run_groups, callable_groups)
 
-Copies live `SystemDefinition` fields into a [`KernelParams`](@ref): the
-[`ReaderGroup`](@ref)s supply `numeric`, the [`CallableGroup`](@ref)s the
-callables. This is the [`KernelBackend`](@ref)'s parameter sync, applied every
-step through the same `ProbWithAttributes` machinery as the monolith's, so it is
-on the hot path twice per step and is grouped by type to stay allocation-free.
+Copies live `SystemState` fields into a [`KernelParams`](@ref): the
+[`ReaderGroup`](@ref)s of each sync class (see [`sync_class`](@ref)) supply `numeric`,
+the [`CallableGroup`](@ref)s, which an aerodynamic refresh changes, the callables. The
+[`KernelBackend`](@ref)'s counterpart of [`ParamSync`](@ref), grouped by type to stay
+allocation-free on the hot path.
 """
 struct KernelParamSync
-    groups::Vector{ReaderGroup}
-    refreshed_groups::Vector{ReaderGroup}
+    live_groups::Vector{ReaderGroup}
+    aero_groups::Vector{ReaderGroup}
+    run_groups::Vector{ReaderGroup}
     callable_groups::Vector{CallableGroup}
 end
 
 function sync_params!(sync::KernelParamSync, target, sys_struct)
     numeric = target.p.numeric
-    for group in sync.groups
+    for group in sync.live_groups
         sync_readers!(group, numeric, sys_struct)
-    end
-    for group in sync.callable_groups
-        sync_callables!(group, sys_struct)
     end
     return nothing
 end
 
 function sync_aero_params!(sync::KernelParamSync, target, sys_struct)
-    for group in sync.refreshed_groups
+    for group in sync.aero_groups
         sync_readers!(group, target.p.numeric, sys_struct)
     end
+    for group in sync.callable_groups
+        sync_callables!(group, sys_struct)
+    end
     return sync_params!(sync, target, sys_struct)
+end
+
+function sync_run_params!(sync::KernelParamSync, target, sys_struct)
+    for group in sync.run_groups
+        sync_readers!(group, target.p.numeric, sys_struct)
+    end
+    return sync_aero_params!(sync, target, sys_struct)
 end
 
 """
@@ -157,6 +165,7 @@ struct ScaledReader{R}
 end
 
 (reader::ScaledReader)(sys_struct) = reader.reader(sys_struct) * reader.factor
+path_reader(reader::ScaledReader) = path_reader(reader.reader)
 
 """
     kernel_param_slots(kernel) -> Dict{Symbol, Vector{Int}}
@@ -305,4 +314,37 @@ function record_build_index!(built_from, entry::ParamEntry, index_map)
             "kernel may read only one component of a container it is instanced over")
     end
     return nothing
+end
+
+"""The element of the parameter at `path` that `reader_path` reads: 0 for the whole of
+it, `k` for its `k`-th element, `nothing` for another parameter."""
+function path_element(reader_path, path)
+    reader_path == path && return 0
+    length(reader_path) == length(path) + 1 && reader_path[end] isa Int &&
+        reader_path[1:end-1] == path && return reader_path[end]
+    return nothing
+end
+
+function build_param_access(sync::KernelParamSync, prob, path)
+    slots, elements = Int[], Int[]
+    for group in Iterators.flatten((sync.live_groups, sync.aero_groups, sync.run_groups))
+        for (slot, reader) in zip(group.targets, group.readers)
+            inner = path_reader(reader)
+            isnothing(inner) && continue
+            element = path_element(inner.path, path)
+            isnothing(element) && continue
+            push!(slots, slot)
+            push!(elements, reader isa ElementReader ? reader.index : element)
+        end
+    end
+    isempty(slots) && return nothing
+    all(iszero, elements) && return (read=integrator -> integrator.p.numeric[first(slots)],
+        write=(integrator, value) -> (integrator.p.numeric[slots] .= value))
+    first_slot = [slots[findfirst(==(k), elements)] for k in 1:maximum(elements)]
+    return (read=integrator -> integrator.p.numeric[first_slot],
+            write=function (integrator, value)
+                for (slot, k) in zip(slots, elements)
+                    integrator.p.numeric[slot] = value[k]
+                end
+            end)
 end

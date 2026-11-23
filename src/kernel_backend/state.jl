@@ -34,14 +34,13 @@ struct PointReadout
 end
 
 """
-    SegmentReadout(segment, spring_force, l0)
+    SegmentReadout(segment, spring_force)
 
 Where one segment's diagnostics live in the observable buffer.
 """
 struct SegmentReadout
     segment::Int
     spring_force::Int
-    l0::Int
 end
 
 """
@@ -203,8 +202,7 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                   aero_force_slots(model, idx))
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
-                    only(buffer_slots(system, instance, :observables, :spring_force)),
-                    only(buffer_slots(system, instance, :observables, :l0)))
+                    only(buffer_slots(system, instance, :observables, :spring_force)))
                 for (idx, instance) in enumerate(model.segment_instances)]
     pulleys = PulleyReadout[]
     for (idx, role) in enumerate(model.point_roles)
@@ -395,7 +393,6 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
     for readout in getter.segments
         segment = sys_struct.segments[readout.segment]
         segment.force = scratch.observable[readout.spring_force]
-        segment.rest_length = scratch.observable[readout.l0]
     end
     for readout in getter.pulleys
         pulley = sys_struct.pulleys[readout.pulley]

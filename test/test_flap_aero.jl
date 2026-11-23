@@ -199,7 +199,7 @@ end
             write_delta_swept_fixture(data_path)
             sam, sys = build_flap_model(data_path, tube_block)
             wing = sam.state.wings[1]; mode = wing.aero
-            te = sys.bodies[:te_body]
+            te = sam.state.bodies[:te_body]
             @test mode isa AeroPressure
             @test has_flap(sys.spanwise_stations[:flap])
             @test any(!=(0), mode.panel_station)
@@ -209,7 +209,7 @@ end
             # hinge. Compare a +moment settle vs a −moment settle: δ swings, and the
             # live RHS aero force responds because δ enters cl/cd/cm every step.
             function settle_with_moment(moment)
-                te.ext_moment_b .= [0.0, moment, 0.0]
+                te.ext_moment_b = [0.0, moment, 0.0]
                 for _ in 1:700; next_step!(sam; dt=0.005, vsm_interval=1); end
                 return flap_angle(sam), copy(wing.aero_force_b)
             end
@@ -247,7 +247,7 @@ end
     test_init!(sam; prn=false)
     @test abs(flap_angle(sam)) < deg2rad(1)   # the as-placed pose is δ = 0
     function settle_with_moment(moment)
-        sys.bodies[:te_body].ext_moment_b .= [0.0, moment, 0.0]
+        sam.state.bodies[:te_body].ext_moment_b = [0.0, moment, 0.0]
         for _ in 1:700; next_step!(sam; dt=0.005, vsm_interval=1); end
         return flap_angle(sam), copy(wing.aero_force_b)
     end

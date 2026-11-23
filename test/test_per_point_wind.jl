@@ -94,7 +94,7 @@ function stepped_state(set, yaml_path, wind_mode; steps = 40, dt = 0.05,
         system_name = "per_point_wind_test", set)
     sam = SymbolicAWEModel(set, sys; transforms, wind_mode)
     test_init!(sam; prn=false)
-    point_drag || foreach(point -> (point.area = 0.0), sam.sys_struct.points)
+    point_drag || foreach(point -> (point.area = 0.0), sam.state.points)
     for _ in 1:steps
         isnothing(winds) || for (point, wind) in zip(sam.state.points, winds)
             point.wind_vec .= wind

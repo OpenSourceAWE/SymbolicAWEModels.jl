@@ -211,10 +211,6 @@ function set_unstretched_length!(sys_struct::SystemState, tether, len)
     isempty(tether.segments) && error("Tether $(tether.name): " *
         "has no segments to carry an unstretched length")
     tether.len = len
-    l0 = len / length(tether.segments)
-    for seg_idx in tether.segments
-        sys_struct.segments[seg_idx].rest_length = l0
-    end
     return nothing
 end
 
@@ -347,6 +343,25 @@ function init_derived_properties!(sys_struct; prn::Bool=true)
 end
 
 """
+    start_lengths!(state)
+
+Start each tether of `state` at its segments' rest lengths, and each pulley's rope split
+as its two segments' rest lengths give it, at rest.
+"""
+function start_lengths!(state)
+    rest_length(idx) = something(state.structure.segments[idx].rest_length, 0.0)
+    for tether in state.tethers
+        tether.len = sum(rest_length, tether.segments; init=0.0)
+    end
+    for pulley in state.pulleys
+        pulley.sum_len = rest_length(pulley.segments[1]) + rest_length(pulley.segments[2])
+        pulley.len = rest_length(pulley.segments[1])
+        pulley.vel = 0.0
+    end
+    return state
+end
+
+"""
     start_run!(state::SystemState; reset_vel=true)
 
 Put `state` at the start of a run from the pose its structure is placed in: every
@@ -360,21 +375,7 @@ holds.
 function start_run!(state; reset_vel::Bool=true)
     foreach(station -> station.twist = station.row.twist, state.spanwise_stations)
     reset_to_initial_pose!(state; reset_vel)
-    for point in state.points
-        point.apparent_mass = point.row.apparent_mass
-    end
-    foreach(body -> body.apparent_mass = body.row.apparent_mass, state.bodies)
-    foreach(segment -> segment.rest_length = segment.row.rest_length, state.segments)
-    for tether in state.tethers
-        tether.len = sum(state.segments[idx].rest_length for idx in tether.segments;
-                         init=0.0)
-    end
-    for pulley in state.pulleys
-        segment1, segment2 = (state.segments[idx] for idx in pulley.segments)
-        pulley.sum_len = segment1.rest_length + segment2.rest_length
-        pulley.len = segment1.rest_length
-        pulley.vel = 0.0
-    end
+    start_lengths!(state)
     fit_body_frames!(state.points, state.bodies)
     reset_vel && set_transform_velocities!(state, state.transforms)
     return state

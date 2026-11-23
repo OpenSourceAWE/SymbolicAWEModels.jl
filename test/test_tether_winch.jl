@@ -178,14 +178,14 @@ environment:
     # Test 1: Brake holds tether velocity at zero
     # ============================================================
     @testset "Brake holds" begin
-        winch.brake = true
         winch.coulomb_friction = 0.0
         winch.viscous_coefficient = 0.0
         winch.inertia_total = 0.1
-        seg.unit_stiffness = 0.0
-        seg.unit_damping = 0.0
         place!(sam)
         test_init!(sam; prn=false)
+        winch.brake = true
+        seg.unit_stiffness = 0.0
+        seg.unit_damping = 0.0
 
         tau_motor = 5.0
         for _ in 1:100
@@ -201,17 +201,17 @@ environment:
     # Expected: a = (r/n) * tau_motor / I
     # ============================================================
     @testset "Acceleration vs inertia" begin
-        winch.brake = false
         winch.coulomb_friction = 0.0
         winch.viscous_coefficient = 0.0
-        seg.unit_stiffness = 0.0
-        seg.unit_damping = 0.0
         tau_motor = 1.0
 
         for I_test in [0.1, 0.5, 1.0]
             winch.inertia_total = I_test
             place!(sam)
             test_init!(sam; prn=false)
+            winch.brake = false
+            seg.unit_stiffness = 0.0
+            seg.unit_damping = 0.0
 
             dt = 0.001
             n_steps = 20
@@ -235,12 +235,9 @@ environment:
     #   a = (r/n)/I * (tau_motor - coulomb_friction * r/n)
     # ============================================================
     @testset "Acceleration vs Coulomb friction" begin
-        winch.brake = false
         winch.viscous_coefficient = 0.0
         winch.model.friction_epsilon = 0.01
         winch.inertia_total = 0.1
-        seg.unit_stiffness = 0.0
-        seg.unit_damping = 0.0
         tau_motor = 1.0
         I = winch.inertia_total
 
@@ -248,6 +245,9 @@ environment:
             winch.coulomb_friction = f_c
             place!(sam)
             test_init!(sam; prn=false)
+            winch.brake = false
+            seg.unit_stiffness = 0.0
+            seg.unit_damping = 0.0
 
             dt = 0.001
             # Spin up so smooth_sign(ω, 0.01) ≈ 1
@@ -280,12 +280,9 @@ environment:
     # Expected: v_term = tau_motor * n / (viscous_coefficient * r)
     # ============================================================
     @testset "Terminal velocity vs viscous friction" begin
-        winch.brake = false
         winch.coulomb_friction = 0.0
         winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.01  # Small I for fast settling
-        seg.unit_stiffness = 0.0
-        seg.unit_damping = 0.0
         tau_motor = 1.0
         I = winch.inertia_total
 
@@ -293,6 +290,9 @@ environment:
             winch.viscous_coefficient = viscous_test
             place!(sam)
             test_init!(sam; prn=false)
+            winch.brake = false
+            seg.unit_stiffness = 0.0
+            seg.unit_damping = 0.0
 
             # Time constant: I / (viscous_coefficient * (r/n)^2)
             tau = I / (viscous_test * (r / n)^2)
@@ -317,7 +317,6 @@ environment:
     # Exact: extension = m*g*l0 / (unit_stiffness - m*g)
     # ============================================================
     @testset "Steady-state tether stretch" begin
-        winch.brake = true
         winch.coulomb_friction = 1.0
         winch.viscous_coefficient = 0.5
         winch.model.friction_epsilon = 6.0
@@ -325,10 +324,11 @@ environment:
 
         unit_k = 50000.0  # Low but not too low [N]
         unit_d = unit_k * 0.01  # Damping for settling
-        seg.unit_stiffness = unit_k
-        seg.unit_damping = unit_d
         place!(sam)
         test_init!(sam; prn=false)
+        winch.brake = true
+        seg.unit_stiffness = unit_k
+        seg.unit_damping = unit_d
 
         # Compute total mass at weight point:
         # m = extra_mass + rho * pi * (d/2)^2 * l0 / 2
@@ -362,17 +362,17 @@ environment:
     # the motor torque we are applying.
     # ============================================================
     @testset "calc_steady_torque at terminal velocity" begin
-        winch.brake = false
         winch.coulomb_friction = 0.0
         winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.01
         winch.viscous_coefficient = 100.0
 
         # Stiff tether to transmit gravity force
-        seg.unit_stiffness = 120000.0
-        seg.unit_damping = 500.0
         place!(sam)
         test_init!(sam; prn=false)
+        winch.brake = false
+        seg.unit_stiffness = 120000.0
+        seg.unit_damping = 500.0
 
         tau_motor = 0.5
 
@@ -470,14 +470,13 @@ environment:
         test_init!(sam2)
 
         # Brake on, stiff tether
-        w2 = sam2.sys_struct.winches[:winch]
-        w2.brake = true
+        place!(sam2)
+        test_init!(sam2; prn=false)
+        sam2.state.winches[:winch].brake = true
         for s in sam2.state.segments
             s.unit_stiffness = 50000.0
             s.unit_damping = 500.0
         end
-        place!(sam2)
-        test_init!(sam2; prn=false)
 
         next_step!(sam2; dt=3.0, vsm_interval=0)
 
@@ -650,11 +649,11 @@ environment:
     # rest length without re-placing the structure
     # ============================================================
     @testset "set_unstretched_length! retrims a winched tether" begin
+        place!(sam)
+        test_init!(sam; prn=false)
         winch.brake = true
         seg.unit_stiffness = 50000.0
         seg.unit_damping = 500.0
-        place!(sam)
-        test_init!(sam; prn=false)
 
         placed = [copy(point.pos_w) for point in sam.state.points]
         @test unstretched_length(sam) ≈ [50.0]

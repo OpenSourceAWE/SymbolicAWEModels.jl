@@ -327,17 +327,54 @@ struct ParamGroup{Setter, Buf}
     buffer::Buf
 end
 
-"""Bundle of the per-kind sync groups (each may be `nothing`)."""
-struct ParamSync{S, A, C, R}
+"""The per-kind sync groups of one sync class, each `nothing` where it holds none."""
+struct ParamKinds{S, A, C}
     scalar::S
     array::A
     callable::C
-    refreshed::R
+end
+
+"""
+    ParamSync(live, aero, run)
+
+The [`ParamKinds`](@ref) of each sync class: the parameters a run's `SysState` gives
+(`live`, written every step), those an aerodynamic refresh changes (`aero`), and the
+rest, which a run writes once when it starts and then only where a record writes one
+(`run`).
+"""
+struct ParamSync{L, A, R}
+    live::L
+    aero::A
+    run::R
 end
 
 """Whether `path` reads a point's frozen aerodynamic force, which only an aerodynamic
 refresh changes: a sync at another attitude would turn it with the wing."""
 refreshed_path(path) = length(path) >= 3 && path[1] === :points && path[3] === :aero_force_b
+
+"""The `(collection, field)` pairs whose parameters read a column of a run's `SysState`,
+or what follows from them."""
+const LIVE_FIELDS = Set([(:points, :pos_w), (:points, :wind_vec), (:points, :total_mass),
+    (:wings, :wind_vec),
+    (:bodies, :wind_vec), (:wings, :aero_force_b), (:wings, :aero_moment_b),
+    (:bodies, :pos_w), (:bodies, :Q_b_to_w), (:bodies, :com_w),
+    (:spanwise_stations, :twist), (:tethers, :len)])
+
+"""The fields of a wing an aerodynamic refresh changes: its aero mode and its engine's."""
+const AERO_FIELDS = Set([:aero, :aero_y, :aero_x, :aero_jac, :unsteady])
+
+"""
+    sync_class(path) -> Symbol
+
+When the parameter read at `path` changes: `:live` every step, `:aero` with each
+aerodynamic refresh, `:run` only where a run writes it.
+"""
+function sync_class(path)
+    length(path) >= 3 || return :run
+    (path[1], path[3]) in LIVE_FIELDS && return :live
+    (refreshed_path(path) || path[3] in AERO_FIELDS) && return :aero
+    return :run
+end
 
 """
     survivor_index(sys) -> Dict{String, Vector{param}}
@@ -369,59 +406,71 @@ entry_name(param) = string(ModelingToolkit.getname(ModelingToolkit.unwrap(param)
 """
     build_param_sync(sys, registry) -> ParamSync | Nothing
 
-Build the per-kind sync groups from the compiled system and the registry. Pruned
-parameters (no surviving equation references them) are dropped, so a setter never
-touches a parameter absent from the buffer.
+Build the per-class, per-kind sync groups from the compiled system and the registry.
+Pruned parameters (no surviving equation references them) are dropped, so a setter
+never touches a parameter absent from the buffer.
 """
 function build_param_sync(sys, registry::ParamRegistry)
     isempty(registry.entries) && return nothing
     index = survivor_index(sys)
-    refreshed_entries = filter(e -> refreshed_path(e.path), registry.entries)
-    by_kind(k) = filter(e -> e.kind === k && !refreshed_path(e.path), registry.entries)
-    grp(entries, ::Type{Buf}) where {Buf} = begin
+    function group(entries, ::Type{Buf}) where {Buf}
         survivors, readers = Any[], Any[]
         for entry in entries
             for survivor in get(index, entry_name(entry.param), ())
                 push!(survivors, survivor); push!(readers, entry.read)
             end
         end
-        isempty(survivors) ? nothing :
-            ParamGroup(setp(sys, survivors), group_readers(eachindex(readers), readers),
-                       Buf(undef, length(survivors)))
+        isempty(survivors) && return nothing
+        return ParamGroup(setp(sys, survivors), group_readers(eachindex(readers), readers),
+                          Buf(undef, length(survivors)))
     end
-    scalar = grp(by_kind(:scalar), Vector{SimFloat})
-    array = grp(by_kind(:array), Vector{Any})
-    callable = grp(by_kind(:callable), Vector{Any})
-    refreshed = grp(refreshed_entries, Vector{Any})
-    all(isnothing, (scalar, array, callable, refreshed)) && return nothing
-    return ParamSync(scalar, array, callable, refreshed)
+    of(class, kind) = filter(e -> e.kind === kind && sync_class(e.path) === class,
+                             registry.entries)
+    kinds(class) = ParamKinds(group(of(class, :scalar), Vector{SimFloat}),
+                              group(of(class, :array), Vector{Any}),
+                              group(of(class, :callable), Vector{Any}))
+    return ParamSync(kinds(:live), kinds(:aero), kinds(:run))
 end
 
 """
     sync_params!(sync, target, sys_struct)
 
-Copy every flattened field from the live `sys_struct` into `target`'s parameter
-buffers (`target` is an `ODEProblem` or an `ODEIntegrator`). A no-op when there
-are no flattened parameters.
+Copy the parameters a run's `SysState` gives from the live `sys_struct` into
+`target`'s parameter buffers (`target` is an `ODEProblem` or an `ODEIntegrator`). A
+no-op when there are no flattened parameters.
 """
 sync_params!(::Nothing, target, sys_struct) = nothing
-function sync_params!(sync::ParamSync, target, sys_struct)
-    sync_group!(sync.scalar, target, sys_struct)
-    sync_group!(sync.array, target, sys_struct)
-    sync_group!(sync.callable, target, sys_struct)
-    return nothing
-end
+sync_params!(sync::ParamSync, target, sys_struct) =
+    sync_kinds!(sync.live, target, sys_struct)
 
 """
     sync_aero_params!(sync, target, sys_struct)
 
-[`sync_params!`](@ref), and the parameters only an aerodynamic refresh changes: to call
-right after a refresh, and where a run starts.
+[`sync_params!`](@ref), and the parameters an aerodynamic refresh changes: to call right
+after a refresh.
 """
 sync_aero_params!(::Nothing, target, sys_struct) = nothing
 function sync_aero_params!(sync::ParamSync, target, sys_struct)
-    sync_group!(sync.refreshed, target, sys_struct)
+    sync_kinds!(sync.aero, target, sys_struct)
     return sync_params!(sync, target, sys_struct)
+end
+
+"""
+    sync_run_params!(sync, target, sys_struct)
+
+Every parameter, from `sys_struct`: where a run starts, before it holds any of its own.
+"""
+sync_run_params!(::Nothing, target, sys_struct) = nothing
+function sync_run_params!(sync::ParamSync, target, sys_struct)
+    sync_kinds!(sync.run, target, sys_struct)
+    return sync_aero_params!(sync, target, sys_struct)
+end
+
+function sync_kinds!(kinds::ParamKinds, target, sys_struct)
+    sync_group!(kinds.scalar, target, sys_struct)
+    sync_group!(kinds.array, target, sys_struct)
+    sync_group!(kinds.callable, target, sys_struct)
+    return nothing
 end
 
 sync_group!(::Nothing, target, sys_struct) = nothing
@@ -432,4 +481,61 @@ function sync_group!(group::ParamGroup, target, sys_struct)
     end
     group.setter(target, buffer)
     return nothing
+end
+
+# ==================== RUN PARAMETERS ==================== #
+
+"""
+    RunParams(prob, integrator)
+
+The parameters of a run's `integrator`, built from `prob`, a
+[`ProbWithAttributes`](@ref), by the path each is read from (`(:segments, 3,
+:rest_length)`): where a record reads and writes a value a run holds once it has
+started.
+"""
+struct RunParams{P, I}
+    prob::P
+    integrator::I
+    access::Dict{Any, Any}
+end
+RunParams(prob, integrator) = RunParams(prob, integrator, Dict{Any, Any}())
+
+"""
+    run_param(run, path) -> value or `nothing`
+
+The value the parameter at `path` has in `run`'s integrator, `nothing` where no
+parameter is read from `path`.
+"""
+function run_param(run::RunParams, path)
+    access = param_access(run, path)
+    isnothing(access) && return nothing
+    return access.read(run.integrator)
+end
+
+"""
+    set_run_param!(run, path, value) -> Bool
+
+Write `value` to the parameter at `path` in `run`'s integrator; `false` where no
+parameter is read from `path`.
+"""
+function set_run_param!(run::RunParams, path, value)
+    access = param_access(run, path)
+    isnothing(access) && return false
+    access.write(run.integrator, value)
+    return true
+end
+
+"""The getter and setter of the parameter at `path` in `run`, `nothing` for none."""
+param_access(run::RunParams, path) =
+    get!(() -> build_param_access(run.prob.param_sync, run.prob, path), run.access, path)
+
+build_param_access(::Nothing, prob, path) = nothing
+function build_param_access(::ParamSync, prob, path)
+    sys = prob.sys
+    survivors = get(survivor_index(sys), string(param_name(path)), nothing)
+    isnothing(survivors) && return nothing
+    getter = getp(sys, first(survivors))
+    setter = setp(sys, survivors)
+    return (read=getter,
+            write=(target, value) -> setter(target, fill(value, length(survivors))))
 end

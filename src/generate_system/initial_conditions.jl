@@ -94,6 +94,7 @@ struct ElementReader{R}
     index::Int
 end
 (reader::ElementReader)(sys_struct) = reader.base(sys_struct)[reader.index]
+path_reader(reader::ElementReader) = path_reader(reader.base)
 
 """
     InitialSync

@@ -125,7 +125,7 @@ function apply_pressure!(sam, pressure)
 
     # Reset all external forces to zero
     for pt in pts
-        pt.ext_force_w .= 0.0
+        pt.ext_force_w = zeros(3)
     end
 
     for j in 0:N-1, i in 0:N-1
@@ -146,7 +146,7 @@ function apply_pressure!(sam, pressure)
             # P × triangle_area / 3 per corner; triangle_area = |n|/2
             fvec1 = (pressure / 6) .* n1
             for idx in (ia, ib, ic)
-                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w .+= fvec1)
+                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w += fvec1)
             end
         end
 
@@ -156,7 +156,7 @@ function apply_pressure!(sam, pressure)
         if mag2 > 1e-12
             fvec2 = (pressure / 6) .* n2
             for idx in (ia, ic, id)
-                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w .+= fvec2)
+                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w += fvec2)
             end
         end
     end

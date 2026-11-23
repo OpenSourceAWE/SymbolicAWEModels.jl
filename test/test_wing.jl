@@ -276,6 +276,7 @@ end
             @testset "fix_sphere" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
+                test_init!(sam; prn=false)
                 for point in sam.state.points
                     if point_type(point) == SymbolicAWEModels.DYNAMIC
                         point.fix_sphere = true
@@ -284,7 +285,6 @@ end
                 for wing in sam.state.wings
                     wing.fix_sphere = true
                 end
-                test_init!(sam; prn=false)
 
                 # RIGID_DYNAMICS: fix_sphere constrains com_w
                 # (not kcu, which shifts with rotation).
@@ -325,12 +325,12 @@ end
             @testset "fix_static" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
+                test_init!(sam; prn=false)
                 for point in sam.state.points
                     if point_type(point) == SymbolicAWEModels.DYNAMIC
                         point.fix_static = true
                     end
                 end
-                test_init!(sam; prn=false)
 
                 # RIGID_DYNAMICS: kcu rides the wing body (BODY_STATIC),
                 # not a DYNAMIC point, so fix_static has no effect on it.

@@ -39,8 +39,8 @@ sys, transforms = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set)
 sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
-l0_left = sam.sys_struct.segments[:kcu_steering_left].rest_length
-l0_right = sam.sys_struct.segments[:kcu_steering_right].rest_length
+l0_left = sam.state.segments[:kcu_steering_left].rest_length
+l0_right = sam.state.segments[:kcu_steering_right].rest_length
 init!(sam; remake=false, remake_vsm=false)
 find_steady_state!(sam)
 
@@ -55,9 +55,9 @@ elapsed = @elapsed for step in 1:n_steps
     t = step * dt
     ramp = clamp(t / RAMP_TIME, 0.0, 1.0)
     steer = STEERING_MAGNITUDE * ramp
-    sam.sys_struct.segments[:kcu_steering_left].rest_length =
+    sam.state.segments[:kcu_steering_left].rest_length =
         l0_left - steer
-    sam.sys_struct.segments[:kcu_steering_right].rest_length =
+    sam.state.segments[:kcu_steering_right].rest_length =
         l0_right + steer
 
     next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
