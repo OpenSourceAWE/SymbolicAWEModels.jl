@@ -24,7 +24,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, KiteGeometry
 using KiteUtils
 using LinearAlgebra
 
@@ -86,15 +86,18 @@ end
     beam_length = 1.0
     EI = 100.0; GA = 1500.0; EA = 1.0e4; GJ = 50.0; kshear = 5 / 6
     inertia = [0.01, 0.01, 0.01]
+    materials = [Material(; name=:breukels2011, law="breukels2011",
+                          parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
 
-    nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia,
-                 pos=[0.0, 0.0, 0.0], type=STATIC)
-    nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
-                 pos=[beam_length, 0.0, 0.0])
-    tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
-        model=TimoshenkoTube(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-                             damping=0.05))
-    sys = system_definition("timoshenko_test", set;
+    nodeA = Body(; name=:nodeA, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                 extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=true)
+    nodeB = Body(; name=:nodeB, pos_ENU=[beam_length, 0.0, 0.0], extra_mass=1.0,
+                 extra_inertia_KA=Matrix(Diagonal(inertia)))
+    tube = Tube(; name=:tube, bodies=(:nodeA, :nodeB), diameter=0.1, pressure=3e4,
+        material=:breukels2011,
+        model=TimoshenkoTubeModel(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
+                                  damping=0.05))
+    sys = system_definition("timoshenko_test", set; materials,
         bodies=[nodeA, nodeB], tubes=[tube])
 
     @testset "Model setup" begin
@@ -163,14 +166,15 @@ end
     EIy_law = SymbolicAWEModels.LinearInterpolation(
         EI0 .- bend_slope .* abs.(kappa_knots), kappa_knots)
 
-    nodeA2 = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia,
-                  pos=[0.0, 0.0, 0.0], type=STATIC)
-    nodeB2 = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
-                  pos=[beam_length, 0.0, 0.0])
-    tube_nl = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
-        model=TimoshenkoTube(; EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI,
-                             shear_coeff=kshear, damping=0.05))
-    sys_nl = system_definition("timoshenko_test", set;
+    nodeA2 = Body(; name=:nodeA, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                  extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=true)
+    nodeB2 = Body(; name=:nodeB, pos_ENU=[beam_length, 0.0, 0.0], extra_mass=1.0,
+                  extra_inertia_KA=Matrix(Diagonal(inertia)))
+    tube_nl = Tube(; name=:tube, bodies=(:nodeA, :nodeB), diameter=0.1, pressure=3e4,
+        material=:breukels2011,
+        model=TimoshenkoTubeModel(; EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI,
+                                  shear_coeff=kshear, damping=0.05))
+    sys_nl = system_definition("timoshenko_test", set; materials,
         bodies=[nodeA2, nodeB2], tubes=[tube_nl])
     sam_nl = SymbolicAWEModel(set, sys_nl)
     rb_nl = sam_nl.state.bodies[:nodeB]

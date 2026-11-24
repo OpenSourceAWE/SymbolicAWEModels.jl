@@ -196,6 +196,7 @@ SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
 SymbolicAWEModels.copy_dir
 SymbolicAWEModels.get_example_packages
+SymbolicAWEModels.row_dynamics_type
 ```
 
 ## Base overloads (internal use)
@@ -250,7 +251,6 @@ SymbolicAWEModels.ParticleDynamics
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
-SymbolicAWEModels.expand_tethers!
 SymbolicAWEModels.wing_frame_member
 ```
 
@@ -265,7 +265,6 @@ SymbolicAWEModels.validate_station_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
-SymbolicAWEModels.broadcast_damping
 SymbolicAWEModels.assign_damping!
 SymbolicAWEModels.segment_rest_length_eqs
 ```

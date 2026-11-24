@@ -34,10 +34,11 @@
 using Pkg
 Pkg.activate(@__DIR__)
 using SymbolicAWEModels
-using SymbolicAWEModels: Point
+using LinearAlgebra: Diagonal
 using KiteUtils
 using GLMakie
 using MakieControlPlots
+import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
 
 # ----- tube geometry and fabric (the only required measured inputs) -----
 pressure_bar = 0.3               # internal gauge pressure [bar]
@@ -362,14 +363,18 @@ whose ground anchor sits `winch_depth` below the tip — the displacement actuat
 """
 function build_beam(name, n_seg, joint_law)
     seg_len = beam_length / n_seg
+    # Every segment and tube names its material in this table
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+    push!(materials.rows, Material(; name = :breukels2011, law = "breukels2011",
+        parameters = KiteGeometry.tube_law_parameters(:breukels2011)))
     bodies = Body[]
     for i in 1:n_seg
         radius = station_radius((i - 0.5) / n_seg)
         inertia = [0.5 * seg_mass * radius^2,
                    seg_mass * seg_len^2 / 12, seg_mass * seg_len^2 / 12]
-        push!(bodies, Body(Symbol("seg_$i"); extra_mass = seg_mass,
-            inertia_principal = inertia, pos = [(i - 0.5) * seg_len, 0.0, 0.0],
-            type = i == 1 ? STATIC : DYNAMIC))
+        push!(bodies, Body(; name = Symbol("seg_$i"),
+            pos_ENU = [(i - 0.5) * seg_len, 0.0, 0.0], extra_mass = seg_mass,
+            extra_inertia_KA = Matrix(Diagonal(inertia)), fixed = i == 1))
     end
     # Each tube's β critically damps the bending mode of everything outboard of it
     # about the hinge (the root tube swings the whole beam, not one segment).
@@ -380,27 +385,32 @@ function build_beam(name, n_seg, joint_law)
                           seg_mass * ((j - 0.5) * seg_len - joint_x)^2
                           for j in (i + 1):n_seg)
         damping = critical_rayleigh_beta(linear_bending_stiffness(law), inertia_out)
-        Tube(Symbol("joint_$i"), Symbol("seg_$i"), Symbol("seg_$(i + 1)");
-            diameter = 2 * station_radius(i / n_seg), pressure,
-            anchor_a = [seg_len / 2, 0.0, 0.0], anchor_b = [-seg_len / 2, 0.0, 0.0],
-            model = ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
-                                stiffness_bending = law, damping))
+        Tube(; name = Symbol("joint_$i"),
+            bodies = (Symbol("seg_$i"), Symbol("seg_$(i + 1)")),
+            diameter = 2 * station_radius(i / n_seg), pressure, material = :breukels2011,
+            model = ElasticTubeModel(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                stiffness_bending = law, damping,
+                anchor_a = [seg_len / 2, 0.0, 0.0], anchor_b = [-seg_len / 2, 0.0, 0.0]))
     end
     joints = [make_joint(i) for i in 1:(n_seg - 1)]
     tip_body = Symbol("seg_$n_seg")
     points = [
-        Point(:ground, [beam_length, 0.0, -winch_depth], STATIC),
-        Point(:tip_anchor, [beam_length, 0.0, 0.0], BODY_STATIC;
-              body = tip_body, anchor_b = [seg_len / 2, 0.0, 0.0]),
+        Point(; name = :ground, pos_ENU = [beam_length, 0.0, -winch_depth], fixed = true),
+        Point(; name = :tip_anchor, pos_ENU = [beam_length, 0.0, 0.0], body = tip_body,
+              model = PointModel(; anchor_b = [seg_len / 2, 0.0, 0.0])),
     ]
-    segments = [Segment(:tether_seg, :ground, :tip_anchor,
-        tether_stiffness, tether_damping, tether_diameter; rest_length = winch_depth)]
-    tethers = [Tether(:tether, [:tether_seg], winch_depth)]
-    winches = [Winch(:winch, set, [:tether]; winch_point = :ground,
-        model = CascadedLengthWinch(v_max = sweep_v_max,
-            position_gain = 20.0, velocity_gain = 20.0))]
-    winches[1].inertia_total = 1.0e-4     # tiny rotor → near-instant tracking
-    sys = system_definition(name, set; points, segments, tethers, winches,
+    segments = [KiteGeometry.line_segment(:tether_seg, (:ground, :tip_anchor), set,
+        materials; rest_length = winch_depth, diameter = tether_diameter,
+        unit_stiffness = tether_stiffness,
+        model = SegmentSpring(; unit_damping = tether_damping))]
+    tethers = [Tether(; name = :tether, segments = [:tether_seg],
+                      init_stretched_length = winch_depth)]
+    winches = [Winch(; name = :winch, tethers = [:tether], winch_point = :ground,
+        model = WinchModel(;
+            inertia_total = 1.0e-4,     # tiny rotor → near-instant tracking
+            dynamics = CascadedLengthWinch(v_max = sweep_v_max,
+                position_gain = 20.0, velocity_gain = 20.0)))]
+    sys = system_definition(name, set; points, segments, materials, tethers, winches,
         bodies = bodies, tubes = joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake = false, prn = true)

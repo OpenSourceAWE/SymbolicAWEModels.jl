@@ -136,15 +136,29 @@ end
     end
 
     @testset "a tube row without rigidities takes them from its law" begin
-        tube = Tube(:strut, 1, 2; diameter=0.1, pressure=30000.0)
+        # A row leaves its rigidities unset; the run's element derives them.
+        material(law) = Material(; name=law, law=String(law),
+                                 parameters=KiteGeometry.tube_law_parameters(law))
+        function run_tube(tube, law=:breukels2011)
+            bodies = [Body(; name, pos_ENU, extra_mass=1.0,
+                           extra_inertia_KA=Matrix(Diagonal([0.01, 0.01, 0.01])))
+                      for (name, pos_ENU) in ((:a, [0.0, 0.0, 0.0]), (:b, [1.0, 0.0, 0.0]))]
+            strut = system_definition("yaml_bodies_strut", set;
+                materials=[material(law)], bodies, tubes=[tube])
+            return SymbolicAWEModels.SystemState(strut).tubes[1]
+        end
+        tube = run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1, pressure=30000.0,
+                             material=:breukels2011))
         EA, GA, EI, GJ = tube_linear_rigidities(0.05, 0.3)
         @test (tube.model.EA, tube.model.GA, tube.model.GJ) == (EA, GA, GJ)
         @test tube.model.EIy == tube.model.EIz == EI
-        partial = Tube(:strut, 1, 2; diameter=0.1, pressure=30000.0,
-                       model=TimoshenkoTube(EA=1.0))
+        partial = run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1,
+                                pressure=30000.0, material=:breukels2011,
+                                model=TimoshenkoTubeModel(; EA=1.0)))
         @test (partial.model.EA, partial.model.GA) == (1.0, GA)
-        @test_throws "unknown" Tube(:strut, 1, 2; diameter=0.1, pressure=3e4,
-                                    law=:no_such_law)
+        @test_throws "unknown" run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1,
+                                             pressure=3e4, material=:no_such_law),
+                                        :no_such_law)
     end
 
     for model_name in ("timoshenko", "elastic")

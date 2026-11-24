@@ -91,20 +91,24 @@ function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
                    inertia_total, friction_eps]; name)
 end
 
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:ground, [0.0, 0.0, 0.0], STATIC),
-    Point(:mass, [0.0, 0.0, -50.0], DYNAMIC; extra_mass=10.0),
+    Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+    Point(; name=:mass, pos_ENU=[0.0, 0.0, -50.0], extra_mass=10.0),
 ]
 segments = [
-    Segment(:line, :ground, :mass, 50_000.0, 500.0, 0.005; rest_length=50.0),
+    KiteGeometry.line_segment(:line, (:ground, :mass), set, materials;
+                              rest_length=50.0, diameter=0.005, unit_stiffness=50_000.0,
+                              model=SegmentSpring(; unit_damping=500.0)),
 ]
-tethers = [Tether(:main, [:line], 50.0)]
-winches = [Winch(:winch, set, [:main]; winch_point=:ground,
-                 model=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0))]
-winches[1].inertia_total = 0.001  # tiny rotor → near-instant velocity tracking
+tethers = [Tether(; name=:main, segments=[:line], init_stretched_length=50.0)]
+winches = [Winch(; name=:winch, tethers=[:main], winch_point=:ground,
+                 model=WinchModel(;
+                     inertia_total=0.001,  # tiny rotor → near-instant velocity tracking
+                     dynamics=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0)))]
 
 sys_struct = system_definition("custom_winch_vel", set;
-                             points, segments, tethers, winches)
+                             points, segments, materials, tethers, winches)
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=true, prn=false)
 

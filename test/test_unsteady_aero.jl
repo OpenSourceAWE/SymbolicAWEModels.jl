@@ -112,8 +112,8 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     @testset "apparent mass slows the nodes" begin
         # Same force, more inertia: the wing's nodes must accelerate less.
         accels = map((0.0, 1.0)) do scale
-            set, sys, transforms, vsm_set, aero = build_unsteady_case(root, "am_step_$(scale)";
-                                                       apparent_mass=scale)
+            set, sys, transforms, vsm_set, aero = build_unsteady_case(root,
+                "am_step_$(scale)"; apparent_mass=scale)
             sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
                                    aero)
             test_init!(sam; remake=true)
@@ -131,19 +131,22 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
         set = Settings("system.yaml")
         inertia = [0.01, 0.01, 0.01]
-        node_a = Body(:node_a; extra_mass=1.0, inertia_principal=inertia,
-                      pos=[0.0, 0.0, 0.0], type=STATIC)
-        node_b = Body(:node_b; extra_mass=1.0, inertia_principal=inertia,
-                      pos=[1.0, 0.0, 0.0])
-        tube = Tube(:tube, :node_a, :node_b; diameter=0.1, pressure=3e4,
-            model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0,
-                                 EIz=100.0, shear_coeff=5 / 6, damping=0.05))
-        rider = Point(:rider, [0.25, 0.0, 0.0], BODY_STATIC; tube=:tube)
-        anchored = Point(:anchored, [1.0, 0.0, 0.0], BODY_STATIC; body=:node_b)
-        free = Point(:free, [2.0, 0.0, 0.0], DYNAMIC; wing=0)
+        node_a = Body(; name=:node_a, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                      extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=true)
+        node_b = Body(; name=:node_b, pos_ENU=[1.0, 0.0, 0.0], extra_mass=1.0,
+                      extra_inertia_KA=Matrix(Diagonal(inertia)))
+        materials = [Material(; name=:breukels2011, law="breukels2011",
+            parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
+        tube = Tube(; name=:tube, bodies=(:node_a, :node_b), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=TimoshenkoTubeModel(; EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0,
+                                      EIz=100.0, shear_coeff=5 / 6, damping=0.05))
+        rider = Point(; name=:rider, pos_ENU=[0.25, 0.0, 0.0], tube=:tube)
+        anchored = Point(; name=:anchored, pos_ENU=[1.0, 0.0, 0.0], body=:node_b)
+        free = Point(; name=:free, pos_ENU=[2.0, 0.0, 0.0])
         beam = system_definition("carrier_test", set;
             points=[rider, anchored, free], bodies=[node_a, node_b],
-            tubes=[tube])
+            tubes=[tube], materials)
 
         beam_state = SystemState(beam)
         # A tube rider is placed by both bodies, split by where it sits.
@@ -193,7 +196,8 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         slow_state.wings[1].unsteady.wagner_gains = [0.2, 0.4]
         @test get_sys_struct_hash(slow_state) == slow_hash
 
-        off_set, off, _, vsm_set, off_aero = build_unsteady_case(root, "wag_tune"; wagner=false)
+        off_set, off, _, vsm_set, off_aero = build_unsteady_case(root, "wag_tune";
+                                                                 wagner=false)
         @test get_sys_struct_hash(SystemState(off; set=off_set, vsm_set,
                                                     aero=off_aero)) != slow_hash
     end
@@ -201,8 +205,8 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     @testset "Wagner: two states for the whole wing" begin
         # However many panels the wing has, the lag costs exactly two states.
         counts = map((false, true)) do wagner
-            set, sys, transforms, vsm_set, aero = build_unsteady_case(root, "wag_count_$(wagner)";
-                                                       wagner)
+            set, sys, transforms, vsm_set, aero = build_unsteady_case(root,
+                "wag_count_$(wagner)"; wagner)
             sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
                                    aero)
             test_init!(sam; remake=true)

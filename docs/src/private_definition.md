@@ -12,26 +12,22 @@ components as definition rows, and the writer. Not part of the public API.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.cell_ref
-SymbolicAWEModels.maybe
 SymbolicAWEModels.document_format
+SymbolicAWEModels.set_wing_column!
+SymbolicAWEModels.wings_first
+SymbolicAWEModels.definition_tube
 ```
 
 ## KiteGeometry models
 
 ```@docs
-SymbolicAWEModels.PointModel
-SymbolicAWEModels.StationModel
 SymbolicAWEModels.WingModel
+SymbolicAWEModels.wing_aero_spec
+SymbolicAWEModels.wing_dynamics_type
+SymbolicAWEModels.wing_station_idxs
 SymbolicAWEModels.unit_inertia_tensor
 KiteGeometry.wing_spec(::SymbolicAWEModels.WingModel)
-SymbolicAWEModels.PulleyModel
 SymbolicAWEModels.BodyModel
-SymbolicAWEModels.TetherModel
-SymbolicAWEModels.WinchModel
-SymbolicAWEModels.TimoshenkoTubeModel
-SymbolicAWEModels.ElasticTubeModel
-SymbolicAWEModels.SegmentSpring
 SymbolicAWEModels.register_definition_models
 ```
 
@@ -41,10 +37,9 @@ SymbolicAWEModels.register_definition_models
 SymbolicAWEModels.per_axis
 SymbolicAWEModels.material_unit_stiffness
 SymbolicAWEModels.to_float64
-SymbolicAWEModels.reference_column
-SymbolicAWEModels.references_column
-SymbolicAWEModels.tether_row
 SymbolicAWEModels.wing_column
+SymbolicAWEModels.body_wing
+SymbolicAWEModels.own_com_offset
 SymbolicAWEModels.mesh_frame
 SymbolicAWEModels.column_vector
 SymbolicAWEModels.principal_axes
@@ -58,12 +53,6 @@ SymbolicAWEModels.set_origin_ENU!
 ## Definition writer internals
 
 ```@docs
-SymbolicAWEModels.segment_with_material
-SymbolicAWEModels.settings_segment
-SymbolicAWEModels.stiffness_law
-SymbolicAWEModels.material_parameters
-SymbolicAWEModels.material!
-SymbolicAWEModels.winch_friction_epsilon
 SymbolicAWEModels.torque_winch
 ```
 
@@ -71,17 +60,13 @@ SymbolicAWEModels.torque_winch
 
 ```@docs
 SymbolicAWEModels.BuiltSegment
-SymbolicAWEModels.DraftSegment
 SymbolicAWEModels.PointPositions
-SymbolicAWEModels.SegmentDraft
-SymbolicAWEModels.SegmentRow
 SymbolicAWEModels.body_apparent_wind
 SymbolicAWEModels.built
 SymbolicAWEModels.copy_run_columns!
 SymbolicAWEModels.model_aero
 SymbolicAWEModels.model_vsm_set
 SymbolicAWEModels.copy_unsteady
-SymbolicAWEModels.nan_to_nothing
 SymbolicAWEModels.numeric_unit_stiffness
 SymbolicAWEModels.point_apparent_wind
 SymbolicAWEModels.point_segments
@@ -112,13 +97,11 @@ SymbolicAWEModels.beam_anchor
 SymbolicAWEModels.collection
 SymbolicAWEModels.start_lengths!
 SymbolicAWEModels.point_total_mass
-SymbolicAWEModels.ref_points
 SymbolicAWEModels.resolve_segment
 SymbolicAWEModels.resolved_unit_damping
 SymbolicAWEModels.run_tubes
 SymbolicAWEModels.segment_spring
 SymbolicAWEModels.station_tether_load
-SymbolicAWEModels.structure_segment!
 SymbolicAWEModels.typed_rows
 SymbolicAWEModels.winch_force_vector
 SymbolicAWEModels.wing_bodies

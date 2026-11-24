@@ -16,10 +16,10 @@ This page explains each stage.
 │ Component    │──▶│ System       │──▶│ Symbolic Eqs     │──▶│ ODEProblem   │
 │ Definition   │   │ Structure    │   │ ModelingToolkit  │   │ + Integrator │
 │              │   │              │   │                  │   │              │
-│ Point()      │   │ resolve refs │   │ point_eqs!()     │   │ init!()      │
-│ Segment()    │   │ validate     │   │ segment_eqs!()   │   │ cache to .bin│
+│ Point rows   │   │ resolve refs │   │ point_eqs!()     │   │ init!()      │
+│ Segment rows │   │ validate     │   │ segment_eqs!()   │   │ cache to .bin│
 │ Wing rows    │   │ compute COM  │   │ wing_eqs!()      │   │              │
-│ Winch()      │   │              │   │ winch_eqs!()     │   │              │
+│ Winch rows   │   │              │   │ winch_eqs!()     │   │              │
 │ ...          │   │              │   │ aero_eqs!()      │   │              │
 └──────────────┘   └──────────────┘   └──────────────────┘   └──────────────┘
                                             │
@@ -29,29 +29,32 @@ This page explains each stage.
 
 ## Stage 1: component definition
 
-Components are created using constructors ([`Point`](@ref), [`Segment`](@ref), etc.)
-with symbolic name references. At this stage, references are unresolved — a segment
+Components are KiteGeometry rows (`Point`, `Segment`, etc.), built with keywords, with
+symbolic name references and a SymbolicAWEModels model ([`PointModel`](@ref),
+[`SegmentSpring`](@ref), etc.) in their `model` column. At this stage, references are unresolved — a segment
 knows it connects `:anchor` to `:mass`, but doesn't know their numeric indices yet.
 
 ```julia
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:anchor, [0, 0, 0], STATIC),
-    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
+    Point(; name=:anchor, pos_ENU=[0, 0, 0], fixed=true),
+    Point(; name=:mass, pos_ENU=[0, 0, -50], extra_mass=1.0),
 ]
 # :anchor and :mass are just names here, not yet resolved
-segments = [Segment(:spring, :anchor, :mass,
-    614600.0, 473.0, 0.004)]
+segments = [KiteGeometry.line_segment(:spring, (:anchor, :mass), set, materials;
+    diameter=0.004, unit_stiffness=614600.0, model=SegmentSpring(; unit_damping=473.0))]
 ```
 
 Alternatively, components can be parsed from a YAML file using
-[`load_sys_struct_from_yaml`](@ref), which calls the same constructors internally.
+[`load_sys_struct_from_yaml`](@ref), which builds the same rows.
 
 ## Stage 2: SystemDefinition assembly
 
 [`system_definition`](@ref) takes the component vectors and:
 
-1. **Builds the rows** — the components become the rows of a KiteGeometry
-   `SystemDefinition`; a segment without a material is given the line of `set`
+1. **Builds the definition** — the rows and the `materials` they name become a
+   KiteGeometry `SystemDefinition`; a winch without a `gear_ratio` or `drum_radius`
+   takes `set`'s
 2. **Completes and places the wings** — KiteGeometry's `complete_wings!` puts every
    wing's body in its design pose and gives it `set.mass` where it carries none, and
    KiteGeometry's `place!` places the whole
@@ -65,7 +68,7 @@ Alternatively, components can be parsed from a YAML file using
    etc. via `validate_sys_struct()`
 
 ```julia
-sys = system_definition("my_model", set; points, segments)
+sys = system_definition("my_model", set; points, segments, materials)
 ```
 
 ## Stage 3: symbolic equation generation

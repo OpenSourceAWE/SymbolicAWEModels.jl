@@ -111,10 +111,10 @@ end
     @testset "flap δ extraction (Julia ground truth)" begin
         # Rest capture at φ=0 → rest_delta 0; then δ equals the hinge rotation.
         for phi in (0.0, 0.3, -0.25, 0.5)
-            main = Body(:main; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
-                        pos=[0.0, 0, 0])
-            flap = Body(:flap; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
-                        pos=[1.0, 0, 0])
+            main = Body(; name=:main, pos_ENU=[0.0, 0, 0], extra_mass=1.0,
+                        extra_inertia_KA=Matrix(Diagonal([1.0, 1.0, 1.0])))
+            flap = Body(; name=:flap, pos_ENU=[1.0, 0, 0], extra_mass=1.0,
+                        extra_inertia_KA=Matrix(Diagonal([1.0, 1.0, 1.0])))
             bodies = [main, flap]
             ts = FlapStation(; flap_bodies=[1, 2])
             S.init_station_flap!(ts, (; bodies))
@@ -126,10 +126,10 @@ end
         end
         # Nonzero rest: capture at φ0, deflect to φ0+Δ → δ = Δ.
         phi0, delta = 0.2, 0.15
-        main = Body(:main; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
-                    pos=[0.0, 0, 0], Q_b_to_w=quat_y(0.0))
-        flap = Body(:flap; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
-                    pos=[1.0, 0, 0], Q_b_to_w=quat_y(phi0))
+        main = Body(; name=:main, pos_ENU=[0.0, 0, 0], Q_KA2ENU=quat_y(0.0),
+                    extra_mass=1.0, extra_inertia_KA=Matrix(Diagonal([1.0, 1.0, 1.0])))
+        flap = Body(; name=:flap, pos_ENU=[1.0, 0, 0], Q_KA2ENU=quat_y(phi0),
+                    extra_mass=1.0, extra_inertia_KA=Matrix(Diagonal([1.0, 1.0, 1.0])))
         bodies = [main, flap]
         ts = FlapStation(; flap_bodies=[1, 2])
         S.init_station_flap!(ts, (; bodies))
@@ -158,21 +158,26 @@ end
         wing = KiteGeometry.Wing(; name=:nodeA, pos_ENU=zeros(3), body=:nodeA,
             model=WingModel(; aero_mode="AeroNone",
                             stations=with_flap ? [:flap] : nothing))
-        nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia, pos=zeros(3),
-                     type=STATIC)
-        nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
-                     pos=[beam_length, 0.0, 0.0])
-        tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
-            model=TimoshenkoTube(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-                                 damping=0.05))
+        nodeA = Body(; name=:nodeA, pos_ENU=zeros(3), extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=true,
+                     model=BodyModel(; angular_damping=0.0))
+        nodeB = Body(; name=:nodeB, pos_ENU=[beam_length, 0.0, 0.0], extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        materials = [Material(; name=:breukels2011, law="breukels2011",
+            parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
+        tube = Tube(; name=:tube, bodies=(:nodeA, :nodeB), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=TimoshenkoTubeModel(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
+                                      damping=0.05))
         # KINEMATIC flap station: δ = the hinge angle nodeA→nodeB.
-        flap = Station(:flap, Int[], KINEMATIC, 0.0;
-            wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])
+        flap = SpanwiseStation(; name=:flap, wing=:nodeA, points=Int[],
+            model=StationModel(; type="KINEMATIC", moment_frac=0.0,
+                               flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0]))
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
-        bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; tube=:tube)
+        bridle = Point(; name=:bridle, pos_ENU=[0.5, 0.0, 0.1], tube=:tube)
         return system_definition(name, set;
             points=[bridle], wings=[wing], bodies=[nodeA, nodeB], tubes=[tube],
-            spanwise_stations=with_flap ? [flap] : Station[])
+            materials, spanwise_stations=with_flap ? [flap] : SpanwiseStation[])
     end
 
     sys = build_beam_sys("flap_beam_test")

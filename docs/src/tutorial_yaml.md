@@ -14,14 +14,14 @@ The YAML workflow has three steps:
 
 1. **Write a YAML file** — define points, segments, and other components in
    a structured text file
-2. **Load with [`load_sys_struct_from_yaml`](@ref)** — parses the YAML and calls the
-   same Julia constructors used in the [Julia tutorial](tutorial_julia.md)
+2. **Load with [`load_sys_struct_from_yaml`](@ref)** — parses the YAML into the
+   same KiteGeometry rows and models built in the [Julia tutorial](tutorial_julia.md)
 3. **Compile and simulate** — same as the Julia path: [`SymbolicAWEModel`](@ref) →
    [`init!`](@ref) → [`next_step!`](@ref)
 
 The YAML loader does as little as possible: it parses YAML, applies the
-`variables` block, converts string enum values, and calls constructors. All
-defaults and derived calculations happen in the component constructors.
+`variables` block, and reads each block into its rows and their models. Defaults
+are filled and derived quantities calculated when the system is built and run.
 
 ## YAML file structure
 
@@ -320,7 +320,8 @@ winches:
 
 ### Stations
 
-A [`Station`](@ref) is a wing section with a twist degree of freedom.
+A spanwise station ([`StationModel`](@ref)) is a wing section with a twist degree of
+freedom.
 `point_idxs` (or `points`) lists its structural points; `type` is `DYNAMIC`
 (twist solves its equilibrium), `STATIC` (twist is a prescribed control input)
 or `KINEMATIC` (a flap hinge whose deflection follows two bodies).
@@ -385,8 +386,8 @@ a winch changes a tether's `l0` during a run.
 
 ### Bodies and tubes
 
-A [`Body`](@ref) is a plain rigid body — no aerodynamics, no structural points
-of its own. Bodies are linked by [`Tube`](@ref)s: an inflated tube of one
+A body ([`BodyModel`](@ref)) is a plain rigid body — no aerodynamics, no structural
+points of its own. Bodies are linked by tubes: an inflated tube of one
 `diameter` [m] and `pressure` [Pa], whose `law` gives its rigidities and whose
 `model` is the element it is simulated as — `timoshenko`, a 2-node
 [`TimoshenkoTube`](@ref) beam element, or `elastic`, a lumped 6-DOF
@@ -460,11 +461,11 @@ rebuild with `init!(sam; remake=true)`.
 
 ## YAML vs Julia
 
-| Aspect | YAML | Julia constructors |
+| Aspect | YAML | Julia rows |
 |--------|------|--------------------|
 | **Best for** | Complex models, data from CAD/measurements | Simple models, programmatic generation |
 | **Readability** | Easy to scan geometry at a glance | Better for computed geometry (loops, formulas) |
-| **Material refs** | Built-in: reference by name | Manual: pass stiffness/damping directly |
+| **Material refs** | Built-in: reference by name | `KiteGeometry.line_segment` adds a segment's material to a `MaterialTable` |
 | **Version control** | Clean diffs for parameter changes | Code diffs mix logic and parameters |
 
 Both paths produce the same `SystemDefinition` type and are equally

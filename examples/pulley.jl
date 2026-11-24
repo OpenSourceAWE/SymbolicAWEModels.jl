@@ -24,25 +24,25 @@ set.v_wind = 10.0
 set.abs_tol = 1e-3
 set.rel_tol = 1e-3
 
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:anchor1, [0, 0, 2], STATIC),
-    Point(:anchor2, [2, 0, 2], STATIC),
-    Point(:pulley_pt, [0.1, 0, 1], DYNAMIC;
-        extra_mass=0.1),
-    Point(:mass, [0.1, 0, 0], DYNAMIC;
-        extra_mass=0.1),
+    Point(; name=:anchor1, pos_ENU=[0, 0, 2], fixed=true),
+    Point(; name=:anchor2, pos_ENU=[2, 0, 2], fixed=true),
+    Point(; name=:pulley_pt, pos_ENU=[0.1, 0, 1], extra_mass=0.1),
+    Point(; name=:mass, pos_ENU=[0.1, 0, 0], extra_mass=0.1),
 ]
+# Rope segments: EA = 500 N, 50 N·s damping, 4 mm diameter
+rope(name, ends) = KiteGeometry.line_segment(name, ends, set, materials;
+    diameter=0.004, unit_stiffness=500.0, model=SegmentSpring(; unit_damping=50.0))
 segments = [
-    Segment(:seg1, :pulley_pt, :anchor1,
-            500.0, 50.0, 0.004),
-    Segment(:seg2, :pulley_pt, :anchor2,
-            500.0, 50.0, 0.004),
-    Segment(:seg3, :pulley_pt, :mass,
-            500.0, 50.0, 0.004),
+    rope(:seg1, (:pulley_pt, :anchor1)),
+    rope(:seg2, (:pulley_pt, :anchor2)),
+    rope(:seg3, (:pulley_pt, :mass)),
 ]
-pulleys = [Pulley(:pulley, :seg1, :seg2, DYNAMIC)]
+pulleys = [Pulley(; name=:pulley, segments=(:seg1, :seg2),
+                  model=PulleyModel(; type="DYNAMIC"))]
 sys = system_definition("pulley", set;
-                      points, segments, pulleys)
+                      points, segments, materials, pulleys)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 

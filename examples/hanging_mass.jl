@@ -24,13 +24,15 @@ set_data_path(joinpath(dirname(@__DIR__), "data"))
 set = Settings("base/system.yaml")
 set.v_wind = 0
 
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:anchor, [2, 0, 5], STATIC),
-    Point(:mass, [2, 0, 2], DYNAMIC; extra_mass=1.0),
+    Point(; name=:anchor, pos_ENU=[2, 0, 5], fixed=true),
+    Point(; name=:mass, pos_ENU=[2, 0, 2], extra_mass=1.0),
 ]
 segments = [
-    Segment(:spring, :anchor, :mass,
-            500.0, 50.0, 0.005; rest_length=4.0),
+    KiteGeometry.line_segment(:spring, (:anchor, :mass), set, materials;
+                              rest_length=4.0, diameter=0.005, unit_stiffness=500.0,
+                              model=SegmentSpring(; unit_damping=50.0)),
 ]
 transforms = [
     Transform(; name=:tf, elevation=-deg2rad(90), azimuth=0, heading=0,
@@ -38,7 +40,7 @@ transforms = [
               points=[1, 2]),
 ]
 
-sys = system_definition("hanging_mass", set; points, segments)
+sys = system_definition("hanging_mass", set; points, segments, materials)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)

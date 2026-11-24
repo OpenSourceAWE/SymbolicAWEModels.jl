@@ -61,31 +61,34 @@ points = Point[]
 for j in 0:N
     for i in 0:N
         is_boundary = (i == 0 || i == N || j == 0 || j == N)
-        type = is_boundary ? STATIC : DYNAMIC
         # Small upward perturbation on interior nodes to break symmetry
         z = is_boundary ? Z0 : Z0 + Z_PERTURB
-        kw = is_boundary ? (;) :
-            (; extra_mass=NODE_MASS, world_frame_damping=WF_DAMP)
-        push!(points, Point(pname(i, j),
-            [i * dx, j * dx, z], type; kw...))
+        kw = is_boundary ? (; fixed=true) :
+            (; extra_mass=NODE_MASS,
+               model=PointModel(; world_frame_damping=WF_DAMP))
+        push!(points, Point(; name=pname(i, j),
+            pos_ENU=[i * dx, j * dx, z], kw...))
     end
 end
 
 # ── Build segments ──────────────────────────────────────────────────────
-segments = Segment[]
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+membrane(id, a, b) = KiteGeometry.line_segment(Symbol(id), (a, b), set, materials;
+    diameter=SEG_DIA, unit_stiffness=SEG_STIFF,
+    model=SegmentSpring(; unit_damping=SEG_DAMP, compression_frac=0.0))
+
+segments = KiteGeometry.Segment[]
 seg_id   = 1
 
 # Structural edges: horizontal (x-direction) and vertical (y-direction)
 for j in 0:N, i in 0:N
     global seg_id
     if i < N
-        push!(segments, Segment(seg_id, pname(i, j), pname(i + 1, j),
-              SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+        push!(segments, membrane(seg_id, pname(i, j), pname(i + 1, j)))
         seg_id += 1
     end
     if j < N
-        push!(segments, Segment(seg_id, pname(i, j), pname(i, j + 1),
-              SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+        push!(segments, membrane(seg_id, pname(i, j), pname(i, j + 1)))
         seg_id += 1
     end
 end
@@ -93,17 +96,15 @@ end
 # Diagonal shear segments (both diagonals per quad cell)
 for j in 0:N-1, i in 0:N-1
     global seg_id
-    push!(segments, Segment(seg_id, pname(i, j), pname(i + 1, j + 1),
-          SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+    push!(segments, membrane(seg_id, pname(i, j), pname(i + 1, j + 1)))
     seg_id += 1
-    push!(segments, Segment(seg_id, pname(i + 1, j), pname(i, j + 1),
-          SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+    push!(segments, membrane(seg_id, pname(i + 1, j), pname(i, j + 1)))
     seg_id += 1
 end
 # Rest lengths (l0) are automatically set to initial CAD distances by SystemDefinition.
 
 # ── Build model ─────────────────────────────────────────────────────────
-sys = system_definition("airbag", set; points, segments)
+sys = system_definition("airbag", set; points, segments, materials)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 

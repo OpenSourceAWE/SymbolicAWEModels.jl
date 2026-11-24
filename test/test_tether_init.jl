@@ -14,7 +14,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, Point
+using SymbolicAWEModels: KVec3, KiteGeometry
 using KiteUtils
 using LinearAlgebra
 
@@ -489,10 +489,6 @@ winches:
         # force → len = stretched * (1 - force/k)
         tether.init_stretch_frac = nothing
         @test unstretched() ≈ stretched * 0.9
-
-        # only one of force / frac may have a value at a time
-        @test_throws ErrorException Tether(:both, [:s1];
-            tether_force=1.0, stretch_frac=0.9)
     end
 
     # ================================================================
@@ -501,29 +497,36 @@ winches:
     @testset "Placement moves a rigid body (BODY_STATIC anchor)" begin
         seg_len = 1.0
         inertia = [0.01, 0.1, 0.1]
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                               Dict{String, Any}())
+        push!(materials.rows, Material(; name=:breukels2011, law="breukels2011",
+            parameters=KiteGeometry.tube_law_parameters(:breukels2011)))
         bodies = [
-            Body(:root; extra_mass=1.0, inertia_principal=inertia,
-                pos=[0.5seg_len, 0.0, 0.0], type=STATIC),
-            Body(:tip; extra_mass=1.0, inertia_principal=inertia,
-                pos=[1.5seg_len, 0.0, 0.0], type=DYNAMIC),
+            Body(; name=:root, pos_ENU=[0.5seg_len, 0.0, 0.0], extra_mass=1.0,
+                extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=true),
+            Body(; name=:tip, pos_ENU=[1.5seg_len, 0.0, 0.0], extra_mass=1.0,
+                extra_inertia_KA=Matrix(Diagonal(inertia))),
         ]
-        tubes = [Tube(:j, :root, :tip; diameter=0.1, pressure=3e4,
-            anchor_a=[seg_len/2, 0, 0], anchor_b=[-seg_len/2, 0, 0],
-            model=ElasticTube(stiffness_axial=1e4, stiffness_shear=1e4,
-                              stiffness_torsion=1e3, stiffness_bending=1e3,
-                              damping=0.05))]
+        tubes = [Tube(; name=:j, bodies=(:root, :tip), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=ElasticTubeModel(; stiffness_axial=1e4, stiffness_shear=1e4,
+                                   stiffness_torsion=1e3, stiffness_bending=1e3,
+                                   damping=0.05, anchor_a=[seg_len/2, 0.0, 0.0],
+                                   anchor_b=[-seg_len/2, 0.0, 0.0]))]
         # Ground 5 m below the tip; standoff 6 m forces the tip body up ~1 m.
         points = [
-            Point(:ground, [2.0seg_len, 0.0, -5.0], STATIC),
-            Point(:tip_anchor, [2.0seg_len, 0.0, 0.0], BODY_STATIC;
-                  body=:tip, anchor_b=[seg_len/2, 0.0, 0.0]),
+            Point(; name=:ground, pos_ENU=[2.0seg_len, 0.0, -5.0], fixed=true),
+            Point(; name=:tip_anchor, pos_ENU=[2.0seg_len, 0.0, 0.0], body=:tip,
+                  model=PointModel(; anchor_b=[seg_len/2, 0.0, 0.0])),
         ]
-        segments = [Segment(:tether_seg, :ground, :tip_anchor,
-            1e4, 10.0, 0.01; rest_length=5.0)]
-        tethers = [Tether(:tether, [:tether_seg], 6.0)]
-        winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
+        segments = [KiteGeometry.line_segment(:tether_seg, (:ground, :tip_anchor), set,
+            materials; rest_length=5.0, diameter=0.01, unit_stiffness=1e4,
+            model=SegmentSpring(; unit_damping=10.0))]
+        tethers = [Tether(; name=:tether, segments=[:tether_seg],
+                          init_stretched_length=6.0)]
+        winches = [Winch(; name=:winch, tethers=[:tether], winch_point=:ground)]
         sys = system_definition("init_stretched_length_body", set; points,
-            segments, tethers, winches, bodies=bodies, tubes)
+            segments, materials, tethers, winches, bodies=bodies, tubes)
 
         place!(sys)
 
@@ -628,28 +631,34 @@ winches:
     riding the first tube, with a tail off a point riding the second."""
     function tube_rider_beam(name)
         inertia = [0.01, 0.01, 0.01]
-        bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
-                       pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                               Dict{String, Any}())
+        push!(materials.rows, Material(; name=:breukels2011, law="breukels2011",
+            parameters=KiteGeometry.tube_law_parameters(:breukels2011)))
+        bodies = [Body(; name=Symbol(:node, i), pos_ENU=[Float64(i - 1), 0.0, 0.0],
+                       extra_mass=1.0, extra_inertia_KA=Matrix(Diagonal(inertia)))
                   for i in 1:4]
-        tubes = [Tube(Symbol(:j, i), Symbol(:node, i), Symbol(:node, i + 1);
-                      diameter=0.1, pressure=3e4,
-                      model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0,
-                                           EIy=100.0, EIz=100.0, shear_coeff=5/6,
-                                           damping=0.05)) for i in 1:3]
+        tubes = [Tube(; name=Symbol(:j, i), bodies=(Symbol(:node, i), Symbol(:node, i + 1)),
+                      diameter=0.1, pressure=3e4, material=:breukels2011,
+                      model=TimoshenkoTubeModel(; EA=1.0e4, GA=1500.0, GJ=50.0,
+                                                EIy=100.0, EIz=100.0, shear_coeff=5/6,
+                                                damping=0.05)) for i in 1:3]
         points = [
-            Point(:ground, [0.5, 0.0, -5.0], STATIC),
-            Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; tube=:j1),
-            Point(:tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC; tube=:j2),
-            Point(:tail, [1.5, 0.0, -1.0], DYNAMIC; extra_mass=1.0),
+            Point(; name=:ground, pos_ENU=[0.5, 0.0, -5.0], fixed=true),
+            Point(; name=:beam_anchor, pos_ENU=[0.5, 0.0, 0.0], tube=:j1),
+            Point(; name=:tip_anchor, pos_ENU=[1.5, 0.0, 0.0], tube=:j2),
+            Point(; name=:tail, pos_ENU=[1.5, 0.0, -1.0], extra_mass=1.0),
         ]
-        segments = [Segment(:tether_seg, :ground, :beam_anchor, 1e4, 10.0, 0.01;
-                            rest_length=5.0),
-                    Segment(:tail_seg, :tip_anchor, :tail, 1e4, 10.0, 0.01;
-                            rest_length=1.0)]
-        tethers = [Tether(:tether, [:tether_seg], 6.0)]
-        winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
-        return system_definition(name, set; points, segments, tethers, winches, bodies,
-                               tubes)
+        line(name, ends, rest_length) = KiteGeometry.line_segment(name, ends, set,
+            materials; rest_length, diameter=0.01, unit_stiffness=1e4,
+            model=SegmentSpring(; unit_damping=10.0))
+        segments = [line(:tether_seg, (:ground, :beam_anchor), 5.0),
+                    line(:tail_seg, (:tip_anchor, :tail), 1.0)]
+        tethers = [Tether(; name=:tether, segments=[:tether_seg],
+                          init_stretched_length=6.0)]
+        winches = [Winch(; name=:winch, tethers=[:tether], winch_point=:ground)]
+        return system_definition(name, set; points, segments, materials, tethers,
+                               winches, bodies, tubes)
     end
 
     @testset "Placement moves a beam (tube-anchored points)" begin
@@ -741,13 +750,18 @@ winches:
     end
 
     @testset "a tether without a winch builds on the kernel backend" begin
-        points = [Point(:ground, [0.0, 0.0, 0.0], STATIC),
-                  Point(:middle, [0.0, 0.0, -5.0], DYNAMIC; extra_mass=0.5),
-                  Point(:mass, [0.0, 0.0, -10.0], DYNAMIC; extra_mass=1.0)]
-        segments = [Segment(:s1, :ground, :middle, 1e4, 10.0, 0.01; rest_length=5.0),
-                    Segment(:s2, :middle, :mass, 1e4, 10.0, 0.01; rest_length=5.0)]
-        tethers = [Tether(:line, [:s1, :s2])]
-        sys = system_definition("unwinched_tether", set; points, segments, tethers)
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                               Dict{String, Any}())
+        points = [Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+                  Point(; name=:middle, pos_ENU=[0.0, 0.0, -5.0], extra_mass=0.5),
+                  Point(; name=:mass, pos_ENU=[0.0, 0.0, -10.0], extra_mass=1.0)]
+        line(name, ends) = KiteGeometry.line_segment(name, ends, set, materials;
+            rest_length=5.0, diameter=0.01, unit_stiffness=1e4,
+            model=SegmentSpring(; unit_damping=10.0))
+        segments = [line(:s1, (:ground, :middle)), line(:s2, (:middle, :mass))]
+        tethers = [Tether(; name=:line, segments=[:s1, :s2])]
+        sys = system_definition("unwinched_tether", set; points, segments, materials,
+                                tethers)
         sam = SymbolicAWEModel(set, sys; backend=KernelBackend())
         init!(sam; prn=false)
         next_step!(sam; dt=0.01, vsm_interval=0)

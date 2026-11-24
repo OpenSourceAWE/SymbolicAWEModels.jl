@@ -22,8 +22,8 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: Point, Segment, Tether, Winch, Station,
-    Transform, SystemDefinition, create_plate_interpolations, PARTICLE_DYNAMICS
+using SymbolicAWEModels: Transform, SystemDefinition, create_plate_interpolations,
+    PARTICLE_DYNAMICS
 using KiteUtils
 using LinearAlgebra
 
@@ -56,42 +56,54 @@ function build_plate_kite(data_root)
         :right => pos_right, :left => pos_left)
     bridle_l0(a, b) = norm(pos_map[b] - pos_map[a]) * 0.9975
 
-    points = [
-        Point(:ground, zeros(3), STATIC),
-        Point(:kcu, pos_kcu, DYNAMIC; extra_mass=set.kcu_mass),
-        Point(:nose, pos_nose, DYNAMIC; extra_mass=k_nose),
-        Point(:top, pos_top, DYNAMIC; extra_mass=k_top, wing=:plate_wing),
-        Point(:right, pos_right, DYNAMIC; extra_mass=k_side, wing=:plate_wing),
-        Point(:left, pos_left, DYNAMIC; extra_mass=k_side, wing=:plate_wing),
+    points = KiteGeometry.Point[
+        Point(; name=:ground, pos_ENU=zeros(3), fixed=true),
+        Point(; name=:kcu, pos_ENU=pos_kcu, extra_mass=set.kcu_mass),
+        Point(; name=:nose, pos_ENU=pos_nose, extra_mass=k_nose),
+        Point(; name=:top, pos_ENU=pos_top, extra_mass=k_top),
+        Point(; name=:right, pos_ENU=pos_right, extra_mass=k_side),
+        Point(; name=:left, pos_ENU=pos_left, extra_mass=k_side),
     ]
     pairs = [(:kcu, :nose), (:right, :nose), (:right, :left), (:top, :right),
              (:left, :kcu), (:right, :kcu), (:top, :left), (:left, :nose),
              (:nose, :top)]
-    segments = [Segment(Symbol(a, :_, b), set, a, b; rest_length=bridle_l0(a, b),
-                        diameter_mm=set.d_line) for (a, b) in pairs]
-    tethers = [Tether(:main_tether, set.l_tethers[1]; start_point=:ground,
-                      end_point=:kcu, n_segments=set.segments)]
-    winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+    segments = KiteGeometry.Segment[
+        KiteGeometry.line_segment(Symbol(a, :_, b), (a, b), set, materials;
+                                  rest_length=bridle_l0(a, b), diameter=0.001 * set.d_line,
+                                  model=SegmentSpring())
+        for (a, b) in pairs]
+    tethers = [KiteGeometry.expand_tether!(points, segments, fill(nothing, length(points)),
+        :main_tether, :ground, :kcu, set.segments, set, materials;
+        init=(; init_stretched_length=set.l_tethers[1]), model=KiteGeometry.NoModel(),
+        segment_model=SegmentSpring())]
+    winches = [Winch(; name=:winch, tethers=[:main_tether], winch_point=:ground)]
 
     rel_side = set.rel_side_area / 100.0
     stations = [
-        Station(:main, [:top], STATIC, 0.0; x_airf=[1, 0, 0],
-            y_airf=[0, 1, 0], area=set.area, twist=deg2rad(set.alpha_zero)),
-        Station(:right_tip, [:right], STATIC, 0.0; x_airf=[1, 0, 0],
-            y_airf=[0, 0, -1], area=set.area * rel_side,
-            twist=deg2rad(set.alpha_ztip)),
-        Station(:left_tip, [:left], STATIC, 0.0; x_airf=[1, 0, 0],
-            y_airf=[0, 0, 1], area=set.area * rel_side,
-            twist=deg2rad(set.alpha_ztip)),
+        SpanwiseStation(; name=:main, wing=:plate_wing, points=[:top],
+            model=StationModel(; type="STATIC", moment_frac=0.0, chord=[1.0, 0.0, 0.0],
+                               y_airf=[0.0, 1.0, 0.0], area=set.area,
+                               twist=deg2rad(set.alpha_zero))),
+        SpanwiseStation(; name=:right_tip, wing=:plate_wing, points=[:right],
+            model=StationModel(; type="STATIC", moment_frac=0.0, chord=[1.0, 0.0, 0.0],
+                               y_airf=[0.0, 0.0, -1.0], area=set.area * rel_side,
+                               twist=deg2rad(set.alpha_ztip))),
+        SpanwiseStation(; name=:left_tip, wing=:plate_wing, points=[:left],
+            model=StationModel(; type="STATIC", moment_frac=0.0, chord=[1.0, 0.0, 0.0],
+                               y_airf=[0.0, 0.0, 1.0], area=set.area * rel_side,
+                               twist=deg2rad(set.alpha_ztip))),
     ]
     wing = KiteGeometry.Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
         model=WingModel(; aero_mode="AeroPlate", dynamics_type="PARTICLE_DYNAMICS",
             stations=[:main, :right_tip, :left_tip],
             z_ref_points=[[:right, :left], :top], y_ref_points=[:left, :right],
             origin_idx=:kcu, drag_corr=0.93 * (1.0 - rel_side)))
-    body = Body(:plate_wing; extra_mass=0.0, inertia_principal=ones(3), pos=zeros(3))
+    body = Body(; name=:plate_wing, pos_ENU=zeros(3), extra_mass=0.0,
+                extra_inertia_KA=Matrix(Diagonal(ones(3))),
+                model=BodyModel(; angular_damping=0.0))
     sys = system_definition("plate_aero_test", set; points, spanwise_stations=stations,
-        segments, tethers, winches, wings=[wing], bodies=[body])
+        segments, materials, tethers, winches, wings=[wing], bodies=[body])
     transforms = [Transform(; name=:main_tf, elevation=deg2rad(set.elevation),
         azimuth=0.0, heading=0.0, base_pos=zeros(3), base_point=1, body=1,
         points=collect(2:length(sys.points)), bodies=[1])]

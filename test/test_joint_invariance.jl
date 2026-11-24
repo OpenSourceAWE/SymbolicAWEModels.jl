@@ -39,6 +39,7 @@ end
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KiteGeometry
 using KiteUtils
 using LinearAlgebra
 
@@ -135,22 +136,25 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
     EA = 1.0e4
     GJ = 50.0
     axial_stiffness = 500.0
+    materials = [Material(; name=:breukels2011, law="breukels2011",
+                          parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
 
     """Two bodies `beam_length` apart, node A optionally clamped."""
     function pair_bodies(type_a=DYNAMIC)
-        return (Body(:nodeA; extra_mass=body_mass, inertia_principal=inertia,
-                     pos=[0.0, 0.0, 0.0], type=type_a),
-                Body(:nodeB; extra_mass=body_mass, inertia_principal=inertia,
-                     pos=[beam_length, 0.0, 0.0]))
+        return (Body(; name=:nodeA, pos_ENU=[0.0, 0.0, 0.0], extra_mass=body_mass,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=type_a == STATIC),
+                Body(; name=:nodeB, pos_ENU=[beam_length, 0.0, 0.0], extra_mass=body_mass,
+                     extra_inertia_KA=Matrix(Diagonal(inertia))))
     end
 
     """Two bodies joined by one Timoshenko element."""
     function timoshenko_pair(; damping=0.0, type_a=DYNAMIC)
         node_a, node_b = pair_bodies(type_a)
-        tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
-            model=TimoshenkoTube(; EA, GA=1500.0, GJ, EIy=100.0, EIz=100.0,
-                                 shear_coeff=5 / 6, damping))
-        return system_definition("joint_invariance_test", set;
+        tube = Tube(; name=:tube, bodies=(:nodeA, :nodeB), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=TimoshenkoTubeModel(; EA, GA=1500.0, GJ, EIy=100.0, EIz=100.0,
+                                      shear_coeff=5 / 6, damping))
+        return system_definition("joint_invariance_test", set; materials,
             bodies=[node_a, node_b], tubes=[tube])
     end
 
@@ -159,12 +163,13 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         node_a, node_b = pair_bodies(type_a)
         # Anchors deliberately separated; coincident ones make Δv vanish anyway,
         # and only separated ones exercise the transport couple on body A.
-        tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
-            anchor_a=[0.25, 0.0, 0.0], anchor_b=[-0.25, 0.0, 0.0],
-            model=ElasticTube(; stiffness_axial=axial_stiffness,
-                              stiffness_shear=axial_stiffness, stiffness_torsion=20.0,
-                              stiffness_bending=20.0, damping))
-        return system_definition("joint_invariance_test", set;
+        tube = Tube(; name=:tube, bodies=(:nodeA, :nodeB), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=ElasticTubeModel(; stiffness_axial=axial_stiffness,
+                                   stiffness_shear=axial_stiffness, stiffness_torsion=20.0,
+                                   stiffness_bending=20.0, damping,
+                                   anchor_a=[0.25, 0.0, 0.0], anchor_b=[-0.25, 0.0, 0.0]))
+        return system_definition("joint_invariance_test", set; materials,
             bodies=[node_a, node_b], tubes=[tube])
     end
 

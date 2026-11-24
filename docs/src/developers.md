@@ -376,19 +376,19 @@ its own job on Ubuntu with Julia 1.12.
 
 | Test file | Component | What it verifies |
 |-----------|-----------|------------------|
-| `test_point` | [`Point`](@ref) | Gravity free-fall, damping, drag terminal velocity |
-| `test_segment` | [`Segment`](@ref) | Spring-damper forces, stiffness, drag |
+| `test_point` | `Point`, [`PointModel`](@ref) | Gravity free-fall, damping, drag terminal velocity |
+| `test_segment` | `Segment`, [`SegmentSpring`](@ref) | Spring-damper forces, stiffness, drag |
 | `test_wing` | [`WingModel`](@ref) | RIGID_DYNAMICS and PARTICLE_DYNAMICS construction, VSM coupling |
 | `test_wing_dynamics` | [`WingModel`](@ref) | Torque response, precession, angular momentum conservation |
-| `test_tether_winch` | [`Tether`](@ref), [`Winch`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
-| `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
+| `test_tether_winch` | `Tether`, `Winch`, [`WinchModel`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
+| `test_pulley` | `Pulley`, [`PulleyModel`](@ref) | Equal-tension constraints, multi-segment pulleys |
 | `test_transform` | KiteGeometry `Transform` | Spherical coordinate positioning |
 | `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
-| `test_quaternion_auto_groups` | [`Station`](@ref) | Twist DOFs on a rigid wing |
-| `test_static_twist` | [`Station`](@ref) | Prescribed (`STATIC`) twist |
+| `test_quaternion_auto_groups` | [`StationModel`](@ref) | Twist DOFs on a rigid wing |
+| `test_static_twist` | [`StationModel`](@ref) | Prescribed (`STATIC`) twist |
 | `test_principal_body_frame` | [`WingModel`](@ref) | Principal vs body frame separation |
 | `test_principal_frame_invariance` | [`WingModel`](@ref) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
-| `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
+| `test_rigid_body` | `Body`, [`BodyModel`](@ref) | Free rigid-body motion, gravity, damping |
 | `test_elastic_tube` | [`ElasticTube`](@ref) | Lumped 6-DOF spring between bodies |
 | `test_timoshenko_tube` | [`TimoshenkoTube`](@ref) | Beam bending, shear, axial, torsion vs closed form |
 | `test_tube_laws` | — | Breukels inflated-tube correlations and their fitted range |
@@ -471,13 +471,17 @@ rm data/2plate_kite/*.bin
 The source code is organized into modular directories:
 
 - **`src/system_structure/`** — component types and assembly
-  - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
-    [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref)
+  - `definition_models.jl`: the models of the KiteGeometry rows — [`PointModel`](@ref),
+    [`SegmentSpring`](@ref), [`StationModel`](@ref), [`WingModel`](@ref),
+    [`PulleyModel`](@ref), [`WinchModel`](@ref), [`TimoshenkoTubeModel`](@ref),
+    [`ElasticTubeModel`](@ref)
+  - `types.jl`: enums, aero and winch model types, and the readers of the rows' model
+    columns
   - `wing.jl`: VSM engine construction, VSM panel placement and a wing's frame from
     its reference points
-  - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
+  - `rigid_body.jl`: [`BodyModel`](@ref), [`TimoshenkoTube`](@ref),
     [`ElasticTube`](@ref)
-  - `system_structure_core.jl`: `SystemDefinition` constructor, reference
+  - `system_structure_core.jl`: [`system_definition`](@ref), reference
     resolution
   - `utilities.jl`: Validation, tether creation, state management
 - **`src/aero_modes/`** — one file per [`AbstractAeroModel`](@ref)

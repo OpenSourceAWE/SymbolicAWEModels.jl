@@ -407,15 +407,16 @@ environment:
     # falls under gravity to expected steady-state position.
     # ============================================================
     @testset "Route 2 auto-generated tether" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            SystemDefinition, SymbolicAWEModel,
-            STATIC, DYNAMIC, init!
+        using SymbolicAWEModels: SystemDefinition, SymbolicAWEModel, KiteGeometry, init!
 
-        points = [
-            Point(:mass, [0.0, 0.0, -100.0], DYNAMIC;
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                               Dict{String, Any}())
+        points = KiteGeometry.Point[
+            Point(; name=:mass, pos_ENU=[0.0, 0.0, -100.0],
                   extra_mass=5.0),
-            Point(:anchor, [0.0, 0.0, 0.0], STATIC),
+            Point(; name=:anchor, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
         ]
+        segments = KiteGeometry.Segment[]
         transforms = [
             Transform(; name=:tf, elevation=deg2rad(-80.0), azimuth=0.0, heading=0.0,
                 base_pos=[0, 0, 0], base_point=2, rot_point=[1 => 1.0])
@@ -423,14 +424,15 @@ environment:
 
         # Route 2: auto-generate 4 segments between mass
         # and anchor
-        tethers = [Tether(:line;
-            start_point=:mass, end_point=:anchor,
-            n_segments=4)]
-        winches = [Winch(:winch, set, [:line];
+        tethers = [KiteGeometry.expand_tether!(points, segments,
+            fill(nothing, length(points)), :line, :mass, :anchor, 4,
+            set, materials; model=KiteGeometry.NoModel(),
+            segment_model=SegmentSpring())]
+        winches = [Winch(; name=:winch, tethers=[:line],
             winch_point=:anchor)]
 
         sys2 = system_definition("route2_test", set;
-            points, tethers, winches)
+            points, segments, materials, tethers, winches)
 
         # 2 original + 3 intermediate = 5 points
         @test length(sys2.points) == 5
@@ -513,20 +515,22 @@ environment:
     # simulates without errors.
     # ============================================================
     @testset "Tether without winch" begin
-        using SymbolicAWEModels: Point, Segment, Tether,
-            SystemDefinition, SymbolicAWEModel,
-            STATIC, DYNAMIC
+        using SymbolicAWEModels: SystemDefinition, SymbolicAWEModel, KiteGeometry
 
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                               Dict{String, Any}())
         points = [
-            Point(:top, [0.0, 0.0, -50.0], DYNAMIC;
+            Point(; name=:top, pos_ENU=[0.0, 0.0, -50.0],
                   extra_mass=5.0),
-            Point(:bot, [0.0, 0.0, 0.0], STATIC),
+            Point(; name=:bot, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
         ]
         segments = [
-            Segment(:seg, :top, :bot, 50000.0, 500.0,
-                    0.001; rest_length=50.0)
+            KiteGeometry.line_segment(:seg, (:top, :bot), set, materials;
+                rest_length=50.0, diameter=0.001, unit_stiffness=50000.0,
+                model=SegmentSpring(; unit_damping=500.0))
         ]
-        tethers = [Tether(:free_tether, [:seg], 50.0)]
+        tethers = [Tether(; name=:free_tether, segments=[:seg],
+                          init_stretched_length=50.0)]
         transforms = [
             Transform(; name=:tf, elevation=deg2rad(-80.0), azimuth=0.0, heading=0.0,
                 base_pos=[0, 0, 0], base_point=2, rot_point=[1 => 1.0])
@@ -534,7 +538,7 @@ environment:
 
         # No winches — should build fine
         sys3 = system_definition("no_winch", set;
-            points, segments, tethers)
+            points, segments, materials, tethers)
 
         @test length(sys3.winches) == 0
         @test length(sys3.tethers) == 1
@@ -577,26 +581,30 @@ environment:
     # Exercises the new `len` connector.
     # ============================================================
     @testset "Custom length-tracking component" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            SystemDefinition, SymbolicAWEModel,
-            STATIC, DYNAMIC, validate_winch_component
+        using SymbolicAWEModels: SystemDefinition, SymbolicAWEModel, KiteGeometry,
+            validate_winch_component
 
+        materials_l = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                                 Dict{String, Any}())
         points_l = [
-            Point(:ground_l, [0.0, 0.0, 0.0], STATIC),
-            Point(:mass_l, [0.0, 0.0, -50.0], DYNAMIC;
+            Point(; name=:ground_l, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+            Point(; name=:mass_l, pos_ENU=[0.0, 0.0, -50.0],
                   extra_mass=10.0),
         ]
         segments_l = [
-            Segment(:line_l, :ground_l, :mass_l,
-                    50000.0, 500.0, 0.005; rest_length=50.0),
+            KiteGeometry.line_segment(:line_l, (:ground_l, :mass_l), set,
+                materials_l; rest_length=50.0, diameter=0.005,
+                unit_stiffness=50000.0, model=SegmentSpring(; unit_damping=500.0)),
         ]
-        tethers_l = [Tether(:main_l, [:line_l], 50.0)]
-        winches_l = [Winch(:winch_l, set, [:main_l];
+        tethers_l = [Tether(; name=:main_l, segments=[:line_l],
+                            init_stretched_length=50.0)]
+        winches_l = [Winch(; name=:winch_l, tethers=[:main_l],
                            winch_point=:ground_l,
-                           model=LengthTrackWinch(100.0, 20.0))]
+                           model=WinchModel(;
+                               dynamics=LengthTrackWinch(100.0, 20.0)))]
 
         sys_l = system_definition("len_track_test", set;
-            points=points_l, segments=segments_l,
+            points=points_l, segments=segments_l, materials=materials_l,
             tethers=tethers_l, winches=winches_l)
         sam_l = SymbolicAWEModel(set, sys_l)
         place!(sam_l)

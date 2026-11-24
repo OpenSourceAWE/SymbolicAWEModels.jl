@@ -151,6 +151,11 @@ D(xᵢ) = (2·v/c)·(α - bᵢ·xᵢ)
 
 which is what `wagner_lag_eqs` emits.
 
+The `xᵢ` are unknowns of the ODE, not columns of `SysState`, so a log does not carry
+them: a run resumed from a logged `SysState` starts its lag states from steady flow,
+`xᵢ = α/bᵢ`, and the deficiency it had at that moment is lost. Everything else a VSM
+wing needs is in the log, its circulation in `gamma_distribution` among it.
+
 ### One lag for the whole wing
 
 There are **two states for the entire wing**, not two per panel. The reference angle

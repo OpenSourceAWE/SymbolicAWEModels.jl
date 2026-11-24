@@ -204,7 +204,7 @@ exactly.
 
 It also supports a live flap deflection `\delta` — the signed angle between two
 structural bodies about a hinge, modelled by a `KINEMATIC`
-[`Station`](@ref) — which feeds the `(\alpha,
+spanwise station ([`StationModel`](@ref)) — which feeds the `(\alpha,
 \delta)` polars each RHS
 step.
 
@@ -241,7 +241,7 @@ surface and the deflection leaves the generated equations entirely — only
 ### `AeroPlate`
 
 Flat-plate lift and drag from a polar table (CL/CD vs α) evaluated by registered
-symbolic interpolants, one 1-point `STATIC` [`Station`](@ref) per plate. No
+symbolic interpolants, one 1-point `STATIC` spanwise station ([`StationModel`](@ref)) per plate. No
 VSM engine.
 
 ### `AeroNone`
@@ -290,7 +290,7 @@ frozen state — a non-finite point force or traction pattern — are
 Each wing carries an `aero::AbstractAeroModel` field. The builder is selected by
 dispatch on **both** its type and the wing's dynamics, [`aero_component`](@ref)
 `(mode, dynamics::WingDynamics, wing, sys_struct; name, params)`, returning a `System`
-exactly like a winch's [`Winch`](@ref) `model.dynamics`. The built-in subtypes
+exactly like the `dynamics` of a winch's [`WinchModel`](@ref). The built-in subtypes
 [`AeroNone`](@ref), [`AeroDirect`](@ref), [`AeroLinearized`](@ref) ship their
 own methods. A mode supports a wing dynamics by defining the matching method,
 dispatched on [`RigidDynamics`](@ref) and/or [`ParticleDynamics`](@ref) — rigid,

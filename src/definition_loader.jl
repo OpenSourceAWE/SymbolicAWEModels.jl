@@ -34,15 +34,6 @@ function optional_project_file(entry, project=KiteUtils.PROJECT)
     return joinpath(data_path, dirname(project), entries[entry])
 end
 
-function parse_dynamics_type(text::String)
-    text_upper = uppercase(text)
-    text_upper == "STATIC" && return STATIC
-    text_upper == "DYNAMIC" && return DYNAMIC
-    text_upper == "BODY_STATIC" && return BODY_STATIC
-    text_upper == "KINEMATIC" && return KINEMATIC
-    error("Unknown DynamicsType: $text")
-end
-
 function parse_wing_type(text::String)
     text_upper = uppercase(text)
     text_upper == "PARTICLE_DYNAMICS" && return PARTICLE_DYNAMICS
@@ -85,9 +76,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     authored = YAML.load_file(yaml_path; dicttype=OrderedDict{String, Any})
     isnothing(dynamics_type) ||
         set_wing_column!(authored, "dynamics_type", string(dynamics_type))
-    isnothing(aero_mode) || set_wing_column!(authored, "aero_mode", aero_mode_name(aero_mode))
+    isnothing(aero_mode) ||
+        set_wing_column!(authored, "aero_mode", aero_mode_name(aero_mode))
     return load_authoring(authored; set, name=system_name, ignore_l0)
 end
+
+"""The name of an aero mode a wing row gives."""
+aero_mode_name(mode) = string(nameof(typeof(mode)))
+aero_mode_name(::AeroSpec{M}) where {M} = string(nameof(M))
 
 """Write `value` into column `column` of every row of the `wings` block of `authored`, an
 authoring YAML, a table of `headers` and `data` or a list of mappings."""
@@ -98,21 +94,16 @@ function set_wing_column!(authored, column, value)
     if haskey(wings, "headers")
         headers = wings["headers"]
         index = findfirst(==(column), headers)
-        isnothing(index) && (push!(headers, column); foreach(row -> push!(row, value), rows))
+        if isnothing(index)
+            push!(headers, column)
+            foreach(row -> push!(row, value), rows)
+        end
         isnothing(index) || foreach(row -> row[index] = value, rows)
     else
         foreach(row -> row[column] = value, rows)
     end
     return authored
 end
-
-"""A reference an authoring YAML cell gives: an index, or a name as a `Symbol`."""
-cell_ref(::Nothing) = nothing
-cell_ref(value::Integer) = Int(value)
-cell_ref(value::Union{AbstractString, Symbol}) = Symbol(value)
-
-"""`f(value)`, or `nothing` for `nothing`."""
-maybe(f, value) = isnothing(value) ? nothing : f(value)
 
 """The tube row `tube` of `definition` as a run simulates it: its element, with the
 rigidities it leaves unset from its material and its anchors measured from each body's

@@ -21,6 +21,7 @@ end
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KiteGeometry
 using KiteUtils
 using LinearAlgebra
 using Statistics: mean
@@ -85,16 +86,19 @@ end
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body1 = Body(:b1; extra_mass=1.0, inertia_principal=inertia,
-                      pos=[0.0, 0.0, 0.0])
-    body2 = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
-                      pos=[1.0, 0.0, 0.0])
+    materials = [Material(; name=:breukels2011, law="breukels2011",
+                          parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
+    body1 = Body(; name=:b1, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                 extra_inertia_KA=Matrix(Diagonal(inertia)))
+    body2 = Body(; name=:b2, pos_ENU=[1.0, 0.0, 0.0], extra_mass=1.0,
+                 extra_inertia_KA=Matrix(Diagonal(inertia)))
     # Anchors meet at the midpoint [0.5, 0, 0] when relaxed.
-    tube = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
-        anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
-        model=ElasticTube(stiffness_axial=0.0, stiffness_shear=0.0,
-                          stiffness_torsion=0.0, stiffness_bending=0.0))
-    sys = system_definition("joint_test", set;
+    tube = Tube(; name=:j1, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+        material=:breukels2011,
+        model=ElasticTubeModel(; stiffness_axial=0.0, stiffness_shear=0.0,
+                               stiffness_torsion=0.0, stiffness_bending=0.0,
+                               anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0]))
+    sys = system_definition("joint_test", set; materials,
         bodies=[body1, body2], tubes=[tube])
 
     @testset "Model setup" begin
@@ -105,14 +109,22 @@ end
     end
 
     @testset "Tubes built from one element keep their own anchors" begin
-        element = ElasticTube(stiffness_axial=1.0, stiffness_shear=1.0,
-                              stiffness_torsion=1.0, stiffness_bending=1.0)
-        first_tube = Tube(1, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
-                          anchor_a=[0.5, 0.0, 0.0])
-        second_tube = Tube(2, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
-                           anchor_a=[0.25, 0.0, 0.0])
-        @test first_tube.anchor_a_b == [0.5, 0.0, 0.0]
-        @test second_tube.anchor_a_b == [0.25, 0.0, 0.0]
+        element = (; stiffness_axial=1.0, stiffness_shear=1.0, stiffness_torsion=1.0,
+                   stiffness_bending=1.0)
+        first_tube = Tube(; name=Symbol(1), bodies=(:b1, :b2), diameter=0.1,
+                          pressure=3e4, material=:breukels2011,
+                          model=ElasticTubeModel(; element..., anchor_a=[0.5, 0.0, 0.0]))
+        second_tube = Tube(; name=Symbol(2), bodies=(:b1, :b2), diameter=0.1,
+                           pressure=3e4, material=:breukels2011,
+                           model=ElasticTubeModel(; element..., anchor_a=[0.25, 0.0, 0.0]))
+        # The run's elements carry the anchors, so read them from a run's state.
+        pair = [Body(; name, pos_ENU, extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+                for (name, pos_ENU) in ((:b1, [0.0, 0.0, 0.0]), (:b2, [1.0, 0.0, 0.0]))]
+        run_tubes = SymbolicAWEModels.SystemState(system_definition("joint_test", set;
+            materials, bodies=pair, tubes=[first_tube, second_tube])).tubes
+        @test run_tubes[1].model.anchor_a_b == [0.5, 0.0, 0.0]
+        @test run_tubes[2].model.anchor_a_b == [0.25, 0.0, 0.0]
         @test first_tube.name === Symbol("1")
     end
 
@@ -217,15 +229,18 @@ end
         EA = 100.0
         knots = collect(-0.6:0.05:0.6)
         f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
-        b1i = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        b2i = Body(:b2; extra_mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
-        tube_i = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
-            anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
-            model=ElasticTube(stiffness_axial=f_axial,       # interpolation ...
+        b1i = Body(; name=:b1, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                   extra_inertia_KA=Matrix(Diagonal(inertia)))
+        b2i = Body(; name=:b2, pos_ENU=[1.0, 0.0, 0.0], extra_mass=1.0,
+                   extra_inertia_KA=Matrix(Diagonal(inertia)))
+        tube_i = Tube(; name=:j1, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=ElasticTubeModel(; stiffness_axial=f_axial,  # interpolation ...
                 stiffness_shear=0.0, stiffness_torsion=0.0,
-                stiffness_bending=0.0))                     # ... mixed with floats
+                stiffness_bending=0.0,                         # ... mixed with floats
+                anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0]))
         @test tube_i.model.stiffness_axial === f_axial
-        sys_i = system_definition("joint_test", set;
+        sys_i = system_definition("joint_test", set; materials,
             bodies=[b1i, b2i], tubes=[tube_i])
         sam_i = SymbolicAWEModel(set, sys_i)
         test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
@@ -258,14 +273,16 @@ end
         # fling it.
         half = π / 12  # half-angle of 30°
         Q_rot = Float64[cos(half), 0.0, 0.0, sin(half)]
-        bodyA = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        bodyB = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
-                     pos=[1.0, 0.0, 0.0], Q_b_to_w=Q_rot)
-        tube_r = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
-            model=ElasticTube(stiffness_axial=1000.0, stiffness_shear=1000.0,
-                              stiffness_torsion=1000.0, stiffness_bending=1000.0,
-                              damping=0.05))
-        sys_r = system_definition("joint_test", set;
+        bodyA = Body(; name=:b1, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        bodyB = Body(; name=:b2, pos_ENU=[1.0, 0.0, 0.0], Q_KA2ENU=Q_rot, extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        tube_r = Tube(; name=:j1, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=ElasticTubeModel(; stiffness_axial=1000.0, stiffness_shear=1000.0,
+                                   stiffness_torsion=1000.0, stiffness_bending=1000.0,
+                                   damping=0.05))
+        sys_r = system_definition("joint_test", set; materials,
             bodies=[bodyA, bodyB], tubes=[tube_r])
         sam_r = SymbolicAWEModel(set, sys_r)
         test_init!(sam_r; prn=false)

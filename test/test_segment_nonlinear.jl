@@ -16,7 +16,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, KiteGeometry
 using KiteUtils
 using LinearAlgebra
 
@@ -87,12 +87,15 @@ end
     knots = collect(-0.05:0.005:0.05)
     force_law = SymbolicAWEModels.LinearInterpolation(c1 .* knots, knots)
 
-    ground = Point(:ground, KVec3(0.0, 0.0, 0.0), STATIC)
-    hang = Point(:hang, KVec3(0.0, 0.0, -rest_length), DYNAMIC; extra_mass=mass)
-    spring = Segment(:spring, :ground, :hang, force_law, damping, diameter;
-                     rest_length=rest_length, density=0.0)
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+    ground = Point(; name=:ground, pos_ENU=KVec3(0.0, 0.0, 0.0), fixed=true)
+    hang = Point(; name=:hang, pos_ENU=KVec3(0.0, 0.0, -rest_length), extra_mass=mass)
+    spring = KiteGeometry.line_segment(:spring, (:ground, :hang), set, materials;
+                                       rest_length=rest_length, diameter,
+                                       unit_stiffness=force_law, density=0.0,
+                                       model=SegmentSpring(; unit_damping=damping))
     sys = system_definition("segment_nl_test", set;
-        points=[ground, hang], segments=[spring])
+        points=[ground, hang], segments=[spring], materials)
 
     @testset "Model setup" begin
         @info "Wiring: one segment with a callable (nonlinear) unit_stiffness."
@@ -119,14 +122,21 @@ end
     @testset "Route 2 tether propagation" begin
         tether_len = 3.0
         end_mass = 3.0
-        ground2 = Point(:ground, KVec3(0.0, 0.0, 0.0), STATIC)
-        end_pt = Point(:mass, KVec3(0.0, 0.0, -tether_len), DYNAMIC;
+        materials_t = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                                 Dict{String, Any}())
+        ground2 = Point(; name=:ground, pos_ENU=KVec3(0.0, 0.0, 0.0), fixed=true)
+        end_pt = Point(; name=:mass, pos_ENU=KVec3(0.0, 0.0, -tether_len),
                        extra_mass=end_mass)
-        line = Tether(:line; start_point=:ground, end_point=:mass,
-            n_segments=3, unit_stiffness=force_law, unit_damping=200.0,
-            diameter=0.005, density=724.0)
+        points_t = KiteGeometry.Point[ground2, end_pt]
+        segments_t0 = KiteGeometry.Segment[]
+        line = KiteGeometry.expand_tether!(points_t, segments_t0,
+            fill(nothing, length(points_t)), :line, :ground, :mass, 3, set, materials_t;
+            model=KiteGeometry.NoModel(),
+            segment_model=SegmentSpring(; unit_damping=200.0),
+            diameter=0.005, unit_stiffness=force_law, density=724.0)
         sys_t = system_definition("tether_nl_test", set;
-            points=[ground2, end_pt], tethers=[line])
+            points=points_t, segments=segments_t0, tethers=[line],
+            materials=materials_t)
 
         @info "Route 2 tether: callable unit_stiffness fanned out to every segment."
         @test length(sys_t.segments) == 3

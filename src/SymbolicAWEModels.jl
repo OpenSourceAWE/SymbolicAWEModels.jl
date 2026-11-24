@@ -40,6 +40,7 @@ using SteadyStateDiffEq
 # --- Open Source AWE Packages ---
 using Reexport
 @reexport using KiteGeometry
+using KiteGeometry: Wing  # VortexStepMethod exports a `Wing` too
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
@@ -68,10 +69,12 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export system_definition, SystemState, Point, Station, Segment, Pulley, Tether, Winch
-export WingModel, BodyModel
+export system_definition, SystemState
+export PointModel, StationModel, SegmentSpring, PulleyModel, WinchModel, WingModel,
+       BodyModel
+export TimoshenkoTubeModel, ElasticTubeModel
 export segment_role
-export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
+export AbstractTubeModel, TimoshenkoTube, ElasticTube
 export VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
@@ -88,7 +91,6 @@ export frame_quaternion, frame_quaternion_xy
 # Enums
 export DynamicsType, DYNAMIC, STATIC, BODY_STATIC, KINEMATIC
 export point_type, body_type, body_dynamics_type, station_type, pulley_type
-export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,

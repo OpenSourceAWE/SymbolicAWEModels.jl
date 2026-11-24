@@ -200,7 +200,7 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     "the rows of the points, stations, segments, pulleys, tethers and winches, typed"
     const rows::R
     "the tubes as this run simulates them"
-    const tubes::Rows{Tube}
+    const tubes::Rows{KiteGeometry.Tube}
     "what the run works out of each body's mass"
     const body_geometry::Vector{BodyGeometry}
     "what the run works out of each station's geometry"
@@ -266,12 +266,13 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
     P, counts = sysstate_counts(sys, n_corners, sum(n_vsm_panels, modes; init=0))
     no_records = Rows{ComponentState}()
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
-    rows = (points=typed_rows(Point, sys.points),
-            spanwise_stations=typed_rows(Station, sys.spanwise_stations),
-            segments=typed_rows(SegmentRow, sys.segments),
-            pulleys=typed_rows(Pulley, sys.pulleys),
-            tethers=typed_rows(Tether, sys.tethers),
-            winches=typed_rows(Winch, sys.winches))
+    rows = (points=typed_rows(KiteGeometry.Point{PointModel}, sys.points),
+            spanwise_stations=typed_rows(KiteGeometry.SpanwiseStation{StationModel},
+                                         sys.spanwise_stations),
+            segments=typed_rows(KiteGeometry.Segment{SegmentSpring}, sys.segments),
+            pulleys=typed_rows(KiteGeometry.Pulley{PulleyModel}, sys.pulleys),
+            tethers=typed_rows(KiteGeometry.Tether{KiteGeometry.NoModel}, sys.tethers),
+            winches=typed_rows(KiteGeometry.Winch{<:WinchModel}, sys.winches))
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat),
                         built_segments, point_segments(sys), point_wings(sys, geometry),
                         segment_tethers(sys),
@@ -300,7 +301,7 @@ typed_rows(::Type{T}, rows) where {T} = Rows{T}(rows)
 """The tubes of `sys` as a run simulates them, the bodies' own centres of mass lying as
 their `geometry` gives."""
 function run_tubes(sys, geometry)
-    tubes = Rows(Tube[definition_tube(sys, tube,
+    tubes = Rows(KiteGeometry.Tube[definition_tube(sys, tube,
                           map(body -> geometry[body].extra_com_offset_b, tube.bodies))
                       for tube in sys.tubes])
     foreach(((i, tube),) -> tube.idx = i, enumerate(tubes))
@@ -840,7 +841,8 @@ its aero mode's VSM engine, read through to the model's.
     apparent_mass => (run_value(r, :apparent_mass, something(r.row.apparent_mass, 0.0)),
                       set_run_value!(r, :apparent_mass, value))
     group_points_moment => (run_value(r, :group_points_moment,
-                                      something(wing_column(r, :group_points_moment), true)),
+                                      something(wing_column(r, :group_points_moment),
+                                                true)),
                             set_run_value!(r, :group_points_moment, value))
     wind_disturb => (run_value(r, :wind_disturb, zero(SVector{3, Float64})),
                      set_run_value!(r, :wind_disturb, value))

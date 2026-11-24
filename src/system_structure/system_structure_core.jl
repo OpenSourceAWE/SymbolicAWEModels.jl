@@ -19,39 +19,6 @@ function calc_heading(sys::SystemState)
 end
 
 """
-    expand_tethers!(points, segments, tethers, materials, set)
-
-Expand each segment-count tether through KiteGeometry's `expand_tether!`, adding its inner
-points and its segments, which carry its material and spring.
-"""
-function expand_tethers!(points::Vector{Point}, segments::AbstractVector,
-                         tethers::Vector{Tether}, materials, set::Settings)
-    point_transforms = fill(nothing, length(points))
-    table = KiteGeometry.MaterialTable(materials, Dict{String, Any}())
-    seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
-    for (i, tether) in enumerate(tethers)
-        isnothing(reference_column(tether.start_point)) && continue
-        first_segment = tether.segments[1]
-        (first_segment isa Int || first_segment in seg_names) && continue
-        columns = tether.segment_columns
-        spring = SegmentSpring(;
-            unit_damping=nan_to_nothing(get(columns, :unit_damping, NaN)),
-            damping_per_stiffness=nan_to_nothing(get(columns, :damping_per_stiffness, NaN)),
-            compression_frac=nan_to_nothing(get(columns, :compression_frac, NaN)),
-            compression_damping_frac=nan_to_nothing(
-                get(columns, :compression_damping_frac, NaN)))
-        line = Base.structdiff(columns, NamedTuple{fieldnames(SegmentSpring)})
-        init = (; (field => getfield(tether, field) for field in
-                   (:init_stretched_length, :init_tether_force, :init_stretch_frac))...)
-        expanded = KiteGeometry.expand_tether!(points, segments, point_transforms,
-            tether.name, tether.start_point, tether.end_point, tether.n_segments,
-            set, table; init, model=TetherModel(), segment_model=spring, line...)
-        tethers[i] = expanded
-    end
-    return nothing
-end
-
-"""
     wing_frame_member(point, wing_idx) -> Bool
 
 Whether `point` belongs to wing `wing_idx`'s frame: it places the wing body and,
@@ -297,48 +264,39 @@ carried_position_b(point, body) = point.body == body.idx ? Vector(point.anchor_b
     initial_body_position(body, point)
 
 """
-    system_definition(name, set; points, segments, spanwise_stations, pulleys, tethers,
-                      winches, wings, bodies, tubes, ignore_l0=false)
+    system_definition(name, set; points, segments, materials, spanwise_stations, pulleys,
+                      tethers, winches, wings, bodies, tubes, ignore_l0=false)
 
 The `SystemDefinition` named `name` of KiteGeometry rows, completed from `set` and placed:
-a segment without a material is given the line of `set`, every wing's body is put in its
-design pose and given `set.mass` where it carries none (KiteGeometry's `complete_wings!`),
-and the whole is placed by KiteGeometry's `place!`, with every segment's `rest_length` set
-to its placed length where `ignore_l0`. A station names its wing, or a wing lists it. A
-wing's body is one of `bodies`, which a wing's body leads.
+a winch without a `gear_ratio` or `drum_radius` takes `set`'s, every wing's body is put in
+its design pose and given `set.mass` where it carries none (KiteGeometry's
+`complete_wings!`), and the whole is placed by KiteGeometry's `place!`, with every
+segment's `rest_length` set to its placed length where `ignore_l0`. `materials` holds the
+`Material` rows the segments and tubes name, as a vector or as the `MaterialTable`
+KiteGeometry's `line_segment` and `expand_tether!` fill. A wing's body is one of `bodies`,
+which the wings' bodies lead.
 
 `name` is also the `system_name` that keys the compiled-model cache, so systems of the
 same structural shape should share one.
 """
 function system_definition(name::AbstractString, set;
-        points=Point[], segments=Segment[], spanwise_stations=Station[],
-        pulleys=Pulley[], tethers=Tether[], winches=Winch[],
-        wings=KiteGeometry.Wing[], bodies=Body[], tubes=Tube[], ignore_l0::Bool=false)
-    materials = KiteGeometry.Material[]
-    segments = convert(Vector{Segment}, segments)
-    expand_tethers!(points, segments, tethers, materials, set)
-    materials = Rows(materials)
-    segments = SegmentRow[structure_segment!(materials, segment, set)
-                          for segment in segments]
-    foreach(station -> station_on_wing!(station, wings), spanwise_stations)
-    bodies = wings_first(wings, bodies)
-    tubes = [tube_row!(materials, bodies, tube) for tube in tubes]
+        points=KiteGeometry.Point[], segments=KiteGeometry.Segment[],
+        materials=KiteGeometry.Material[],
+        spanwise_stations=KiteGeometry.SpanwiseStation[], pulleys=KiteGeometry.Pulley[],
+        tethers=KiteGeometry.Tether[], winches=KiteGeometry.Winch[],
+        wings=KiteGeometry.Wing[], bodies=KiteGeometry.Body[], tubes=KiteGeometry.Tube[],
+        ignore_l0::Bool=false)
+    for winch in winches
+        winch.gear_ratio = something(winch.gear_ratio, set.gear_ratio)
+        winch.drum_radius = something(winch.drum_radius, set.drum_radius)
+    end
+    materials = materials isa KiteGeometry.MaterialTable ? materials.rows : materials
     definition = SystemDefinition(;
-        metadata=Metadata(; name, n_points=length(points)), materials=collect(materials),
-        points, segments, spanwise_stations, pulleys, tethers, winches, wings, bodies,
-        tubes)
+        metadata=Metadata(; name, n_points=length(points)), materials, points, segments,
+        spanwise_stations, pulleys, tethers, winches, wings,
+        bodies=wings_first(wings, bodies), tubes)
     complete_wings!(definition, set)
     return place!(definition; ignore_l0)
-end
-
-"""Give `station` the wing of `wings` that lists it where it names none."""
-function station_on_wing!(station, wings)
-    isnothing(reference_column(station.wing)) || return station
-    wing = findfirst(wing -> station.name in something(wing.model.stations, ()), wings)
-    isnothing(wing) && error("Station $(station.name) is on no wing: a spanwise station " *
-                             "is part of a wing.")
-    station.wing = wing
-    return station
 end
 
 """`bodies` with the body of each of `wings` first, in the wings' order."""

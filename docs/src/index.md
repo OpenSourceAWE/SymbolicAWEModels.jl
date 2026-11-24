@@ -56,6 +56,7 @@ pkg"add SymbolicAWEModels"
 
 ```julia
 using SymbolicAWEModels
+using SymbolicAWEModels: KiteGeometry
 import GLMakie
 using MakieControlPlots
 using KiteUtils: init!, next_step!, update_sys_state!
@@ -63,16 +64,17 @@ using KiteUtils: init!, next_step!, update_sys_state!
 set = Settings("system.yaml")
 set.v_wind = 0.0
 
-# Define components using symbolic names
+# Define components as KiteGeometry rows using symbolic names
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:anchor, [0, 0, 0], STATIC),
-    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
+    Point(; name=:anchor, pos_ENU=[0, 0, 0], fixed=true),
+    Point(; name=:mass, pos_ENU=[0, 0, -50], extra_mass=1.0),
 ]
-segments = [Segment(:spring, :anchor, :mass,
-    614600.0, 473.0, 0.004)]
+segments = [KiteGeometry.line_segment(:spring, (:anchor, :mass), set, materials;
+    diameter=0.004, unit_stiffness=614600.0, model=SegmentSpring(; unit_damping=473.0))]
 
 # Assemble and compile
-sys = system_definition("pendulum", set; points, segments)
+sys = system_definition("pendulum", set; points, segments, materials)
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
 
@@ -92,16 +94,20 @@ For YAML-based model definition, see [Building a System using YAML](tutorial_yam
 
 SymbolicAWEModels provides building blocks for flexible mechanical systems:
 
-- [`Point`](@ref) **masses** — static, dynamic, or body-fixed nodes
-- [`Segment`](@ref) **spring-dampers** — with per-unit-length stiffness, damping, and drag
-- [`Tether`](@ref)s — collections of segments controlled by a winch
-- [`Winch`](@ref)es — torque-controlled motors with Coulomb and viscous friction
-- [`Pulley`](@ref)s — equal-tension constraints between segments
+- Point **masses** ([`PointModel`](@ref)) — static, dynamic, or body-fixed nodes
+- Segment **spring-dampers** ([`SegmentSpring`](@ref)) — with per-unit-length stiffness,
+  damping, and drag
+- Tethers — collections of segments controlled by a winch
+- Winches ([`WinchModel`](@ref)) — torque-controlled motors with Coulomb and viscous
+  friction
+- Pulleys ([`PulleyModel`](@ref)) — equal-tension constraints between segments
 - Wings ([`WingModel`](@ref)) — rigid-body or particle dynamics with aerodynamic forces from the
   [Vortex Step Method](https://github.com/OpenSourceAWE/VortexStepMethod.jl)
-- [`Station`](@ref)s — twist degrees of freedom for aeroelastic coupling
-- [`Body`](@ref)s — plain rigid bodies, linked by inflated [`Tube`](@ref)s,
+- Spanwise stations ([`StationModel`](@ref)) — twist degrees of freedom for aeroelastic
+  coupling
+- Bodies ([`BodyModel`](@ref)) — plain rigid bodies, linked by inflated tubes,
   simulated as [`TimoshenkoTube`](@ref) beam elements or [`ElasticTube`](@ref) springs
+  ([`TimoshenkoTubeModel`](@ref), [`ElasticTubeModel`](@ref))
 - KiteGeometry `Transform`s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from simple

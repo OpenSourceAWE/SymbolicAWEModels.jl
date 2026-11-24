@@ -449,8 +449,7 @@ using LinearAlgebra
     # Chained Transform Tests (using kps4_plate-style programmatic API)
     # ================================================================
     @testset "Chained Transforms" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch, Station,
-            SystemDefinition
+        using SymbolicAWEModels: SystemDefinition
 
         # Use kps4 settings (2plate_kite has no tethers)
         kps4_data = joinpath(tmpdir, "kps4")
@@ -485,80 +484,87 @@ using LinearAlgebra
         bridle_l0(a, b) =
             norm(pos_map[b] - pos_map[a]) * pre_stress
 
-        points_c = [
-            Point(:ground, zeros(3), STATIC),
-            Point(:kcu, pos_kcu, DYNAMIC;
+        points_c = KiteGeometry.Point[
+            Point(; name=:ground, pos_ENU=zeros(3), fixed=true),
+            Point(; name=:kcu, pos_ENU=pos_kcu,
                 extra_mass=set_c.kcu_mass),
-            Point(:nose, pos_nose, DYNAMIC;
+            Point(; name=:nose, pos_ENU=pos_nose,
                 extra_mass=k_nose),
-            Point(:top, pos_top, DYNAMIC;
-                extra_mass=k_top, wing=:plate_wing),
-            Point(:right, pos_right, DYNAMIC;
-                extra_mass=k_side, wing=:plate_wing),
-            Point(:left, pos_left, DYNAMIC;
-                extra_mass=k_side, wing=:plate_wing),
+            Point(; name=:top, pos_ENU=pos_top,
+                extra_mass=k_top),
+            Point(; name=:right, pos_ENU=pos_right,
+                extra_mass=k_side),
+            Point(; name=:left, pos_ENU=pos_left,
+                extra_mass=k_side),
         ]
 
-        segments_c = [
-            Segment(:kcu_nose, set_c, :kcu, :nose;
+        materials_c = KiteGeometry.MaterialTable(KiteGeometry.Material[],
+                                                 Dict{String, Any}())
+        segments_c = KiteGeometry.Segment[
+            KiteGeometry.line_segment(:kcu_nose, (:kcu, :nose), set_c, materials_c;
                 rest_length=bridle_l0(:kcu, :nose),
-                diameter_mm=set_c.d_line),
-            Segment(:right_nose, set_c, :right, :nose;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:right_nose, (:right, :nose), set_c, materials_c;
                 rest_length=bridle_l0(:right, :nose),
-                diameter_mm=set_c.d_line),
-            Segment(:right_left, set_c, :right, :left;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:right_left, (:right, :left), set_c, materials_c;
                 rest_length=bridle_l0(:right, :left),
-                diameter_mm=set_c.d_line),
-            Segment(:top_right, set_c, :top, :right;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:top_right, (:top, :right), set_c, materials_c;
                 rest_length=bridle_l0(:top, :right),
-                diameter_mm=set_c.d_line),
-            Segment(:left_kcu, set_c, :left, :kcu;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:left_kcu, (:left, :kcu), set_c, materials_c;
                 rest_length=bridle_l0(:left, :kcu),
-                diameter_mm=set_c.d_line),
-            Segment(:right_kcu, set_c, :right, :kcu;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:right_kcu, (:right, :kcu), set_c, materials_c;
                 rest_length=bridle_l0(:right, :kcu),
-                diameter_mm=set_c.d_line),
-            Segment(:top_left, set_c, :top, :left;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:top_left, (:top, :left), set_c, materials_c;
                 rest_length=bridle_l0(:top, :left),
-                diameter_mm=set_c.d_line),
-            Segment(:left_nose, set_c, :left, :nose;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:left_nose, (:left, :nose), set_c, materials_c;
                 rest_length=bridle_l0(:left, :nose),
-                diameter_mm=set_c.d_line),
-            Segment(:nose_top, set_c, :nose, :top;
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
+            KiteGeometry.line_segment(:nose_top, (:nose, :top), set_c, materials_c;
                 rest_length=bridle_l0(:nose, :top),
-                diameter_mm=set_c.d_line),
+                diameter=0.001 * set_c.d_line, model=SegmentSpring()),
         ]
 
-        tethers_c = [Tether(:main_tether,
-            set_c.l_tethers[1];
-            start_point=:ground, end_point=:kcu,
-            n_segments=set_c.segments)]
+        tethers_c = [KiteGeometry.expand_tether!(points_c, segments_c,
+            fill(nothing, length(points_c)), :main_tether, :ground, :kcu,
+            set_c.segments, set_c, materials_c;
+            init=(; init_stretched_length=set_c.l_tethers[1]),
+            model=KiteGeometry.NoModel(), segment_model=SegmentSpring())]
 
-        winches_c = [Winch(:winch, set_c,
-            [:main_tether]; winch_point=:ground)]
+        winches_c = [Winch(; name=:winch,
+            tethers=[:main_tether], winch_point=:ground)]
 
         rel_side = set_c.rel_side_area / 100.0
         K = 1.0 - rel_side
         stations_c = [
-            Station(:main, [:top], STATIC, 0.0;
-                x_airf=[1,0,0], y_airf=[0,1,0],
-                area=set_c.area, twist=deg2rad(set_c.alpha_zero)),
-            Station(:right_tip, [:right], STATIC, 0.0;
-                x_airf=[1,0,0], y_airf=[0,0,-1],
-                area=set_c.area * rel_side,
-                twist=deg2rad(set_c.alpha_ztip)),
-            Station(:left_tip, [:left], STATIC, 0.0;
-                x_airf=[1,0,0], y_airf=[0,0,1],
-                area=set_c.area * rel_side,
-                twist=deg2rad(set_c.alpha_ztip)),
+            SpanwiseStation(; name=:main, wing=:plate_wing, points=[:top],
+                model=StationModel(; type="STATIC", moment_frac=0.0,
+                    chord=[1.0, 0.0, 0.0], y_airf=[0.0, 1.0, 0.0],
+                    area=set_c.area, twist=deg2rad(set_c.alpha_zero))),
+            SpanwiseStation(; name=:right_tip, wing=:plate_wing, points=[:right],
+                model=StationModel(; type="STATIC", moment_frac=0.0,
+                    chord=[1.0, 0.0, 0.0], y_airf=[0.0, 0.0, -1.0],
+                    area=set_c.area * rel_side,
+                    twist=deg2rad(set_c.alpha_ztip))),
+            SpanwiseStation(; name=:left_tip, wing=:plate_wing, points=[:left],
+                model=StationModel(; type="STATIC", moment_frac=0.0,
+                    chord=[1.0, 0.0, 0.0], y_airf=[0.0, 0.0, 1.0],
+                    area=set_c.area * rel_side,
+                    twist=deg2rad(set_c.alpha_ztip))),
         ]
         wing_c = KiteGeometry.Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
             model=WingModel(; aero_mode="AeroPlate", dynamics_type="PARTICLE_DYNAMICS",
                 stations=[:main, :right_tip, :left_tip],
                 z_ref_points=[[:right, :left], :top], y_ref_points=[:left, :right],
                 origin_idx=:kcu, drag_corr=0.93 * K))
-        body_c = Body(:plate_wing; extra_mass=0.0, inertia_principal=ones(3),
-                      pos=zeros(3))
+        body_c = Body(; name=:plate_wing, pos_ENU=zeros(3), extra_mass=0.0,
+                      extra_inertia_KA=Matrix(Diagonal(ones(3))),
+                      model=BodyModel(; angular_damping=0.0))
 
         elev = deg2rad(set_c.elevation)
         azim = deg2rad(10.0)
@@ -566,7 +572,7 @@ using LinearAlgebra
 
         sys_c = system_definition("chained_test", set_c;
             points=points_c, spanwise_stations=stations_c,
-            segments=segments_c,
+            segments=segments_c, materials=materials_c,
             tethers=tethers_c, winches=winches_c,
             wings=[wing_c], bodies=[body_c])
 

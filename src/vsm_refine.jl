@@ -37,7 +37,7 @@ x in the wing's initial pose ([`initial_chord_position`](@ref)).
 function identify_wing_segments(
     wing,
     wing_points::AbstractVector;
-    stations::AbstractVector=Station[],
+    stations::AbstractVector=KiteGeometry.SpanwiseStation[],
     wing_station_idxs::AbstractVector{<:Integer}=Int[]
 )
     use_stations = !isempty(stations) &&
@@ -122,7 +122,7 @@ preserve polars.
 function match_aero_sections_to_structure!(
     wing,
     points::AbstractVector;
-    stations::AbstractVector=Station[]
+    stations::AbstractVector=KiteGeometry.SpanwiseStation[]
 )
     wing_points = [
         p for p in points if

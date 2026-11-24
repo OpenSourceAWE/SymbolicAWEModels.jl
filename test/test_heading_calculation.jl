@@ -139,10 +139,11 @@ end
 
 function heading_after_reinit(base_pos, dx, target_heading)
     cad_pos = base_pos + [dx, 0.0, 51.0]
-    kite = Body(:kite; extra_mass=1.0, inertia_principal=ones(3), pos=cad_pos)
-    points = [Point(:ground, base_pos, STATIC),
-              Point(:kite_origin, cad_pos, BODY_STATIC;
-                    body=:kite, anchor_b=zeros(3))]
+    kite = Body(; name=:kite, pos_ENU=cad_pos, extra_mass=1.0,
+                extra_inertia_KA=Matrix(Diagonal(ones(3))))
+    points = [Point(; name=:ground, pos_ENU=base_pos, fixed=true),
+              Point(; name=:kite_origin, pos_ENU=cad_pos, body=:kite,
+                    model=PointModel(; anchor_b=zeros(3)))]
     transforms = [Transform(; name=:main_tf, elevation=deg2rad(70),
                       azimuth=deg2rad(20), heading=target_heading, base_pos,
                       base_point=1, rot_point=[2 => 1.0], body=1, points=[2],

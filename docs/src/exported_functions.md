@@ -67,7 +67,7 @@ calc_steady_torque
 
 ## Placing a SystemDefinition
 
-[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA2ENU`); the `SystemDefinition` constructor runs it with none. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
+[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA2ENU`); `system_definition` and `load_sys_struct_from_yaml` run it. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
 
 ```julia
 set_unstretched_length!(sam.state, sam.state.tethers[1], 240.0)
@@ -123,7 +123,7 @@ per_point_wind
 ## Winch components
 
 The winch motor model is a pluggable [`AbstractWinchModel`](@ref) struct.
-Pass one to `Winch(...; model=...)` to override the default
+Pass one as the `dynamics` of a winch's [`WinchModel`](@ref) to override the default
 torque-driven motor ([`TorqueWinch`](@ref)). The builder is
 selected by dispatch on the model type, [`winch_component`](@ref); custom
 components must respect the connector contract enforced by

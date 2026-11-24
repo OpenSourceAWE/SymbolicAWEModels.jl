@@ -158,25 +158,6 @@ KiteGeometry.model_columns(::Type{PulleyModel}) =
     (:type, :efficiency, :damping, :brake, :friction_epsilon)
 
 """
-    TetherModel
-
-What SymbolicAWEModels holds of a tether beyond its KiteGeometry `tethers` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, which no document holds.
-
-$(TYPEDFIELDS)
-"""
-@kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
-    "Number of segments a tether given by its end points is split into at build."
-    n_segments::Int64 = 0
-    "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
-    points is split into at build; `NaN` from the settings."
-    segment_columns::NamedTuple = (;)
-end
-
-KiteGeometry.model_columns(::Type{TetherModel}) = ()
-
-"""
     WinchModel{W}
 
 What SymbolicAWEModels holds of a winch beyond its KiteGeometry `winches` row: the columns
@@ -202,14 +183,14 @@ $(TYPEDFIELDS)
     viscous_coefficient::Union{Nothing, Float64} = nothing
     "Total rotational inertia [kg·m²]."
     inertia_total::Union{Nothing, Float64} = nothing
-    "Motor dynamics."
-    dynamics::W
+    "Motor dynamics, a [`TorqueWinch`](@ref) by default."
+    dynamics::W = torque_winch(friction_epsilon)
 end
 
 WinchModel(init_vel, brake, speed_controlled, friction_epsilon, coulomb_friction,
            viscous_coefficient, inertia_total) =
     WinchModel(; init_vel, brake, speed_controlled, friction_epsilon, coulomb_friction,
-               viscous_coefficient, inertia_total, dynamics=torque_winch(friction_epsilon))
+               viscous_coefficient, inertia_total)
 
 KiteGeometry.model_columns(::Type{<:WinchModel}) =
     (:init_vel, :brake, :speed_controlled, :friction_epsilon, :coulomb_friction,
@@ -238,25 +219,25 @@ number or, in a structure built in Julia, a callable of its strain or curvature.
 
 $(TYPEDFIELDS)
 """
-mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     "Axial rigidity [N]."
-    EA::Any
+    EA::Any = nothing
     "Shear rigidity [N]."
-    GA::Any
+    GA::Any = nothing
     "Torsional rigidity [N·m²]."
-    GJ::Any
+    GJ::Any = nothing
     "Bending rigidity about the y-axis [N·m²]."
-    EIy::Any
+    EIy::Any = nothing
     "Bending rigidity about the z-axis [N·m²]."
-    EIz::Any
+    EIz::Any = nothing
     "Shear correction coefficient."
-    shear_coeff::Union{Nothing, Float64}
+    shear_coeff::Union{Nothing, Float64} = nothing
     "Rayleigh damping, damping over stiffness [s]."
-    damping::Union{Nothing, Float64}
+    damping::Union{Nothing, Float64} = nothing
     "Tube end in the first body's frame [m]."
-    anchor_a::Union{Nothing, Vector{Float64}}
+    anchor_a::Union{Nothing, Vector{Float64}} = nothing
     "Tube end in the second body's frame [m]."
-    anchor_b::Union{Nothing, Vector{Float64}}
+    anchor_b::Union{Nothing, Vector{Float64}} = nothing
 end
 KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
     (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping, :anchor_a, :anchor_b)
@@ -271,21 +252,21 @@ number or, in a structure built in Julia, a callable of its strain or angle.
 
 $(TYPEDFIELDS)
 """
-mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
     "Axial stiffness [N/m]."
-    stiffness_axial::Any
+    stiffness_axial::Any = nothing
     "Shear stiffness [N/m]."
-    stiffness_shear::Any
+    stiffness_shear::Any = nothing
     "Torsional stiffness [N·m/rad]."
-    stiffness_torsion::Any
+    stiffness_torsion::Any = nothing
     "Bending stiffness [N·m/rad]."
-    stiffness_bending::Any
+    stiffness_bending::Any = nothing
     "Rayleigh damping, damping over stiffness [s]."
-    damping::Union{Nothing, Float64}
+    damping::Union{Nothing, Float64} = nothing
     "Tube end in the first body's frame [m]."
-    anchor_a::Union{Nothing, Vector{Float64}}
+    anchor_a::Union{Nothing, Vector{Float64}} = nothing
     "Tube end in the second body's frame [m]."
-    anchor_b::Union{Nothing, Vector{Float64}}
+    anchor_b::Union{Nothing, Vector{Float64}} = nothing
 end
 KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
     (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,
@@ -317,7 +298,7 @@ unit_inertia_tensor(inertia::AbstractVector) = first(inertia) isa AbstractVector
 
 Register SymbolicAWEModels' models of each KiteGeometry block, so `load_authoring` and
 `load_structure` read its columns into them: the default model of points, segments,
-stations, wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the
+stations, wings, pulleys, bodies and winches, and the tube models `timoshenko`, the
 default, and `elastic`.
 """
 function register_definition_models()
@@ -339,7 +320,6 @@ function register_definition_models()
     register_model!(:bodies, "sam_body", BodyModel,
                     ("-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-", "kg", "m");
                     default=true)
-    register_model!(:tethers, "sam_tether", TetherModel, (); default=true)
     register_model!(:winches, "sam_winch", WinchModel,
                     ("m/s", "-", "-", "m/s", "N", "N*s/m", "kg*m^2");
                     default=true)

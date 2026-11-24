@@ -13,8 +13,9 @@ tracks it. No integrator, so no windup at the clamp; the closed-loop speed respo
 first-order.
 
 Drum parameters (`gear_ratio`, `drum_radius`, `coulomb_friction`,
-`viscous_coefficient`, `inertia_total`) live on the [`Winch`](@ref); the gains and
-`friction_epsilon` are this model's own fields (mutable, live-tunable).
+`viscous_coefficient`, `inertia_total`) live on the winch row and its
+[`WinchModel`](@ref); the gains and `friction_epsilon` are this model's own fields
+(mutable, live-tunable).
 
 # Equations
 ```

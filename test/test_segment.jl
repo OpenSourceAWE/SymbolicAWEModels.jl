@@ -18,7 +18,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, KiteGeometry
 using KiteUtils
 using LinearAlgebra
 using Statistics
@@ -274,7 +274,9 @@ system:
         @test segment.diameter == 0.005  # 5mm in meters
         @test segment.compression_frac == 0.1
 
-        println("\n  ====== Loaded segment: l0=$(segment.rest_length)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
+        println("\n  ====== Loaded segment: rest_length=$(segment.rest_length)m, " *
+                "unit_stiffness=$(segment.unit_stiffness)N, " *
+                "unit_damping=$(segment.unit_damping)N·s ======\n")
     end
 
     @testset "Compression softens stiffness, and damping on request" begin
@@ -741,17 +743,21 @@ end
     @test count(==(:free), values(roles)) == 10
     @test count(==(:winched_tether), values(roles)) == 6
 
-    points = [Point(:ground, [0.0, 0.0, 0.0], STATIC),
-              Point(:knot, [0.0, 0.0, 10.0], DYNAMIC),
-              Point(:line_end, [5.0, 0.0, 0.0], DYNAMIC),
-              Point(:loose_end, [-1.0, 0.0, 11.0], DYNAMIC)]
-    segments = [Segment(:main, :ground, :knot, 1e4, 10.0, 0.01),
-                Segment(:line, :ground, :line_end, 1e4, 10.0, 0.01),
-                Segment(:loose, :knot, :loose_end, 1e4, 10.0, 0.01)]
-    tethers = [Tether(:main_tether, [:main], 10.0), Tether(:line_tether, [:line], 5.0)]
-    winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
-    sys = system_definition("segment_role_tethers", set; points, segments, tethers,
-                          winches)
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+    points = [Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+              Point(; name=:knot, pos_ENU=[0.0, 0.0, 10.0]),
+              Point(; name=:line_end, pos_ENU=[5.0, 0.0, 0.0]),
+              Point(; name=:loose_end, pos_ENU=[-1.0, 0.0, 11.0])]
+    line(name, ends) = KiteGeometry.line_segment(name, ends, set, materials;
+        diameter=0.01, unit_stiffness=1e4, model=SegmentSpring(; unit_damping=10.0))
+    segments = [line(:main, (:ground, :knot)),
+                line(:line, (:ground, :line_end)),
+                line(:loose, (:knot, :loose_end))]
+    tethers = [Tether(; name=:main_tether, segments=[:main], init_stretched_length=10.0),
+               Tether(; name=:line_tether, segments=[:line], init_stretched_length=5.0)]
+    winches = [Winch(; name=:winch, tethers=[:main_tether], winch_point=:ground)]
+    sys = system_definition("segment_role_tethers", set; points, segments, materials,
+                          tethers, winches)
     state = SymbolicAWEModels.SystemState(sys; set)
     @test [segment_role(state, segment) for segment in state.segments] ==
           [:winched_tether, :unwinched_tether, :free]

@@ -8,7 +8,7 @@
 
 Flat-plate CL/CD lookup aerodynamics. Carries the shared polar lookups
 (`calc_cl`/`calc_cd`: `α_deg → coefficient`) and drag correction used by all of
-a wing's flat-plate (1-point `STATIC`) [`Station`](@ref)s. One polar set per
+a wing's flat-plate (1-point `STATIC`) spanwise stations. One polar set per
 wing.
 """
 mutable struct AeroPlate{CL, CD} <: AbstractAeroModel
@@ -95,7 +95,7 @@ end
 Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
 the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
 (the VSM particle modes read frozen forces and ignore them). Each wing node is a
-1-point `STATIC` [`Station`](@ref) section; the per-point force is computed
+1-point `STATIC` spanwise station; the per-point force is computed
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """

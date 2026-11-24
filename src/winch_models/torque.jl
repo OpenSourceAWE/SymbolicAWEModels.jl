@@ -10,8 +10,8 @@ Torque-controlled winch motor (the default winch model). `set_value` is the
 motor torque [N·m]. Coulomb friction is smoothed by `friction_epsilon` (the
 `smooth_sign` transition width). The drum parameters (`gear_ratio`,
 `drum_radius`, `coulomb_friction`, `viscous_coefficient`, `inertia_total`) live
-on the [`Winch`](@ref) struct; `friction_epsilon` is a numerical property of this
-model and lives here (mutable, live-tunable).
+on the winch row and its [`WinchModel`](@ref); `friction_epsilon` is a numerical
+property of this model and lives here (mutable, live-tunable).
 
 # Equations
 ```

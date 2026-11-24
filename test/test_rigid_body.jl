@@ -18,7 +18,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, Point
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -70,8 +70,8 @@ environment:
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body = Body(:body1; extra_mass=2.0, inertia_principal=inertia,
-                     pos=[0.0, 0.0, 10.0])
+    body = Body(; name=:body1, pos_ENU=[0.0, 0.0, 10.0], extra_mass=2.0,
+                extra_inertia_KA=Matrix(Diagonal(inertia)))
     sys = system_definition("rigid_body_test", set; bodies=[body])
 
     @testset "Model setup" begin
@@ -128,8 +128,10 @@ environment:
 
     @testset "COM-offset body-frame output" begin
         offset = [0.5, 0.0, 0.0]
-        body2 = Body(:body2; extra_mass=1.0, inertia_principal=inertia,
-                          pos=[1.0, 2.0, 5.0], com_offset_b=offset)
+        # identity orientation: the own-mass centre lies `offset` from the origin
+        body2 = Body(; name=:body2, pos_ENU=[1.0, 2.0, 5.0] + offset, extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)),
+                     model=BodyModel(; com_offset_b=offset))
         sys2 = system_definition("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
         test_init!(sam2)
@@ -147,11 +149,11 @@ environment:
     # A transform must reposition AND reorient a rigid body, like a wing.
     # Tested at the SystemDefinition level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
-        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC)
-        body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
-                          pos=[100.0, 0.0, 0.0])
-        tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
-                    body=:body3, anchor_b=[0.0, 0.0, 0.0])
+        ground = Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true)
+        body3 = Body(; name=:body3, pos_ENU=[100.0, 0.0, 0.0], extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        tip = Point(; name=:tip, pos_ENU=[100.0, 0.0, 0.0], body=:body3,
+                    model=PointModel(; anchor_b=[0.0, 0.0, 0.0]))
         sys3 = system_definition("rigid_body_transform_test", set;
             points=[ground, tip], bodies=[body3])
         tf = Transform(; name=:tf, elevation=deg2rad(45), azimuth=0.0, heading=0.0,
@@ -176,9 +178,9 @@ environment:
     # A KCU-like point riding 1 m out moves the COM a third of the way to it, and
     # its weight acts there: the body falls at g without turning.
     @testset "A riding point's mass joins the body" begin
-        carrier = Body(:carrier; extra_mass=2.0, inertia_principal=inertia,
-                       pos=[0.0, 0.0, 10.0])
-        kcu = Point(:kcu, [1.0, 0.0, 10.0], BODY_STATIC; body=:carrier,
+        carrier = Body(; name=:carrier, pos_ENU=[0.0, 0.0, 10.0], extra_mass=2.0,
+                       extra_inertia_KA=Matrix(Diagonal(inertia)))
+        kcu = Point(; name=:kcu, pos_ENU=[1.0, 0.0, 10.0], body=:carrier,
                     extra_mass=1.0)
         sys4 = system_definition("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])

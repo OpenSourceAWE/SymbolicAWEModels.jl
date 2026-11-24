@@ -4,20 +4,6 @@
 # ==================== ENUMS ==================== #
 
 """
-    SegmentType `POWER_LINE` `STEERING_LINE` `BRIDLE`
-
-!!! warning "Deprecated"
-    `SegmentType` is no longer used as a Segment constructor
-    parameter. It is kept only so that old code hits a
-    deprecation error instead of `UndefVarError`.
-"""
-@enum SegmentType begin
-    POWER_LINE
-    STEERING_LINE
-    BRIDLE
-end
-
-"""
     DynamicsType `DYNAMIC` `STATIC` `BODY_STATIC` `KINEMATIC`
 
 Enumeration for the dynamic model governing a point's motion, a rigid body's
@@ -34,7 +20,7 @@ their wing membership comes from station membership (`point.is_wing_node`).
 - `STATIC`: Prescribed, no state. A point's position is welded in the **world**
   frame; a rigid body is clamped to the world; a station twist is a
   prescribed control input read live via the registered getter.
-- `BODY_STATIC`: A point rides a [`Body`](@ref) — static in the rigid
+- `BODY_STATIC`: A point rides a body — static in the rigid
   body's body frame; it feeds its net force (and the moment about the body COM)
   into the body.
 - `KINEMATIC`: A twist source whose deflection is prescribed by geometry (e.g. a
@@ -55,7 +41,7 @@ Enumeration for the structural representation of a wing.
 # Elements
 - `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics, with the
   deformation confined to the twist degrees of freedom of its
-  [`Station`](@ref)s. Aerodynamic forces/moments are applied to the wing
+  spanwise stations. Aerodynamic forces/moments are applied to the wing
   center of mass; its structural points are `BODY_STATIC` and ride the body.
 - `PARTICLE_DYNAMICS`: Wing has no rigid body constraint. Its structural points
   are ordinary `DYNAMIC` particles and the aerodynamic loads are applied to them
@@ -280,33 +266,27 @@ getters). Defaults to an empty tuple.
 """
 aero_hash_id(::AbstractAeroModel) = ()
 
-
 # ==================== POINT ==================== #
-
-"""
-    Point
-
-A point mass, a node of the mass-spring system: a KiteGeometry `points` row whose model is
-a [`PointModel`](@ref).
-"""
-const Point = KiteGeometry.Point{PointModel}
-
-
-"""A reference as a column holds it: `nothing` for none (0)."""
-reference_column(ref) = ref == 0 ? nothing : ref
-
-
 
 """A value one per axis: a vector column as it is, one number on every axis, zero unset."""
 per_axis(values::Vector{Float64}) = values
 per_axis(value::Float64) = SVector(value, value, value)
 per_axis(::Nothing) = zero(SVector{3, Float64})
 
+"""The [`DynamicsType`](@ref) the `type` column of `row` names, refusing one it leaves
+unset."""
+function row_dynamics_type(row)
+    isnothing(row.type) && error("$(row.name) needs its `type`")
+    index = findfirst(type -> string(type) == uppercase(row.type), instances(DynamicsType))
+    isnothing(index) && error("$(row.name): no dynamics type $(row.type)")
+    return instances(DynamicsType)[index]
+end
+
 """The dynamics type of the twist of `station`, from its `type` column."""
-station_type(station) = parse_dynamics_type(station.type)
+station_type(station) = row_dynamics_type(station)
 
 """The dynamics type of `pulley`, from its `type` column."""
-pulley_type(pulley) = parse_dynamics_type(pulley.type)
+pulley_type(pulley) = row_dynamics_type(pulley)
 
 """The dynamics type of `point`: `STATIC` where it is held, `BODY_STATIC` where it rides a
 body or a tube, `DYNAMIC` otherwise."""
@@ -315,229 +295,12 @@ function point_type(point)
     return isnothing(point.body) && isnothing(point.tube) ? DYNAMIC : BODY_STATIC
 end
 
-"""
-    Point(name, pos_ENU, type; wing=nothing, ...)
-
-Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
-- `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
-- `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
-- `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame; it rides
-  the body and feeds its net force and moment into it. Anchor it with `body`,
-  `tube`, or `wing` (a wing is a body, so `wing` rides that wing's own body).
-  `body` and `wing` may both be set only when `body` is a non-wing body; a `body`
-  naming a different wing errors during resolution.
-
-A wing's aerodynamic-surface structural points are ordinary `DYNAMIC` (particle
-wing) or `BODY_STATIC` (rigid wing) points that are members of one of the wing's
-stations; their `is_wing_node` flag is then set from that membership and
-drives the per-point aero and wing-frame fitting.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the point (e.g., `:kcu`, `:le_1`).
-- `pos_ENU::KVec3`: Position of the point before [`place!`](@ref) moves it [m].
-- `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
-  Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
-
-# Keyword Arguments
-- `wing::Union{Int, Symbol}`: The wing the point belongs to (name or index).
-  Without it the point belongs to none: no body-frame damping, and no body frame
-  to express its apparent wind in.
-- `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
-  point to (requires `type = BODY_STATIC`). The point then rides the body
-  kinematically and feeds its net force (and the moment about the body COM)
-  into the body. Defaults to no anchor.
-- `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
-- `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
-- `apparent_mass::Float64=0.0`: Entrained-air mass of the point [kg], which resists
-  acceleration but carries no weight.
-- `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping for body frame.
-- `world_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping for world frame.
-- `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
-- `fix_static::Bool=false`: If true, dynamically freezes the point.
-
-# Returns
-- `Point`: A new `Point` object. The `idx` field is assigned later by SystemDefinition.
-"""
-function Point(name, pos_ENU, type::DynamicsType;
-    wing=nothing,
-    body=nothing, anchor_b=nothing, tube=nothing,
-    extra_mass=0.0, apparent_mass=0.0,
-    body_frame_damping=nothing, world_frame_damping=nothing,
-    area=0.0, drag_coeff=0.0,
-    fix_sphere=false, fix_static=false
-)
-    if type == BODY_STATIC
-        all(isnothing, (body, tube, wing)) && error(
-            "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
-            "reference (a wing is a body, so `wing` rides that wing's body).")
-        !isnothing(body) && !isnothing(tube) && error("Point $name: set either `body` " *
-            "(rigid rider) or `tube` (beam rider), not both.")
-        isnothing(body) && isnothing(tube) && (body = wing)
-    else
-        isnothing(body) || error("Point $name: `body` is only valid with type BODY_STATIC.")
-        isnothing(tube) || error(
-            "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
-    end
-    model = PointModel(;
-        body_frame_damping=axis_column(body_frame_damping),
-        world_frame_damping=axis_column(world_frame_damping), area, drag_coeff,
-        fix_sphere, fix_static,
-        anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
-        apparent_mass=iszero(apparent_mass) ? nothing : Float64(apparent_mass))
-    return KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body, tube,
-        pos_ENU=KVec3(pos_ENU...), extra_mass, model)
-end
-
 """A per-axis damping as a column of one value per axis, zero for `nothing`."""
 axis_column(::Nothing) = zeros(3)
 axis_column(value::Real) = fill(Float64(value), 3)
 axis_column(values::AbstractVector) = Vector{Float64}(values)
 
-
-# ==================== STATION ==================== #
-
-"""
-    Station
-
-A set of bridle lines that share the same twist angle and trailing edge angle: a
-KiteGeometry `spanwise_stations` row whose model is a [`StationModel`](@ref).
-"""
-const Station = KiteGeometry.SpanwiseStation{StationModel}
-
-"""The [`StationModel`](@ref) of station row `row`."""
-
-
-"""A list of references as a column holds it: `nothing` for none."""
-references_column(refs) =
-    isempty(refs) ? nothing : KiteGeometry.NameRef[cell_ref(ref) for ref in refs]
-
-"""
-    Station(name, points, type, moment_frac; damping=50.0)
-
-Constructs a `Station` object representing a collection of points on a
-kite body that share a common twist deformation.
-
-Station geometry (le_pos, chord, y_airf) is computed later by SystemDefinition
-using the closest VSM panel to the station's mean point position.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the station.
-- `points::Vector`: References to points (names or indices).
-- `type::DynamicsType`: DYNAMIC or STATIC.
-- `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
-
-# Keyword Arguments
-- `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
-- `stiffness::SimFloat=0.0`: Torsional restoring stiffness [N·m/rad]. Adds a
-  `-stiffness * twist_angle / inertia` term to the twist angular acceleration,
-  independent of the bridle-tension restoring moment.
-- `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
-  the `chord` field — twist is measured relative to it. Defaults to auto-derived
-  from the closest VSM panel during SystemDefinition construction.
-- `y_airf=nothing`: Spanwise reference (body frame). Auto-derived when omitted.
-- `area=NaN`: Surface area [m²] for flat-plate (`AeroPlate`) sections.
-- `twist=0.0`: Initial twist angle [rad] (prescribed input for `STATIC` sections).
-- `wing=0`: Owning-wing reference (name or idx). Needed for the `KINEMATIC` flap
-  variant; other surfaces infer their wing from body membership.
-- `bodies=[]`: Member-body references — all bodies in this chordwise piece
-  (retained for future use, e.g. deriving twist or multi-element chords).
-- `flap_bodies=[]`: Ordered `[main, flap]` body references of the flap hinge.
-  When given (with `type=KINEMATIC`) the surface carries a live deflection δ, the
-  signed angle between the two bodies about `flap_axis`; empty = no flap.
-- `flap_points=[]`: Ordered `[fore, hinge, aft]` point references of a point flap —
-  the alternative to `flap_bodies`. δ is the signed angle the aft segment
-  (`hinge`→`aft`) makes with the fore segment (`fore`→`hinge`) about `flap_axis`,
-  referenced to the initial pose. A chord that bends rather than hinges needs no bodies
-  to read a deflection off, and the two segments are read from the structure the
-  polars are indexed on. Give both `flap_bodies` and `flap_points` and the points win.
-- `flap_axis=[0,1,0]`: Flap-hinge axis (unit), in the main flap body's frame, or the
-  owning wing's for a point flap.
-- `flap_chord_refs=[]`: Reference chord directions `[main, flap]`; auto-derived
-  (each body's x-axis) at build when omitted.
-
-# Returns
-- `Station`: A new `Station` object. The `idx` and `point_idxs` are resolved when its
-  structure is built.
-  When `x_airf`/`y_airf` are omitted the geometry fields (le_pos, chord, y_airf) are
-  computed during SystemDefinition construction from the closest VSM panel.
-"""
-function Station(name, points, type::DynamicsType, moment_frac;
-                      damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,
-                      area=NaN, twist=0.0,
-                      wing=0, bodies=NameRef[], flap_bodies=NameRef[],
-                      flap_points=NameRef[],
-                      flap_axis=[0.0, 1.0, 0.0], flap_chord_refs=KVec3[])
-    isempty(flap_points) || length(flap_points) == 3 || error(
-        "Station $name: flap_points needs exactly three references " *
-        "[fore, hinge, aft]; got $(length(flap_points)).")
-    model = StationModel(; type=string(type), moment_frac, damping, stiffness,
-        bodies=references_column(bodies), flap_bodies=references_column(flap_bodies),
-        flap_points=references_column(flap_points),
-        flap_axis=Vector{Float64}(flap_axis),
-        chord=maybe(Vector{Float64}, x_airf), y_airf=maybe(Vector{Float64}, y_airf),
-        twist, area=isnan(area) ? nothing : area,
-        flap_chord_refs=isempty(flap_chord_refs) ? nothing :
-            Vector{Float64}.(flap_chord_refs))
-    return KiteGeometry.SpanwiseStation(; name=Symbol(name), wing=cell_ref(wing),
-        points=NameRef[cell_ref(point) for point in points], model)
-end
-
 # ==================== SEGMENT ==================== #
-
-"""
-    Segment
-
-A spring-damper from one point to another: a KiteGeometry `segments` row whose model is a
-[`SegmentSpring`](@ref).
-
-The spring-damper model uses per-unit-length stiffness and damping:
-- Effective stiffness: `k = unit_stiffness / length` [N/m]
-- Effective damping: `c = unit_damping / length` [N·s/m]
-
-`unit_stiffness` is either a `Real` (linear) or a callable `F(ε)` of the axial
-strain `ε = (len − rest_length)/rest_length` returning the spring force [N] (nonlinear); the
-callable
-owns the full law, including any slack/compression behaviour, so `compression_frac`
-is ignored for it.
-"""
-const Segment = KiteGeometry.Segment
-
-"""
-    SegmentDraft
-
-A segment built in Julia until its structure is built: its [`SegmentSpring`](@ref) and
-the material of its own that its structure's `materials` then holds.
-
-$(TYPEDFIELDS)
-"""
-struct SegmentDraft <: KiteGeometry.AbstractModel
-    "The segment's spring."
-    spring::SegmentSpring
-    "The segment's material."
-    material::KiteGeometry.Material{KiteGeometry.NoModel}
-end
-
-"""A segment row built in Julia, before its structure holds its material."""
-const DraftSegment = KiteGeometry.Segment{SegmentDraft}
-KiteGeometry.model_columns(::Type{SegmentDraft}) = ()
-"""A segment row of a built structure."""
-const SegmentRow = KiteGeometry.Segment{SegmentSpring}
-
-"""`segment` as its structure holds it, its material filed in `materials`, the density
-it left `NaN` that of `set`'s tether."""
-function structure_segment!(materials, segment::DraftSegment, set)
-    (; spring, material) = getfield(segment, :model)
-    isnan(material.parameters["density"]) &&
-        (material.parameters["density"] = SimFloat(set.rho_tether))
-    push!(materials, material)
-    return KiteGeometry.Segment(; segment.name, segment.points, segment.rest_length,
-        segment.diameter, material=length(materials), model=spring)
-end
-function structure_segment!(materials, segment::SegmentRow, set)
-    segment.material isa Integer && return segment
-    segment.material = KiteGeometry.row_index(materials, segment.material)
-    return segment
-end
 
 """
     BuiltSegment
@@ -549,7 +312,7 @@ $(TYPEDFIELDS)
 """
 struct BuiltSegment
     "The segment's row."
-    row::SegmentRow
+    row::KiteGeometry.Segment{SegmentSpring}
     "The segment's material."
     material::KiteGeometry.Material{KiteGeometry.NoModel}
     "Damping per unit length [N·s]."
@@ -567,7 +330,7 @@ Segment `row` as a run with settings `set` reads it, its material found in `mate
 damping is the row's `unit_damping`, else its `damping_per_stiffness` times its stiffness,
 else `set.rel_damping` times its stiffness.
 """
-function resolve_segment(row::SegmentRow, materials, set)
+function resolve_segment(row::KiteGeometry.Segment{SegmentSpring}, materials, set)
     material = materials[row.material]
     material.law == "linear" || haskey(material.parameters, "unit_stiffness") ||
         error("segment $(row.name): material law $(material.law) has no force law here; " *
@@ -619,342 +382,6 @@ to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
 
 """The [`SegmentSpring`](@ref) of segment row `row`."""
 @inline segment_spring(row::KiteGeometry.Segment) = row.model
-@inline segment_spring(row::DraftSegment) = row.model.spring
-
-"""
-    stiffness_law(unit_stiffness, diameter) -> (law, stiffness)
-
-The material law of a line of `diameter` [m] whose stiffness per unit length is
-`unit_stiffness`, with the stiffness that law takes: `("linear", E)`, Young's modulus `E`
-[Pa], for a number on a line with a cross-section or for zero; else
-`("unit_stiffness", unit_stiffness)`, a number [N] or a force law `F(ε)`.
-"""
-function stiffness_law(unit_stiffness, diameter)
-    area = π * (diameter / 2)^2
-    unit_stiffness isa Real || return "unit_stiffness", unit_stiffness
-    iszero(unit_stiffness) && return "linear", zero(SimFloat)
-    area > 0 || return "unit_stiffness", SimFloat(unit_stiffness)
-    return "linear", unit_stiffness / area
-end
-
-"""The parameters of a material of `law` with `stiffness`, Young's modulus [Pa] where
-`law` is `linear`, else its `unit_stiffness`, and `density` [kg/m³]."""
-material_parameters(law, stiffness, density) = OrderedDict{String, Any}(
-    "density" => SimFloat(density),
-    (law == "linear" ? "youngs_modulus" : "unit_stiffness") => stiffness)
-
-"""The segment row `name` from `points`, `rest_length` [m] long at rest and `diameter` [m]
-thick, of a material of its own name of `law` with `stiffness` and `density`, and `spring`."""
-function segment_with_material(name, points, rest_length, diameter, (law, stiffness),
-                               density, spring)
-    parameters = material_parameters(law, stiffness, density)
-    material = KiteGeometry.Material(; name=Symbol(name), law, parameters)
-    return KiteGeometry.Segment(; name=Symbol(name), points=cell_ref.(points),
-        rest_length, diameter, material=Symbol(name),
-        model=SegmentDraft(spring, material))
-end
-
-"""
-    Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; rest_length,
-            compression_frac, compression_damping_frac)
-
-Basic constructor for a `Segment` object.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the segment.
-- `point_i`, `point_j`: References to the two endpoint points (names or indices).
-- `unit_stiffness`: Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m].
-- `unit_damping`: Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m].
-- `diameter`: Segment diameter [m].
-
-# Keyword Arguments
-- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1).
-  0 = a slack segment carries no spring force.
-- `compression_damping_frac::SimFloat=1.0`: Fraction of `unit_damping` still
-  acting under compression (0-1). See [`segment_spring_force`](@ref).
-- `density::SimFloat=NaN`: Material density [kg/m³] used for mass.
-
-The segment gets a material of its own, holding its stiffness and density.
-"""
-function Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol},
-    unit_stiffness, unit_damping, diameter;
-    rest_length=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
-    density=NaN
-)
-    spring = SegmentSpring(; unit_damping, compression_frac, compression_damping_frac)
-    return segment_with_material(name, (point_i, point_j), rest_length, diameter,
-                       stiffness_law(unit_stiffness, diameter), density, spring)
-end
-
-"""
-    Segment(name, set, point_i, point_j; rest_length, compression_frac,
-            compression_damping_frac, diameter_mm, unit_stiffness, unit_damping,
-            density, youngs_modulus, damping_per_stiffness)
-
-Constructs a `Segment` using settings for material properties.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the segment.
-- `set::Settings`: The settings object containing material properties.
-- `point_i`, `point_j`: References to the two endpoint points
-  (names or indices).
-
-# Keyword Arguments
-- `rest_length::SimFloat=zero(SimFloat)`: Unstretched length [m].
-  Calculated from point positions if zero.
-- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1).
-  0 = a slack segment carries no spring force.
-- `compression_damping_frac::SimFloat=1.0`: Fraction of `unit_damping` still
-  acting under compression (0-1). See [`segment_spring_force`](@ref).
-- `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`,
-  uses `set.d_tether`.
-- `unit_stiffness::Float64=NaN`: Stiffness per unit length [N].
-  Effective k = unit_stiffness/length.
-- `unit_damping::Float64=NaN`: Damping per unit length [N·s].
-  Effective c = unit_damping/length.
-- `density::Float64=NaN`: Material density [kg/m³]. If `NaN`,
-  uses `set.rho_tether`.
-- `youngs_modulus::Float64=NaN`: Diameter-independent alternative to
-  `unit_stiffness` [Pa].
-- `damping_per_stiffness::Float64=NaN`: Diameter-independent alternative
-  to `unit_damping` [s].
-
-KiteGeometry's `resolve_material` completes what is left `NaN` from `set`.
-"""
-function Segment(name, set, point_i, point_j;
-    rest_length=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
-    diameter_mm=NaN, kwargs...
-)
-    return settings_segment(name, set, (point_i, point_j), rest_length;
-        diameter=isnan(diameter_mm) ? NaN : 0.001 * diameter_mm, compression_frac,
-        compression_damping_frac, kwargs...)
-end
-
-"""
-    settings_segment(name, set, points, rest_length; diameter, unit_stiffness, unit_damping,
-                     density, youngs_modulus, damping_per_stiffness, compression_frac,
-                     compression_damping_frac)
-
-The segment row `name` from `points`, `rest_length` [m] long at rest, its material and
-damping
-those KiteGeometry's `resolve_material` completes from the given ones and `set`.
-"""
-function settings_segment(name, set, points, rest_length; diameter=NaN, unit_stiffness=NaN,
-                          unit_damping=NaN, density=NaN, youngs_modulus=NaN,
-                          damping_per_stiffness=NaN, compression_frac=0.1,
-                          compression_damping_frac=1.0)
-    diameter, stiffness, density = KiteGeometry.resolve_material(
-        "Segment $(name)", set; diameter, unit_stiffness, density, youngs_modulus)
-    law = stiffness isa Real ? "linear" : "unit_stiffness"
-    spring = SegmentSpring(; unit_damping=nan_to_nothing(unit_damping),
-                           damping_per_stiffness=nan_to_nothing(damping_per_stiffness),
-                           compression_frac, compression_damping_frac)
-    return segment_with_material(name, points, rest_length, diameter, (law, stiffness),
-                                 density, spring)
-end
-
-"""`value`, `nothing` for `NaN`."""
-nan_to_nothing(value) = isnan(value) ? nothing : Float64(value)
-
-"""Deprecated: SegmentType parameter removed."""
-function Segment(_name, _set, _p_i, _p_j, _type::SegmentType;
-             _kw...)
-    error("Segment `type` (SegmentType) parameter removed. " *
-          "Use `unit_stiffness`, `unit_damping`, " *
-          "`diameter_mm` kwargs, or a YAML material.")
-end
-
-# ==================== PULLEY ==================== #
-
-"""
-    Pulley
-
-A pulley described by two segments with the common point of the segments being the
-pulley: a KiteGeometry `pulleys` row whose model is a [`PulleyModel`](@ref).
-"""
-const Pulley = KiteGeometry.Pulley{PulleyModel}
-
-
-"""
-    Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
-
-Constructs a `Pulley` object that enforces length redistribution between two segments.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the pulley.
-- `segment_i`, `segment_j`: References to the two segments (names or indices).
-- `type::DynamicsType`: Dynamics type (`DYNAMIC`).
-- `efficiency`: Fraction of line tension the sheave passes on (0-1).
-- `damping`: Artificial damping on rope travel [N·s/m], for debugging.
-- `brake`: Freeze the rope split where it is, for debugging.
-- `friction_epsilon`: Friction smoothing width [m/s].
-
-`efficiency` is the whole friction model: the friction is
-`(1 − efficiency) · line_tension` (the mean of the two leg tensions), so it scales
-with load, not rope speed. Defaults to 0.95 (sealed ball-bearing sheave; 0.88–0.92
-for a bronze bushing); 1.0 is an ideal pulley.
-
-`damping` (default 0) and `brake` (default `false`) are debugging aids, not sheave
-properties: they settle or freeze a ringing rope split. `friction_epsilon` is the
-rope speed below which the friction's sign is ramped in ([`smooth_sign`](@ref)); the
-friction linearises to `(1 − efficiency) · line_tension / friction_epsilon` around
-zero, so a narrow width makes a stiff system out of a small force and wants raising
-rather than lowering.
-"""
-function Pulley(name, segment_i, segment_j, type::DynamicsType;
-                efficiency = 0.95, damping = 0.0, brake = false,
-                friction_epsilon = 0.1)
-    model = PulleyModel(string(type), efficiency, damping, brake, friction_epsilon)
-    return KiteGeometry.Pulley(; name=Symbol(name),
-        segments=cell_ref.((segment_i, segment_j)), model)
-end
-
-# ==================== TETHER ==================== #
-
-"""
-    Tether
-
-A collection of segments forming a flexible line: a KiteGeometry `tethers` row whose
-model is a [`TetherModel`](@ref). `segment_refs`, `start_point_ref` and `end_point_ref`
-read the references the row gives, `nothing` for an end it leaves open.
-
-Can be constructed two ways:
-- **Route 1** (explicit segments): Provide segment references directly.
-- **Route 2** (auto-generation): Provide start/end points and `n_segments`;
-  intermediate points and segments are created by `expand_tethers!`.
-
-`unit_stiffness` is either a `Real` (linear) or a callable `F(ε)` of the axial
-strain returning force [N]; a callable propagates to every auto-generated segment
-(Route 2), making the whole line nonlinear.
-
-The material fields (`unit_stiffness` through `compression_damping_frac`) describe the
-segments Route 2 generates; a Route 1 tether reads them off its own segments.
-
-# Initial length
-Two distinct lengths, set independently at `place!`:
-- `init_stretched_length` — the *placed* (stretched) standoff; `place!` scales the
-  free end's world position so the geometry spans this length.
-- `len` — the *unstretched* rest length and the reeled ODE state. `place!`
-  derives it from the placed length via either `init_stretch_frac`
-  (`len = frac · stretched`) or `init_tether_force`
-  (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
-
-For a specific initial unstretched length `L` through `place!`, place at a known
-`init_stretched_length = S` and set `init_stretch_frac = L / S`. On a structure that
-is already placed, [`set_unstretched_length!`](@ref) writes `len` and the segments'
-`rest_length` without moving anything; the next `place!` derives `len` from the geometry
-again and overwrites it.
-"""
-const Tether = KiteGeometry.Tether{TetherModel}
-
-
-
-"""
-    Tether(name, segments, stretched_length=nothing;
-           start_point=nothing, end_point=nothing,
-           tether_force=nothing, stretch_frac=nothing)
-
-Route 1: Construct a `Tether` from explicit segment references.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the tether.
-- `segments::Vector`: References to segments (names or indices).
-- `stretched_length=nothing`: Stretched standoff [m] (placed point
-  geometry). Drives placement of root tethers. `nothing` = use the
-  geometric length.
-
-# Keyword Arguments
-- `start_point=nothing`: Optional start point ref.
-- `end_point=nothing`: Optional end point ref.
-- `tether_force=nothing`: Target initial spring force [N], default 0.
-- `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
-  exclusive with `tether_force`.
-"""
-function Tether(name, segments::AbstractVector, stretched_length=nothing;
-                start_point=nothing, end_point=nothing,
-                winch_point=nothing, tether_force=nothing,
-                stretch_frac=nothing)
-    if !isnothing(winch_point)
-        error("`winch_point` moved from Tether to " *
-              "Winch. Use Tether(name, segments, " *
-              "len) and pass winch_point to the " *
-              "Winch constructor.")
-    end
-    model = TetherModel()
-    return tether_row(name, segments, start_point, end_point, stretched_length,
-                      tether_force, stretch_frac, model)
-end
-
-"""The tether row named `name` of `segments` from `start_point` to `end_point`, an
-open end `nothing`, placed at `stretched_length` with `tether_force` or `stretch_frac`,
-with `model`."""
-function tether_row(name, segments, start_point, end_point, stretched_length,
-                    tether_force, stretch_frac, model)
-    isnothing(tether_force) || isnothing(stretch_frac) || error(
-        "Tether $name: set only one of `tether_force` and `stretch_frac`.")
-    return KiteGeometry.Tether(; name=Symbol(name),
-        start_point=cell_ref(start_point), end_point=cell_ref(end_point),
-        segments=NameRef[cell_ref(segment) for segment in segments],
-        init_stretched_length=maybe(Float64, stretched_length),
-        init_tether_force=maybe(Float64, tether_force),
-        init_stretch_frac=maybe(Float64, stretch_frac), model)
-end
-
-"""
-    Tether(name, stretched_length=nothing;
-           start_point, end_point, n_segments,
-           unit_stiffness=NaN, unit_damping=NaN, diameter=NaN, density=NaN,
-           youngs_modulus=NaN, damping_per_stiffness=NaN,
-           compression_frac=0.1, compression_damping_frac=1.0,
-           tether_force=nothing, stretch_frac=nothing)
-
-Route 2: Construct a `Tether` for auto-generation of intermediate
-points and segments by `expand_tethers!`.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the tether.
-- `stretched_length=nothing`: Stretched standoff [m] (placed point
-  geometry). Drives placement of root tethers. `nothing` = use the
-  geometric length.
-
-# Keyword Arguments
-- `start_point`: Reference to the start point (required).
-- `end_point`: Reference to the end point (required).
-- `n_segments::Int`: Number of segments to generate (required).
-- `unit_stiffness=NaN`: Per-unit-length stiffness, a number [N] or a force
-  law `F(ε)` [N]. NaN = derive from Settings during auto-expansion.
-- `unit_damping::Float64=NaN`: Per-unit-length damping [N·s].
-  NaN = derive from Settings during auto-expansion.
-- `diameter::Float64=NaN`: Tether diameter [m].
-  NaN = derive from Settings during auto-expansion.
-- `density::Float64=NaN`: Material density [kg/m³].
-  NaN = derive from Settings during auto-expansion.
-- `youngs_modulus::Float64=NaN`: Diameter-independent alternative to
-  `unit_stiffness` [Pa].
-- `damping_per_stiffness::Float64=NaN`: Diameter-independent alternative
-  to `unit_damping` [s].
-- `compression_frac::Float64=0.1`: Compressive/tensile stiffness ratio
-  (0-1) of every generated segment. See [`Segment`](@ref).
-- `compression_damping_frac::Float64=1.0`: Fraction of `unit_damping`
-  still acting under compression (0-1). See [`Segment`](@ref).
-- `tether_force=nothing`: Target initial spring force [N], default 0.
-- `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
-  exclusive with `tether_force`.
-"""
-function Tether(name, stretched_length=nothing;
-                start_point, end_point, n_segments,
-                unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, density=NaN, youngs_modulus=NaN,
-                damping_per_stiffness=NaN, compression_frac=0.1,
-                compression_damping_frac=1.0, tether_force=nothing,
-                stretch_frac=nothing)
-    segments = [Symbol("$(name)_seg_$i") for i in 1:n_segments]
-    model = TetherModel(; n_segments=Int64(n_segments), segment_columns=(; unit_stiffness,
-        unit_damping, diameter, density, youngs_modulus, damping_per_stiffness,
-        compression_frac, compression_damping_frac))
-    return tether_row(name, segments, start_point, end_point, stretched_length,
-                      tether_force, stretch_frac, model)
-end
 
 # ==================== WINCH ==================== #
 
@@ -964,90 +391,10 @@ end
 Selects the winch motor dynamics. Each concrete model carries its own
 parameter fields and adds a `winch_component(model, sys_struct, idx; name,
 params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref)).
-The model lives in [`Winch`](@ref)`.model.dynamics`; common drum parameters
-(`gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
-`inertia_total`) stay on the `Winch`. New models = new struct + a few methods; see
-[`TorqueWinch`](@ref).
+The model is a winch row's `model.dynamics` ([`WinchModel`](@ref)); the common drum
+parameters (`gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
+`inertia_total`) are the row's and its `WinchModel`'s. New models = new struct + a few
+methods; see [`TorqueWinch`](@ref).
 """
 abstract type AbstractWinchModel end
 
-"""
-    Winch{W}
-
-A set of tethers (or a single tether) connected to a winch mechanism: a KiteGeometry
-`winches` row whose model is a [`WinchModel`](@ref) with motor dynamics `W`, reached as
-`winch.model.dynamics`.
-
-The winch has no length field of its own: its length is the mean of its tethers'
-unstretched lengths (`winch.len ~ mean(tether.len for tether in tethers)`) and
-`D(tether.len) ~ winch_vel`. To set the initial reeled length, set the initial
-unstretched `len` of each connected tether (see [`Tether`](@ref) "Initial
-length"); `brake > 0.5` then freezes it, and `speed_controlled` prescribes the
-reel-out velocity through the run's `winch.vel` instead of integrating the dynamics.
-"""
-const Winch{W} = KiteGeometry.Winch{WinchModel{W}}
-
-
-"""
-    Winch(name, set, tethers; winch_point, ...)
-
-Constructs a `Winch` object that controls tether length through
-torque or speed regulation, its drum parameters from `set`.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the winch.
-- `set::Settings`: Settings object for winch parameters.
-- `tethers::Vector`: References to tethers connected to this
-  winch (names or indices).
-
-# Keyword Arguments
-- `winch_point`: Reference to the ground attachment point
-  (name or index). Required.
-- `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
-- `brake=0.0`: Brake input in [0, 1]. `> 0.5` engages a hard
-  freeze on `winch_vel` and `tether_len` at the outer integrator.
-- `speed_controlled::Bool=false`: If true, prescribe reel-out
-  velocity via `winch.vel` instead of integrating motor dynamics;
-  winch acceleration is forced to 0, ignoring `model`.
-- `friction_epsilon`: Coulomb-friction smoothing width of the default
-  `model`, the [`TorqueWinch`](@ref) default when not given (ignored when
-  `model` is passed).
-- `model::AbstractWinchModel=TorqueWinch()`: Winch motor dynamics
-  model. See [`AbstractWinchModel`](@ref) for plugging in your own.
-"""
-Winch(name, set::Settings, tethers; kwargs...) =
-    Winch(name, tethers, set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
-          set.inertia_total; kwargs...)
-
-"""
-    Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction,
-          viscous_coefficient, inertia_total; winch_point, ...)
-
-Constructs a `Winch` by directly providing physical parameters.
-
-# Arguments
-- `name::Symbol`: Name/identifier for the winch.
-- `tethers::Vector`: References to tethers (names or indices).
-- `gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
-  `inertia_total`: Physical parameters.
-
-# Keyword Arguments
-As the `Settings` method.
-"""
-function Winch(name, tethers, gear_ratio, drum_radius,
-               coulomb_friction, viscous_coefficient, inertia_total;
-               winch_point,
-               init_vel=0.0, brake=0.0, speed_controlled=false,
-               friction_epsilon=nothing,
-               model::AbstractWinchModel=torque_winch(friction_epsilon))
-    winch_model = WinchModel(; init_vel, brake, speed_controlled,
-        friction_epsilon=winch_friction_epsilon(model), coulomb_friction,
-        viscous_coefficient, inertia_total, dynamics=model)
-    return KiteGeometry.Winch(; name=Symbol(name),
-        tethers=Vector{NameRef}(cell_ref.(tethers)), winch_point=cell_ref(winch_point),
-        gear_ratio, drum_radius, model=winch_model)
-end
-
-"""The friction smoothing width of winch dynamics `model`, `nothing` for one without."""
-winch_friction_epsilon(model) =
-    hasproperty(model, :friction_epsilon) ? model.friction_epsilon : nothing

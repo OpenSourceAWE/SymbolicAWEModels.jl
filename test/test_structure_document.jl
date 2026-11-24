@@ -16,6 +16,7 @@ using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KiteGeometry
 using KiteUtils
+using LinearAlgebra
 using VortexStepMethod
 using JSON
 using JSONSchema
@@ -41,30 +42,41 @@ linked by one Timoshenko tube and one elastic tube, with a segment between two
 body-anchored points.
 """
 function bodies_and_tubes(set)
+    # The hub's own mass sits 0.01 m along its x axis from its frame's origin at 2 m.
+    hub_com_offset_b = [0.01, 0.0, 0.0]
     bodies = Body[
-        Body(:root; extra_mass=1.0, inertia_principal=[0.01, 0.01, 0.01],
-             pos=[0.0, 0.0, 0.0], type=STATIC),
-        Body(:tip; extra_mass=1.0, inertia_principal=[0.01, 0.01, 0.01],
-             pos=[1.0, 0.0, 0.0]),
-        Body(:hub; extra_mass=0.5, inertia_principal=[0.02, 0.03, 0.04],
-             pos=[2.0, 0.0, 0.0], com_offset_b=[0.01, 0.0, 0.0])]
+        Body(; name=:root, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+             extra_inertia_KA=Matrix(Diagonal([0.01, 0.01, 0.01])), fixed=true),
+        Body(; name=:tip, pos_ENU=[1.0, 0.0, 0.0], extra_mass=1.0,
+             extra_inertia_KA=Matrix(Diagonal([0.01, 0.01, 0.01]))),
+        Body(; name=:hub, pos_ENU=[2.0, 0.0, 0.0] + hub_com_offset_b, extra_mass=0.5,
+             extra_inertia_KA=Matrix(Diagonal([0.02, 0.03, 0.04])),
+             model=BodyModel(; com_offset_b=hub_com_offset_b))]
     points = Point[
-        Point(:tip_anchor, [1.0, 0.0, 0.0], BODY_STATIC; body=:tip),
-        Point(:hub_anchor, [2.0, 0.0, 0.0], BODY_STATIC; body=:hub)]
+        Point(; name=:tip_anchor, pos_ENU=[1.0, 0.0, 0.0], body=:tip),
+        Point(; name=:hub_anchor, pos_ENU=[2.0, 0.0, 0.0], body=:hub)]
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
     segments = Segment[
-        Segment(:link, :tip_anchor, :hub_anchor, 1000.0, 10.0, 0.004;
-                rest_length=1.0, density=724.0)]
+        KiteGeometry.line_segment(:link, (:tip_anchor, :hub_anchor), set, materials;
+            rest_length=1.0, diameter=0.004, unit_stiffness=1000.0, density=724.0,
+            model=SegmentSpring(; unit_damping=10.0, compression_frac=0.1,
+                                compression_damping_frac=1.0))]
+    push!(materials.rows, Material(; name=:breukels2011, law="breukels2011",
+        parameters=KiteGeometry.tube_law_parameters(:breukels2011)))
+    # A tube's anchors are from each body's own mass centre: the hub's lies 0.01 m along x.
     tubes = Tube[
-        Tube(:beam, :root, :tip; diameter=0.12, pressure=3.0e4,
-             model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0,
-                                  EIz=100.0, shear_coeff=0.8333, damping=0.05)),
-        Tube(:spring, :tip, :hub; diameter=0.1, pressure=3.0e4,
-             anchor_a=[0.1, 0.0, 0.0], anchor_b=[-0.1, 0.0, 0.0],
-             model=ElasticTube(stiffness_axial=1.2e5, stiffness_shear=4.0e4,
-                               stiffness_torsion=900.0, stiffness_bending=1500.0,
-                               damping=0.002))]
+        Tube(; name=:beam, bodies=(:root, :tip), diameter=0.12, pressure=3.0e4,
+             material=:breukels2011,
+             model=TimoshenkoTubeModel(; EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0,
+                                       EIz=100.0, shear_coeff=0.8333, damping=0.05)),
+        Tube(; name=:spring, bodies=(:tip, :hub), diameter=0.1, pressure=3.0e4,
+             material=:breukels2011,
+             model=ElasticTubeModel(; stiffness_axial=1.2e5, stiffness_shear=4.0e4,
+                                    stiffness_torsion=900.0, stiffness_bending=1500.0,
+                                    damping=0.002, anchor_a=[0.1, 0.0, 0.0],
+                                    anchor_b=[-0.1, 0.0, 0.0] - hub_com_offset_b))]
     return system_definition("structure_document_bodies", set; points, segments,
-        bodies, tubes)
+        materials, bodies, tubes)
 end
 
 """
@@ -74,11 +86,17 @@ A ground point and a top point on one two-segment tether whose rest length is 99
 its length, reeled by `winches`.
 """
 function pretensioned_tether(set; winches=Winch[])
-    points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
-                   Point(:top, [0.0, 0.0, 10.0], DYNAMIC; extra_mass=1.0)]
-    tethers = Tether[Tether(:line, 10.0; start_point=:ground, end_point=:top,
-                            n_segments=2, stretch_frac=0.99)]
-    return system_definition("structure_document_tether", set; points, tethers, winches)
+    points = Point[Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+                   Point(; name=:top, pos_ENU=[0.0, 0.0, 10.0], extra_mass=1.0)]
+    segments = Segment[]
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+    tethers = Tether[KiteGeometry.expand_tether!(points, segments,
+        fill(nothing, length(points)), :line, :ground, :top, 2, set, materials;
+        init=(; init_stretched_length=10.0, init_stretch_frac=0.99),
+        model=KiteGeometry.NoModel(),
+        segment_model=SegmentSpring(; compression_frac=0.1, compression_damping_frac=1.0))]
+    return system_definition("structure_document_tether", set; points, segments,
+                             materials, tethers, winches)
 end
 
 """World position of `body`'s centre of mass."""
@@ -202,7 +220,8 @@ end
     @testset "a winch is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)),
             pretensioned_tether(set;
-                                winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
+                                winches=[Winch(; name=:reel, tethers=[:line],
+                                               winch_point=:ground)]))
         winch = only(sys.winches)
         row = sys.winches[1]
         winch.brake = 1.0
@@ -216,17 +235,14 @@ end
 
     @testset "a winch read back keeps its row's drum over the settings'" begin
         sys = pretensioned_tether(set;
-                                  winches=[Winch(:reel, set, [:line]; winch_point=:ground)])
+                                  winches=[Winch(; name=:reel, tethers=[:line],
+                                                 winch_point=:ground)])
         winch = only(sys.winches)
         winch.gear_ratio = 2 * set.gear_ratio
         winch.drum_radius = 2 * set.drum_radius
         reread = sys_struct_from_document(structure_document(sys))
         @test (only(reread.winches).gear_ratio, only(reread.winches).drum_radius) ==
               (2 * set.gear_ratio, 2 * set.drum_radius)
-    end
-
-    @testset "a segment named by a number keeps that name as its row's" begin
-        @test Segment(3, :ground, :top, 1.0, 0.0, 0.001).name === Symbol(3)
     end
 
     @testset "a station names the wing whose twist it carries" begin
@@ -314,11 +330,14 @@ end
     end
 
     @testset "a nonlinear stiffness law cannot be written yet" begin
-        points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
-                       Point(:top, [0.0, 0.0, 1.0], DYNAMIC; extra_mass=1.0)]
-        segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
-                                   10.0, 0.004; rest_length=1.0, density=724.0)]
-        sys = system_definition("nonlinear_link", set; points, segments)
+        points = Point[Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+                       Point(; name=:top, pos_ENU=[0.0, 0.0, 1.0], extra_mass=1.0)]
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+        segments = Segment[KiteGeometry.line_segment(:link, (:ground, :top), set, materials;
+            rest_length=1.0, diameter=0.004, unit_stiffness=strain -> 1000.0 * strain,
+            density=724.0, model=SegmentSpring(; unit_damping=10.0, compression_frac=0.1,
+                                               compression_damping_frac=1.0))]
+        sys = system_definition("nonlinear_link", set; points, segments, materials)
         @test_throws "awesIO#1" save_structure_document(
             joinpath(tmpdir, "nonlinear.yml"), sys)
     end

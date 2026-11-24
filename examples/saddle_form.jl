@@ -19,7 +19,7 @@ import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
 using LinearAlgebra
 using YAML
 
-function load_saddle(yaml_file;
+function load_saddle(yaml_file, set, materials;
                      unit_stiffness, unit_damping, diameter,
                      rest_length, world_frame_damping,
                      compression_frac)
@@ -33,22 +33,22 @@ function load_saddle(yaml_file;
                Float64(n["z"])]
         is_fixed = get(n, "fixed", false)
         mass = Float64(get(n, "mass", 1))
-        type = is_fixed ? STATIC : DYNAMIC
-        kw = is_fixed ? (; extra_mass=mass) :
-            (; extra_mass=mass,
-               world_frame_damping=world_frame_damping)
-        push!(points, Point(i, pos, type; kw...))
+        kw = is_fixed ? (; fixed=true) :
+            (; model=PointModel(; world_frame_damping))
+        push!(points, Point(; name=Symbol(i), pos_ENU=pos,
+                            extra_mass=mass, kw...))
     end
 
-    segments = Segment[]
+    segments = KiteGeometry.Segment[]
     for (sid, c) in enumerate(data["connections"])
         pi_idx = Int(c["i"]); pj_idx = Int(c["j"])
         if !one_based
             pi_idx += 1; pj_idx += 1
         end
-        push!(segments, Segment(sid, pi_idx, pj_idx,
-            unit_stiffness, unit_damping, diameter;
-            rest_length=rest_length, compression_frac))
+        push!(segments, KiteGeometry.line_segment(
+            Symbol(sid), (pi_idx, pj_idx), set, materials;
+            rest_length, diameter, unit_stiffness,
+            model=SegmentSpring(; unit_damping, compression_frac)))
     end
 
     return points, segments
@@ -64,14 +64,16 @@ function run_saddle(; yaml_file)
     set.l_tether = 10
     n_steps = 100
 
-    points, segments = load_saddle(yaml_file;
+    materials = KiteGeometry.MaterialTable(
+        KiteGeometry.Material[], Dict{String, Any}())
+    points, segments = load_saddle(yaml_file, set, materials;
         unit_stiffness=24.0, unit_damping=1.0,
         diameter=0.002, rest_length=0.01,
         world_frame_damping=1.0,
         compression_frac=1.0)
 
     sys = system_definition("saddle_form", set;
-                          points, segments)
+                          points, segments, materials)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake=false)
 

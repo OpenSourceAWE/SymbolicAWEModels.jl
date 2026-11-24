@@ -42,9 +42,9 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - **Pulley**s — equal-tension constraints between segments
 - **Wing**s — rigid-body or particle dynamics with aerodynamic forces from
   the [Vortex Step Method](https://github.com/OpenSourceAWE/VortexStepMethod.jl)
-- **TwistSurface**s — twist degrees of freedom for aeroelastic coupling
-- **Bodies** — plain rigid bodies, linked by **ElasticJoint**s or
-  **TimoshenkoJoint** beam elements
+- **Spanwise stations** — twist degrees of freedom for aeroelastic coupling
+- **Bodies** — plain rigid bodies, linked by inflated **Tube**s simulated as elastic
+  links or Timoshenko beam elements
 - **Transform**s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from
@@ -81,7 +81,7 @@ pkg"add MakieControlPlots"
 
 ```julia
 using SymbolicAWEModels
-using SymbolicAWEModels: Point
+using SymbolicAWEModels: Point, KiteGeometry
 using GLMakie, MakieControlPlots
 using KiteUtils: init!, next_step!
 SymbolicAWEModels.copy_data()
@@ -90,16 +90,17 @@ set_data_path("data/base")
 set = Settings("system.yaml")
 set.v_wind = 0.0
 
-# Define components using symbolic names
+# Define components as KiteGeometry rows using symbolic names
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:anchor, [0, 0, 0], STATIC),
-    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
+    Point(; name=:anchor, pos_ENU=[0, 0, 0], fixed=true),
+    Point(; name=:mass, pos_ENU=[0, 0, -50], extra_mass=1.0),
 ]
-segments = [Segment(:spring, :anchor, :mass,
-    614600.0, 473.0, 0.004)]
+segments = [KiteGeometry.line_segment(:spring, (:anchor, :mass), set, materials;
+    diameter=0.004, unit_stiffness=614600.0, model=SegmentSpring(; unit_damping=473.0))]
 
 # Assemble, place by a KiteGeometry transform (indices into the points), and compile
-sys = system_definition("pendulum", set; points, segments)
+sys = system_definition("pendulum", set; points, segments, materials)
 transforms = [Transform(; name=:tf, elevation=deg2rad(-70), azimuth=0.0, heading=0.0,
     base_pos=[0, 0, 50], base_point=1, rot_point=[2 => 1.0], points=[1, 2])]
 place!(sys, transforms)
