@@ -414,7 +414,7 @@ system:
         @test len_left ≈ len_right atol=0.001  # Equal lengths = equal tensions
 
         println("\n  ====== Analytical equilibrium: z_expected=$(round(initial_z, digits=3))m, z_measured=$(round(final_z, digits=3))m")
-        println("  ====== Leg lengths: left=$(round(len_left, digits=3))m, right=$(round(len_right, digits=3))m, l0=$(round(l0_left_expected, digits=3))m ======\n")
+        println("  ====== Leg lengths: left=$(round(len_left, digits=3))m, right=$(round(len_right, digits=3))m, rest_length=$(round(l0_left_expected, digits=3))m ======\n")
     end
 
     # ========================================================================

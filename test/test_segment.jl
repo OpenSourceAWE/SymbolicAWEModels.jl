@@ -50,7 +50,7 @@ points:
 segments:
   headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    # unit_stiffness=1000, l0=10 -> k=100 N/m; unit_damping=10, l0=10 -> c=1 N·s/m
+    # unit_stiffness=1000, rest_length=10 -> k=100 N/m; unit_damping=10 -> c=1 N·s/m
     - [test_segment, anchor, mass_point, 10.0, 5.0, 1000.0, 10.0, 0.1]
 """
 
