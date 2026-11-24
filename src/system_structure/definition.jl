@@ -14,7 +14,8 @@ function definition_rows(sys)
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
         points=collect(sys.points),
         segments=collect(sys.segments),
-        spanwise_stations=[station_row(sys, station) for station in sys.spanwise_stations],
+        spanwise_stations=[station_row(sys, i, station)
+                           for (i, station) in enumerate(sys.spanwise_stations)],
         pulleys=collect(sys.pulleys),
         tethers=collect(sys.tethers), winches=collect(sys.winches),
         wings=[wing_row(sys, wing) for wing in sys.wings],
@@ -37,17 +38,17 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
-"""`station` with the wing whose twist it carries."""
-function station_row(sys, station)
-    station.wing = station_wing_idx(sys, station)
+"""`station`, the `i`-th, with the wing whose twist it carries."""
+function station_row(sys, i, station)
+    station.wing = station_wing_idx(sys, i, station)
     return station
 end
 
-"""The wing whose twist `station` carries: its own, else the one listing it, refusing a
-station on no wing."""
-function station_wing_idx(sys, station)
+"""The wing whose twist `station`, the `i`-th, carries: its own, else the one listing it,
+refusing a station on no wing."""
+function station_wing_idx(sys, i, station)
     station.wing isa Int && station.wing in eachindex(sys.wings) && return station.wing
-    idx = findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
+    idx = findfirst(wing -> i in wing.station_idxs, sys.wings)
     isnothing(idx) && error("Station $(station.name) is on no wing: a spanwise station " *
                             "is part of a wing.")
     return idx

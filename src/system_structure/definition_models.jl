@@ -91,38 +91,19 @@ $(TYPEDFIELDS)
     flap_points::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
     "Unit flap-hinge axis."
     flap_axis::Union{Nothing, Vector{Float64}} = nothing
-    "Index in the structure's stations."
-    idx::Int64 = 0
-    "Leading edge position, body frame [m]."
-    le_pos::KVec3 = zeros(KVec3)
-    "Chord vector, body frame [m]."
-    chord::KVec3 = zeros(KVec3)
-    "Spanwise vector, local panel frame."
-    y_airf::KVec3 = zeros(KVec3)
+    "Chord vector of a flat-plate section, its wing's frame [m]."
+    chord::Union{Nothing, Vector{Float64}} = nothing
+    "Spanwise vector of a flat-plate section, its local panel frame."
+    y_airf::Union{Nothing, Vector{Float64}} = nothing
+    "Surface area of a flat-plate section [m²]."
+    area::Union{Nothing, Float64} = nothing
     "Twist angle a run starts from, held for a `STATIC` station [rad]."
-    twist::SimFloat = 0.0
-    "Indices of the unrefined VSM sections of the station."
-    unrefined_section_idxs::Vector{Int64} = Int64[]
-    "Indices of the VSM panels whose twist moment the station takes."
-    panel_idxs::Vector{Int64} = Int64[]
-    "Share of its wing's mass on no point, by the area of its panels [kg]."
-    body_mass::SimFloat = 0.0
-    "Surface area of a flat-plate section [m²]; `NaN` unused."
-    area::SimFloat = NaN
-    "Reference chord directions `[main, flap]` of a flap, each body's frame."
-    flap_chord_refs::Vector{KVec3} = KVec3[]
-    "Deflection of the flap in its initial pose [rad]."
-    flap_rest_delta::SimFloat = 0.0
+    twist::Union{Nothing, Float64} = nothing
+    "Reference chord directions `[main, flap]` of a body flap, each body's frame."
+    flap_chord_refs::Union{Nothing, Vector{Vector{Float64}}} = nothing
 end
 
-StationModel(type, moment_frac, damping, stiffness, bodies, flap_bodies, flap_points,
-             flap_axis) =
-    StationModel(; type, moment_frac, damping, stiffness, bodies, flap_bodies,
-                 flap_points, flap_axis)
-
-KiteGeometry.model_columns(::Type{StationModel}) =
-    (:type, :moment_frac, :damping, :stiffness, :bodies, :flap_bodies, :flap_points,
-     :flap_axis)
+KiteGeometry.model_columns(::Type{StationModel}) = fieldnames(StationModel)
 
 """
     WingModel
@@ -353,7 +334,8 @@ function register_definition_models()
     register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
     register_model!(:spanwise_stations, "sam_station", StationModel,
-                    ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-");
+                    ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-", "m", "-", "m^2",
+                     "rad", "-");
                     default=true)
     register_model!(:wings, "sam_wing", WingModel,
                     ("-", "1/s", "-", "m", "-", "-", "-", "-", "-", "m", "m", "m^2", "-",

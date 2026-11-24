@@ -19,7 +19,7 @@ and its point count. Errors loudly on an inconsistent combination:
   membership marker.
 """
 function validate_station_modes(stations, bodies)
-    for station in stations
+    for (idx, station) in enumerate(stations)
         if station_type(station) == KINEMATIC
             # KINEMATIC surfaces are derived (no twist DOF, no owning-body couple);
             # a flap variant needs its owning wing and an ordered [main, flap] pair.
@@ -28,7 +28,7 @@ function validate_station_modes(stations, bodies)
                 "bodies [main, flap], got $(length(station.flap_bodies)).")
             continue
         end
-        owners = [body for body in bodies if station.idx in body.station_idxs]
+        owners = [body for body in bodies if idx in body.station_idxs]
         length(owners) == 1 || error(
             "Station $(station.name) is in $(length(owners)) bodies; must be in exactly 1.")
         wing = owners[1]

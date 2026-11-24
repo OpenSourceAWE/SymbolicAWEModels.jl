@@ -109,6 +109,8 @@ SymbolicAWEModels.segment_pulleys
 SymbolicAWEModels.run_value
 SymbolicAWEModels.set_run_value!
 SymbolicAWEModels.segment_rest_length
+SymbolicAWEModels.StationGeometry
+SymbolicAWEModels.geometry
 SymbolicAWEModels.station_aero_moment
 SymbolicAWEModels.run_station_aero_moment
 SymbolicAWEModels.station_aero_moment_reader

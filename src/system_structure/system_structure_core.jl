@@ -216,7 +216,7 @@ function assign_indices_and_resolve!(
     wings::AbstractVector{<:Body}
 )
     # First pass: assign indices based on position.
-    for components in (points, stations, pulleys, tethers, winches, wings),
+    for components in (points, pulleys, tethers, winches, wings),
             (i, component) in enumerate(components)
         component.idx = i
     end

@@ -99,7 +99,7 @@ using LinearAlgebra
             if p.is_wing_node &&
                p.wing_idx == wing.idx]
 
-        for station in sys.spanwise_stations
+        for station in state.spanwise_stations
             # Find LE and TE points in this station
             le_pt = nothing
             te_pt = nothing

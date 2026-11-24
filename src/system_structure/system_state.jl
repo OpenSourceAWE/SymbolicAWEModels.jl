@@ -65,6 +65,39 @@ take from the state is the row's.
 abstract type ComponentState end
 
 """
+    StationGeometry
+
+What a run works out of a station's geometry: where its section sits against its wing's
+VSM panels, and its flap at rest.
+
+$(TYPEDFIELDS)
+"""
+@kwdef mutable struct StationGeometry
+    "Leading edge position, body frame [m]."
+    le_pos::KVec3 = zeros(KVec3)
+    "Chord vector, body frame [m]."
+    chord::KVec3 = zeros(KVec3)
+    "Spanwise vector, local panel frame."
+    y_airf::KVec3 = zeros(KVec3)
+    "Indices of the unrefined VSM sections of the station."
+    unrefined_section_idxs::Vector{Int64} = Int64[]
+    "Indices of the VSM panels whose twist moment the station takes."
+    panel_idxs::Vector{Int64} = Int64[]
+    "Share of its wing's mass on no point, by the area of its panels [kg]."
+    body_mass::SimFloat = 0.0
+    "Reference chord directions `[main, flap]` of a flap, each body's frame."
+    flap_chord_refs::Vector{KVec3} = KVec3[]
+    "Deflection of the flap in its initial pose [rad]."
+    flap_rest_delta::SimFloat = 0.0
+end
+
+"""The geometry of station `row` a run starts from: the chord and flap references it
+gives, the rest zero until the run works them out."""
+StationGeometry(row) = StationGeometry(; chord=KVec3(something(row.chord, zeros(3))),
+    y_airf=KVec3(something(row.y_airf, zeros(3))),
+    flap_chord_refs=KVec3.(something(row.flap_chord_refs, KVec3[])))
+
+"""
     SystemState{SS, ST}
 
 What a run holds of a `SystemDefinition`. Its state is a KiteUtils `SysState` of
@@ -95,6 +128,8 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const rows::R
     "the tubes as this run simulates them"
     const tubes::Rows{Tube}
+    "what the run works out of each station's geometry"
+    const station_geometry::Vector{StationGeometry}
     "each body's aero mode, with the model's VSM engine where it has one"
     const aero::Vector{AbstractAeroModel}
     "the records of the bodies, built once: a body's type is its row's, which differs
@@ -160,7 +195,8 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         segment_pulleys(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
-                        run_tubes(sys), modes,
+                        run_tubes(sys),
+                        [StationGeometry(row) for row in sys.spanwise_stations], modes,
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,
                         isnothing(set) ? nothing : AtmosphericModel(set), wind_mode,
@@ -517,7 +553,8 @@ end
 @state_record StationState """
     StationState
 
-A station of a run's state: its twist and the moments on it.
+A station of a run's state: its twist, the moments on it, and its geometry as the run
+works it out.
 """ begin
     twist => (sysstate(r).twist_angles[index(r)],
               sysstate(r).twist_angles[index(r)] = value)
@@ -534,7 +571,20 @@ A station of a run's state: its twist and the moments on it.
     flap_axis => (run_value(r, :flap_axis,
                             something(r.row.flap_axis, SVector(0.0, 1.0, 0.0))),
                   set_run_value!(r, :flap_axis, value))
+    area => (something(r.row.area, NaN), derived(:area))
+    le_pos => (geometry(r).le_pos, geometry(r).le_pos = value)
+    chord => (geometry(r).chord, geometry(r).chord = value)
+    y_airf => (geometry(r).y_airf, geometry(r).y_airf = value)
+    unrefined_section_idxs => (geometry(r).unrefined_section_idxs,
+                               geometry(r).unrefined_section_idxs = value)
+    panel_idxs => (geometry(r).panel_idxs, geometry(r).panel_idxs = value)
+    body_mass => (geometry(r).body_mass, geometry(r).body_mass = value)
+    flap_chord_refs => (geometry(r).flap_chord_refs, geometry(r).flap_chord_refs = value)
+    flap_rest_delta => (geometry(r).flap_rest_delta, geometry(r).flap_rest_delta = value)
 end
+
+"""The [`StationGeometry`](@ref) of station record `r`."""
+geometry(r) = getfield(run_state(r), :station_geometry)[index(r)]
 
 @state_record SegmentState """
     SegmentState

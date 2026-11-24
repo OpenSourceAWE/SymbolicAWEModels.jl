@@ -38,13 +38,14 @@ vsm_set = VortexStepMethod.VSMSettings(
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
         set, dynamics_type=RIGID_DYNAMICS)
-    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+    wing, stations = state.wings[1], state.spanwise_stations
     vsm_w = wing.vsm_wing
 
     # Baseline: 3 stations, 3 unrefined sections (1:1)
-    @test length(sys.spanwise_stations) == 3
+    @test length(stations) == 3
     @test vsm_w.n_unrefined_sections == 3
-    for station in sys.spanwise_stations
+    for station in stations
         @test length(station.unrefined_section_idxs) == 1
     end
 
@@ -52,31 +53,31 @@ vsm_set = VortexStepMethod.VSMSettings(
     # 1e-9 relative going outboard, so the mirror-symmetric kite gives its left and right
     # stations the same number of panels.
     n_panels = length(wing.vsm_aero.panels)
-    owned = reduce(vcat, [station.panel_idxs for station in sys.spanwise_stations])
+    owned = reduce(vcat, [station.panel_idxs for station in stations])
     @test sort(owned) == collect(1:n_panels)
     station_center(station) =
         sum(SymbolicAWEModels.initial_body_position(wing, sys.points[i])
             for i in station.points) / length(station.points)
     offset = [0.0, 0.0, wing.aero_z_offset]
-    for station in sys.spanwise_stations, panel_idx in station.panel_idxs
+    for station in stations, panel_idx in station.panel_idxs
         corners = wing.vsm_aero.panels[panel_idx].corner_points
         center = vec(sum(corners; dims=2)) / 4 - offset
         distance(other) = norm(center - station_center(other))
         @test all(distance(station) <= distance(other) * (1 + 1e-9)
-                  for other in sys.spanwise_stations)
+                  for other in stations)
     end
-    @test length(sys.spanwise_stations[:left].panel_idxs) ==
-          length(sys.spanwise_stations[:right].panel_idxs)
+    @test length(stations[:left].panel_idxs) ==
+          length(stations[:right].panel_idxs)
 
     # The wing mass sits on its points, so no station takes a share of it. Given to
     # the wing body as its own mass, it is shared by panel area: all of it, the same
     # left and right.
-    @test all(station.body_mass == 0 for station in sys.spanwise_stations)
+    @test all(station.body_mass == 0 for station in stations)
     wing.extra_mass = 1.6
-    compute_spatial_station_mapping!(wing, sys.spanwise_stations, sys.points)
-    @test sum(station.body_mass for station in sys.spanwise_stations) ≈ wing.extra_mass
-    @test sys.spanwise_stations[:left].body_mass ≈ sys.spanwise_stations[:right].body_mass
-    @test sys.spanwise_stations[:center].body_mass > 0
+    compute_spatial_station_mapping!(wing, stations, sys.points)
+    @test sum(station.body_mass for station in stations) ≈ wing.extra_mass
+    @test stations[:left].body_mass ≈ stations[:right].body_mass
+    @test stations[:center].body_mass > 0
 
     # Inject a 4th unrefined section by duplicating an
     # existing one. Now n_stations (3) < n_unrefined (4).
@@ -88,7 +89,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     # match_aero_sections_to_structure! should NOT
     # collapse aero back to 3 sections in this case
     match_aero_sections_to_structure!(
-        wing, sys.points; stations=sys.spanwise_stations)
+        wing, sys.points; stations=stations)
     @test vsm_w.n_unrefined_sections == 4
     @test length(vsm_w.unrefined_sections) == 4
     @test !isnothing(wing.wing_segments)
@@ -97,15 +98,15 @@ vsm_set = VortexStepMethod.VSMSettings(
     # Re-run partition: every section assigned, no
     # overlaps, every station claims ≥ 1 section.
     compute_spatial_station_mapping!(
-        wing, sys.spanwise_stations, sys.points)
+        wing, stations, sys.points)
     assigned = Int64[]
-    for station in sys.spanwise_stations
+    for station in stations
         @test !isempty(station.unrefined_section_idxs)
         append!(assigned, station.unrefined_section_idxs)
     end
     @test sort(assigned) == [1, 2, 3, 4]
     @test length(unique(assigned)) == 4
-    @test sort(reduce(vcat, [station.panel_idxs for station in sys.spanwise_stations])) ==
+    @test sort(reduce(vcat, [station.panel_idxs for station in stations])) ==
         collect(1:length(wing.vsm_aero.panels))
 
     # Wing aero arrays sized by n_stations, not n_unrefined.
@@ -157,7 +158,8 @@ end
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_stations",
         set, dynamics_type=RIGID_DYNAMICS)
-    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+    wing, stations = state.wings[1], state.spanwise_stations
     vsm_w = wing.vsm_wing
 
     # Drop down to 2 unrefined sections while keeping
@@ -166,6 +168,6 @@ end
     vsm_w.n_unrefined_sections = Int16(2)
 
     @test_throws ErrorException compute_spatial_station_mapping!(
-        wing, sys.spanwise_stations, sys.points)
+        wing, stations, sys.points)
 end
 nothing

@@ -30,7 +30,6 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
     mkstation(name, npoints, type) = begin
         g = Station(name, collect(1:npoints), type, 0.25)
-        g.idx = 1
         g.points = collect(1:npoints)
         g
     end

@@ -95,6 +95,17 @@ function hermite_point_w(sam, tube, point)
     return x_center .+ element_frame * point.beam_offset_b
 end
 
+"""A station of a run as its flap geometry reads and writes it: its flap columns, the wing
+it is on, and the flap at rest the run works out."""
+Base.@kwdef mutable struct FlapStation
+    flap_bodies = nothing
+    flap_points = nothing
+    flap_axis = KVec3(0.0, 1.0, 0.0)
+    flap_chord_refs = KVec3[]
+    flap_rest_delta = 0.0
+    wing = 1
+end
+
 @testset "Flap δ + beam-anchored point" begin
 
     @testset "flap δ extraction (Julia ground truth)" begin
@@ -105,9 +116,7 @@ end
             flap = Body(:flap; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                         pos=[1.0, 0, 0])
             bodies = [main, flap]
-            ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
-                wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
-            ts.flap_bodies = [1, 2]
+            ts = FlapStation(; flap_bodies=[1, 2])
             S.init_station_flap!(ts, (; bodies))
             @test ts.flap_rest_delta ≈ 0.0 atol=1e-12
             @test ts.flap_chord_refs == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
@@ -122,9 +131,7 @@ end
         flap = Body(:flap; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                     pos=[1.0, 0, 0], Q_b_to_w=quat_y(phi0))
         bodies = [main, flap]
-        ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
-            wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
-        ts.flap_bodies = [1, 2]
+        ts = FlapStation(; flap_bodies=[1, 2])
         S.init_station_flap!(ts, (; bodies))
         @test ts.flap_rest_delta ≈ phi0 atol=1e-10
         R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA2ENU)

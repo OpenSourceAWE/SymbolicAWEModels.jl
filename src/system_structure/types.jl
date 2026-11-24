@@ -444,8 +444,6 @@ using the closest VSM panel to the station's mean point position.
   owning wing's for a point flap.
 - `flap_chord_refs=[]`: Reference chord directions `[main, flap]`; auto-derived
   (each body's x-axis) at build when omitted.
-- `flap_rest_delta=0.0`: Rest deflection [rad]; auto-captured at build so the
-  as-placed pose is δ=0. Internal — not a YAML field (YAML angles are degrees).
 
 # Returns
 - `Station`: A new `Station` object. The `idx` and `point_idxs` are resolved when its
@@ -458,8 +456,7 @@ function Station(name, points, type::DynamicsType, moment_frac;
                       area=NaN, twist=0.0,
                       wing=0, bodies=NameRef[], flap_bodies=NameRef[],
                       flap_points=NameRef[],
-                      flap_axis=[0.0, 1.0, 0.0], flap_chord_refs=KVec3[],
-                      flap_rest_delta=0.0)
+                      flap_axis=[0.0, 1.0, 0.0], flap_chord_refs=KVec3[])
     isempty(flap_points) || length(flap_points) == 3 || error(
         "Station $name: flap_points needs exactly three references " *
         "[fore, hinge, aft]; got $(length(flap_points)).")
@@ -467,8 +464,10 @@ function Station(name, points, type::DynamicsType, moment_frac;
         bodies=references_column(bodies), flap_bodies=references_column(flap_bodies),
         flap_points=references_column(flap_points),
         flap_axis=Vector{Float64}(flap_axis),
-        chord=KVec3(something(x_airf, zeros(3))), y_airf=KVec3(something(y_airf, zeros(3))),
-        twist, area, flap_chord_refs=Vector{KVec3}(flap_chord_refs), flap_rest_delta)
+        chord=maybe(Vector{Float64}, x_airf), y_airf=maybe(Vector{Float64}, y_airf),
+        twist, area=isnan(area) ? nothing : area,
+        flap_chord_refs=isempty(flap_chord_refs) ? nothing :
+            Vector{Float64}.(flap_chord_refs))
     return KiteGeometry.SpanwiseStation(; name=Symbol(name), wing=cell_ref(wing),
         points=NameRef[cell_ref(point) for point in points], model)
 end

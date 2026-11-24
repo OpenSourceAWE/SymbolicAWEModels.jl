@@ -166,8 +166,8 @@ end
 flap_angle(sam) = station_deltas(sam.state)[sam.state.spanwise_stations[:flap].idx]
 
 @testset "point flap geometry" begin
-    station = S.Station(:s, Symbol[], KINEMATIC, 0.0;
-                        flap_points=[1, 2, 3], flap_axis=[0.0, 1.0, 0.0])
+    station = (; flap_points=[1, 2, 3], flap_axis=S.KVec3(0.0, 1.0, 0.0),
+               flap_rest_delta=0.0)
     frame = Matrix{Float64}(LinearAlgebra.I, 3, 3)
     fore = [0.0, 0.0, 0.0]
     hinge = [0.5, 0.0, 0.0]
@@ -180,7 +180,7 @@ flap_angle(sam) = station_deltas(sam.state)[sam.state.spanwise_stations[:flap].i
     @test point_flap_delta_expression(station, fore, hinge,
         hinge .+ [0.5, 0.0, -0.05], frame) > 0
     # the rest angle is subtracted, so a cambered chord still reads zero at rest
-    station.flap_rest_delta = deg2rad(5.0)
+    station = (; station..., flap_rest_delta=deg2rad(5.0))
     @test point_flap_delta_expression(station, fore, hinge, aft_at(deg2rad(5.0)),
                                       frame) ≈ 0 atol=1e-12
     # a segment out of the airfoil plane is projected onto it, not refused

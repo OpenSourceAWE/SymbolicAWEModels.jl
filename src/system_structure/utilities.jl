@@ -372,7 +372,8 @@ points and bodies moving as the rates of its transforms say
 holds.
 """
 function start_run!(state; reset_vel::Bool=true)
-    foreach(station -> station.twist = station.row.twist, state.spanwise_stations)
+    foreach(station -> station.twist = something(station.row.twist, 0.0),
+            state.spanwise_stations)
     reset_to_initial_pose!(state; reset_vel)
     start_lengths!(state)
     fit_body_frames!(state.points, state.bodies)
