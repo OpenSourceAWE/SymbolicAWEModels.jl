@@ -97,7 +97,7 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - [`Tether`](@ref)s — collections of segments controlled by a winch
 - [`Winch`](@ref)es — torque-controlled motors with Coulomb and viscous friction
 - [`Pulley`](@ref)s — equal-tension constraints between segments
-- [`Wing`](@ref AbstractWing)s — rigid-body or particle dynamics with aerodynamic forces from the
+- Wings ([`WingModel`](@ref)) — rigid-body or particle dynamics with aerodynamic forces from the
   [Vortex Step Method](https://github.com/OpenSourceAWE/VortexStepMethod.jl)
 - [`Station`](@ref)s — twist degrees of freedom for aeroelastic coupling
 - [`Body`](@ref)s — plain rigid bodies, linked by inflated [`Tube`](@ref)s,

@@ -289,23 +289,25 @@ frozen state — a non-finite point force or traction pattern — are
 
 Each wing carries an `aero::AbstractAeroModel` field. The builder is selected by
 dispatch on **both** its type and the wing's dynamics, [`aero_component`](@ref)
-`(mode, wing::AbstractWing, sys_struct; name, params)`, returning a `System`
+`(mode, dynamics::WingDynamics, wing, sys_struct; name, params)`, returning a `System`
 exactly like a winch's [`Winch`](@ref) `model.dynamics`. The built-in subtypes
 [`AeroNone`](@ref), [`AeroDirect`](@ref), [`AeroLinearized`](@ref) ship their
 own methods. A mode supports a wing dynamics by defining the matching method,
-dispatched on [`RigidWing`](@ref) and/or [`ParticleWing`](@ref) — rigid,
+dispatched on [`RigidDynamics`](@ref) and/or [`ParticleDynamics`](@ref) — rigid,
 particle, or both. To plug in your own aerodynamics, subtype `AbstractAeroModel`
-and add a component builder (per dynamics you support) and a cache tag:
+and add a component builder (per dynamics you support) and a cache tag, then give
+the mode to the model under the wing's name:
 
 ```julia
 struct MyAero <: AbstractAeroModel end
 
-function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct; name, params)
+function SymbolicAWEModels.aero_component(::MyAero, ::SymbolicAWEModels.RigidDynamics,
+                                          wing, sys_struct; name, params)
     # ... build and return a System with the connectors below ...
 end
-SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
+SymbolicAWEModels.aero_mode_tag(::Type{MyAero}) = "myaero"
 
-Wing(name, stations, Q_KA2ENU, pos_ENU, inertia; aero = MyAero())
+sam = SymbolicAWEModel(set, sys_struct; aero = Dict(:kite => MyAero()))
 ```
 
 Everything else is an **optional hook with a working default**, dispatched on
@@ -337,7 +339,7 @@ There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode is never
 excluded from a code path it cannot extend.
 
 The returned `System`'s connectors are fixed by the wing's dynamics type
-([`RigidWing`](@ref)/[`ParticleWing`](@ref); all quantities in the wing **body
+([`RigidDynamics`](@ref)/[`ParticleDynamics`](@ref); all quantities in the wing **body
 frame**):
 
 - **`RIGID_DYNAMICS`** (`ng = length(wing.station_idxs)`):
@@ -374,7 +376,8 @@ mutable struct ConstantLiftAero <: AbstractAeroModel
 end
 
 function SymbolicAWEModels.aero_component(::ConstantLiftAero,
-                                          wing::RigidWing, sys_struct; name, params)
+                                          ::SymbolicAWEModels.RigidDynamics, wing,
+                                          sys_struct; name, params)
     CL = params.wings[wing.idx].aero.CL   # flat param, synced live each step
     # ... use CL in the force equation ...
 end
@@ -383,7 +386,7 @@ end
 Mutate the field between steps — no `remake`, picked up at the next sync:
 
 ```julia
-sam.sys_struct.wings[1].aero.CL = 0.8
+sam.state.wings[1].aero.CL = 0.8
 ```
 
 A numeric field becomes a scalar/array param; a **callable** field (an
@@ -477,8 +480,8 @@ The mapping enables:
   PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions including the
   `WingType` enum and `AbstractAeroModel` types
-- `src/system_structure/wing.jl`: Wing and VSMWing definitions,
-  station-to-section mapping
+- `src/system_structure/wing.jl`: `WeightedRefPoints` constructors, VSM engine
+  construction and VSM panel placement
 - `src/aero_modes/`: one file per aero mode (`none.jl`, `direct.jl`,
   `linearized.jl`, `continuous.jl`, `pressure.jl`, `plate.jl`), plus `common.jl`
   with the dispatch interface, the connector scaffolding and the shared VSM

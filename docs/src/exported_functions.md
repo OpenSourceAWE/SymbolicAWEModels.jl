@@ -37,7 +37,6 @@ by the models it registers with KiteGeometry.
 
 ```@docs
 load_sys_struct_from_yaml
-system_definition(::SystemDefinition, ::Settings)
 ```
 
 ## Structure documents

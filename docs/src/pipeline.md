@@ -18,7 +18,7 @@ This page explains each stage.
 │              │   │              │   │                  │   │              │
 │ Point()      │   │ resolve refs │   │ point_eqs!()     │   │ init!()      │
 │ Segment()    │   │ validate     │   │ segment_eqs!()   │   │ cache to .bin│
-│ Wing()       │   │ compute COM  │   │ wing_eqs!()      │   │              │
+│ Wing rows    │   │ compute COM  │   │ wing_eqs!()      │   │              │
 │ Winch()      │   │              │   │ winch_eqs!()     │   │              │
 │ ...          │   │              │   │ aero_eqs!()      │   │              │
 └──────────────┘   └──────────────┘   └──────────────────┘   └──────────────┘
@@ -48,12 +48,13 @@ Alternatively, components can be parsed from a YAML file using
 
 ## Stage 2: SystemDefinition assembly
 
-The `SystemDefinition` constructor takes the component vectors and:
+[`system_definition`](@ref) takes the component vectors and:
 
-1. **Assigns indices** — each component gets an `idx` based on its position in the
-   vector (1, 2, 3, ...)
-2. **Resolves references** — symbolic names like `:anchor` are mapped to indices via
-   `assign_indices_and_resolve!()`
+1. **Builds the rows** — the components become the rows of a KiteGeometry
+   `SystemDefinition`; a segment without a material is given the line of `set`
+2. **Completes and places the wings** — KiteGeometry's `complete_wings!` puts every
+   wing's body in its design pose and gives it `set.mass` where it carries none, and
+   KiteGeometry's `place!` places the whole
 3. **Computes derived properties**:
    - Segment `l0` from point positions (if zero)
    - Wing center of mass and inertia tensor — from the `.obj` mesh when one is
@@ -65,7 +66,6 @@ The `SystemDefinition` constructor takes the component vectors and:
 
 ```julia
 sys = system_definition("my_model", set; points, segments)
-# All references now resolved: segments[1].points == (1, 2)
 ```
 
 ## Stage 3: symbolic equation generation

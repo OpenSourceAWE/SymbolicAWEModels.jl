@@ -39,8 +39,6 @@ SymbolicAWEModels.PulleyState
 SymbolicAWEModels.TetherState
 SymbolicAWEModels.WinchState
 SymbolicAWEModels.BodyState
-SymbolicAWEModels.RigidWingState
-SymbolicAWEModels.ParticleWingState
 SymbolicAWEModels.state_vars
 SymbolicAWEModels.set_state_vars!
 SymbolicAWEModels.next_values!
@@ -106,6 +104,7 @@ SymbolicAWEModels.point_net_force
 SymbolicAWEModels.confined_derivatives
 SymbolicAWEModels.point_particle_params
 SymbolicAWEModels.dynamic_point_dynamics
+SymbolicAWEModels.wing_node
 SymbolicAWEModels.wing_structural_segment
 SymbolicAWEModels.segment_spring_params
 SymbolicAWEModels.rigid_body_pose_expressions
@@ -220,12 +219,8 @@ SymbolicAWEModels.rigidity_fields
 SymbolicAWEModels.concrete_rigidities
 SymbolicAWEModels.with_law_rigidities
 SymbolicAWEModels.timoshenko_element_frame
-SymbolicAWEModels.assign_indices_and_resolve!
-SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.validate_sys_struct
-SymbolicAWEModels.setup_wing_frame!
 SymbolicAWEModels.particle_wing_parts
-SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.structure_tubes
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
@@ -256,11 +251,8 @@ SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
 SymbolicAWEModels.expand_tethers!
-SymbolicAWEModels.resolve!
 SymbolicAWEModels.validate_weights!
-SymbolicAWEModels.mark_wing_nodes!
 SymbolicAWEModels.wing_frame_member
-SymbolicAWEModels.distribute_mass_over_points!
 ```
 
 ## Equation builders
@@ -310,7 +302,6 @@ SymbolicAWEModels.read_aero_log_points!
 SymbolicAWEModels.restore_aero_twist!
 SymbolicAWEModels.plot_wing_aero!
 SymbolicAWEModels.update_wing_aero_plot!
-SymbolicAWEModels.load_wing
 SymbolicAWEModels.restore_flap_delta!
 SymbolicAWEModels.restore_live_shape!
 SymbolicAWEModels.write_flap_deflections!
@@ -440,7 +431,6 @@ SymbolicAWEModels.scatter_totals!
 SymbolicAWEModels.zero_weight_pair
 SymbolicAWEModels.scatter_entry_list
 SymbolicAWEModels.frame_sections
-SymbolicAWEModels.seed_wing_inertia!
 ```
 
 ## OBJ mesh mass properties
@@ -541,6 +531,5 @@ SymbolicAWEModels.fit_softening_exponent
 ## Other internals
 
 ```@docs
-SymbolicAWEModels.init_body_frame_from_ref_points!
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

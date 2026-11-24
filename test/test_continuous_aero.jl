@@ -62,12 +62,13 @@ end
     end
 
     sys, vsm_set = load_continuous_sys(data_path, set; billowing=true)
-    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+    wing = state.wings[1]
     mode = wing.aero
     n_panels = length(wing.vsm_aero.panels)
 
     @testset "quarter-chord strut couple" begin
-        nodes = wing_points(sys, wing)
+        nodes = wing_points(state, wing)
         column = aero_section_columns(wing, nodes)
         leading = Set(k for ((_, station), k) in column if station === :LE)
         trailing = Set(k for ((_, station), k) in column if station === :TE)

@@ -124,7 +124,7 @@ At runtime, the quaternion state gives ``R_{b \to w}``, and world
 positions are recovered as
 ``\mathbf{p}_w = \mathbf{wing.pos}_w + R_{b \to w} \, \mathbf{p}_b``.
 
-See `setup_wing_frame!` and [`update_mass_properties!`](@ref) in
+See [`update_mass_properties!`](@ref) in
 `system_structure_core.jl`.
 
 ## Principal Frame — RIGID_DYNAMICS

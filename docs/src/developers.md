@@ -378,16 +378,16 @@ its own job on Ubuntu with Julia 1.12.
 |-----------|-----------|------------------|
 | `test_point` | [`Point`](@ref) | Gravity free-fall, damping, drag terminal velocity |
 | `test_segment` | [`Segment`](@ref) | Spring-damper forces, stiffness, drag |
-| `test_wing` | [`Wing`](@ref AbstractWing) | RIGID_DYNAMICS and PARTICLE_DYNAMICS construction, VSM coupling |
-| `test_wing_dynamics` | [`Wing`](@ref AbstractWing) | Torque response, precession, angular momentum conservation |
+| `test_wing` | [`WingModel`](@ref) | RIGID_DYNAMICS and PARTICLE_DYNAMICS construction, VSM coupling |
+| `test_wing_dynamics` | [`WingModel`](@ref) | Torque response, precession, angular momentum conservation |
 | `test_tether_winch` | [`Tether`](@ref), [`Winch`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
 | `test_transform` | KiteGeometry `Transform` | Spherical coordinate positioning |
 | `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
 | `test_quaternion_auto_groups` | [`Station`](@ref) | Twist DOFs on a rigid wing |
 | `test_static_twist` | [`Station`](@ref) | Prescribed (`STATIC`) twist |
-| `test_principal_body_frame` | [`Wing`](@ref AbstractWing) | Principal vs body frame separation |
-| `test_principal_frame_invariance` | [`Wing`](@ref AbstractWing) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
+| `test_principal_body_frame` | [`WingModel`](@ref) | Principal vs body frame separation |
+| `test_principal_frame_invariance` | [`WingModel`](@ref) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
 | `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
 | `test_elastic_tube` | [`ElasticTube`](@ref) | Lumped 6-DOF spring between bodies |
 | `test_timoshenko_tube` | [`TimoshenkoTube`](@ref) | Beam bending, shear, axial, torsion vs closed form |
@@ -398,7 +398,7 @@ its own job on Ubuntu with Julia 1.12.
 | `test_flap_aero`, `test_flap_beam` | [`AeroPressure`](@ref) | Flap deflection δ into the polars |
 | `test_yaml_bodies` | — | YAML `bodies` / `tubes` loading |
 | `test_heading_calculation` | — | Kite heading from tether geometry |
-| `test_section_alignment` | [`Wing`](@ref AbstractWing) | VSM section ↔ structural point mapping |
+| `test_section_alignment` | [`WingModel`](@ref) | VSM section ↔ structural point mapping |
 | `test_profile_law` | — | Atmospheric wind profile verification |
 | `test_analytic_jacobian` | [`KernelBackend`](@ref) | Composed Jacobian vs global forward mode |
 | `test_getter_allocations` | — | State getters stay allocation-free |
@@ -473,8 +473,8 @@ The source code is organized into modular directories:
 - **`src/system_structure/`** — component types and assembly
   - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
     [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref)
-  - `wing.jl`: [`AbstractWing`](@ref)/[`Wing`](@ref) types and the
-    [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
+  - `wing.jl`: [`WeightedRefPoints`](@ref) constructors, VSM engine construction
+    and VSM panel placement
   - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
     [`ElasticTube`](@ref)
   - `system_structure_core.jl`: `SystemDefinition` constructor, reference

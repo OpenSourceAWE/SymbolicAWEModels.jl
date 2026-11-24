@@ -83,13 +83,7 @@ Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffnes
 Winch
 Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
 Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction, viscous_coefficient, inertia_total; winch_point, init_vel, brake)
-AbstractWing
-RigidWing
-ParticleWing
-Wing
 VSMEngine
-VSMWing
-PlateWing
 create_plate_interpolations
 Body
 Body(name; extra_mass, inertia_principal, pos, vel, Q_b_to_w, ω_b, com_offset_b, R_b_to_p, angular_damping, ext_force_w, ext_moment_b)

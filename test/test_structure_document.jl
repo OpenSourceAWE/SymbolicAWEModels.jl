@@ -255,10 +255,10 @@ end
         @test structure_document(reread) == document
         @test reread.bodies[:root].fixed
         @test SymbolicAWEModels.SystemState(reread).tubes[:beam].bodies[1] ==
-              reread.bodies[:root].idx
+              KiteGeometry.row_index(reread.bodies, :root)
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
-        @test reread.points[:hub_anchor].body == reread.bodies[:hub].idx
+        @test reread.points[:hub_anchor].body == KiteGeometry.row_index(reread.bodies, :hub)
         state, reread_state = SystemState(sys), SystemState(reread)
         for name in (:tip, :hub)
             body, reread_body = state.bodies[name], reread_state.bodies[name]

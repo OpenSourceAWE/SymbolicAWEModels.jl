@@ -265,6 +265,15 @@ function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
 end
 
 """
+    wing_node(sys_struct, point)
+
+Whether point `point` of `sys_struct`, a definition or a run's state, is a structural node
+of a wing: a member of one of its spanwise stations.
+"""
+wing_node(sys_struct, point) =
+    any(station -> point in station.points, sys_struct.spanwise_stations)
+
+"""
     wing_structural_segment(sys_struct, idx)
 
 Whether segment `idx` is an internal wing-structural link — both endpoints are wing
@@ -272,26 +281,25 @@ nodes. Such a segment carries no tether drag (its aerodynamic load is owned by t
 wing's VSM), so the assembly gives it the drag-free segment type rather than passing
 a per-segment drag coefficient.
 """
-function wing_structural_segment(sys_struct, idx)
-    seg = sys_struct.segments[idx]
-    return sys_struct.points[seg.points[1]].is_wing_node &&
-           sys_struct.points[seg.points[2]].is_wing_node
-end
+wing_structural_segment(sys_struct, idx) =
+    all(point -> wing_node(sys_struct, point), sys_struct.segments[idx].points)
 
 """
     segment_role(sys_struct, segment) -> Symbol
 
-What `segment` is in the system: `:winched_tether` when it is in a tether a winch reels,
-`:unwinched_tether` when it is in a tether no winch reels, `:wing` when it is a
-[`wing_structural_segment`](@ref), and `:free` otherwise.
+What `segment` of `sys_struct`, a definition or a run's state, is in the system:
+`:winched_tether` when it is in a tether a winch reels, `:unwinched_tether` when it is in a
+tether no winch reels, `:wing` when it is a [`wing_structural_segment`](@ref), and `:free`
+otherwise.
 """
 function segment_role(sys_struct, segment)
-    for tether in sys_struct.tethers
-        segment.idx in tether.segments || continue
-        winched = any(tether.idx in winch.tethers for winch in sys_struct.winches)
+    idx = findfirst(row -> row.name == segment.name, sys_struct.segments)
+    for (tether_idx, tether) in enumerate(sys_struct.tethers)
+        idx in tether.segments || continue
+        winched = any(tether_idx in winch.tethers for winch in sys_struct.winches)
         return winched ? :winched_tether : :unwinched_tether
     end
-    wing_structural_segment(sys_struct, segment.idx) && return :wing
+    wing_structural_segment(sys_struct, idx) && return :wing
     return :free
 end
 

@@ -12,20 +12,8 @@ components as definition rows, and the writer. Not part of the public API.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.row_name
-SymbolicAWEModels.name_of
 SymbolicAWEModels.cell_ref
-SymbolicAWEModels.ref_points_spec
-SymbolicAWEModels.ref_pair_spec
-SymbolicAWEModels.unit_inertia_spec
-SymbolicAWEModels.set_kwargs
 SymbolicAWEModels.maybe
-SymbolicAWEModels.definition_wing
-SymbolicAWEModels.typed_row
-SymbolicAWEModels.resolve_dynamics_type
-SymbolicAWEModels.definition_winch
-SymbolicAWEModels.definition_body
-SymbolicAWEModels.in_place_of
 SymbolicAWEModels.document_format
 ```
 
@@ -56,7 +44,6 @@ SymbolicAWEModels.to_float64
 SymbolicAWEModels.reference_column
 SymbolicAWEModels.references_column
 SymbolicAWEModels.tether_row
-SymbolicAWEModels.body_row
 SymbolicAWEModels.wing_column
 SymbolicAWEModels.mesh_frame
 SymbolicAWEModels.column_vector
@@ -71,21 +58,13 @@ SymbolicAWEModels.set_origin_ENU!
 ## Definition writer internals
 
 ```@docs
-SymbolicAWEModels.definition_rows
-SymbolicAWEModels.resolve_refs
-SymbolicAWEModels.station_row
 SymbolicAWEModels.segment_with_material
 SymbolicAWEModels.settings_segment
 SymbolicAWEModels.stiffness_law
 SymbolicAWEModels.material_parameters
-SymbolicAWEModels.definition_name
 SymbolicAWEModels.material!
-SymbolicAWEModels.station_wing_idx
 SymbolicAWEModels.winch_friction_epsilon
 SymbolicAWEModels.torque_winch
-SymbolicAWEModels.wing_engine_field
-SymbolicAWEModels.wing_drag_corr
-SymbolicAWEModels.ref_points_cell
 ```
 
 ## Segments, tubes and a run's reads

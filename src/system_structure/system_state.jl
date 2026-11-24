@@ -504,11 +504,8 @@ function segment_rest_length(r)
     return run_value(r, :rest_length, something(getfield(r, :row).rest_length, 0.0))
 end
 
-"""Whether point record `r` is a structural node of a wing: a member of one of the
-stations of its run's definition."""
-point_is_wing_node(r) =
-    any(station -> index(r) in station.points,
-        getfield(run_state(r), :structure).spanwise_stations)
+"""Whether point record `r` is a structural node of a wing ([`wing_node`](@ref))."""
+point_is_wing_node(r) = wing_node(getfield(run_state(r), :structure), index(r))
 
 """Where point record `r` sits in the frame of the body it rides [m]: its `anchor_b`, else
 where its initial position puts it; zero for a point on no body."""

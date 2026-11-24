@@ -163,8 +163,8 @@ function frozen_point_force_component(wing, sys_struct; name, params=nothing)
     return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
 end
 
-function wing_points(sys_struct, wing)
-    return [point for point in sys_struct.points
+function wing_points(state, wing)
+    return [point for point in state.points
             if point.is_wing_node && point.wing_idx == wing.idx]
 end
 
@@ -358,7 +358,7 @@ scatter_couple(::AbstractAeroModel, slots, i, panel) =
 Whether this wing's VSM solver adds the `VortexStepMethod.flow_curvature_cm` increment. The
 aero modes all read the one flag, so a model cannot carry the term through
 `AeroDirect` and lose it in [`ContinuousAero`](@ref). A wing without a VSM engine
-(`PlateWing`) has no flag and no increment.
+([`AeroPlate`](@ref)) has no flag and no increment.
 """
 function flow_curvature_enabled(wing)
     engine = vsm_engine(wing.aero)
@@ -1336,7 +1336,7 @@ no-op). VSM modes transform the VSM panels into the body frame and, for
 section-coupled wings, auto-create stations, match aero sections to
 structure, and build the station / structural↔panel mappings. A custom mode
 adds a method to participate in construction without editing the SystemDefinition
-constructor. Runs after [`setup_wing_frame!`](@ref) (which sets the body frame).
+constructor. Runs once the wing's body frame is set.
 `vsm_set` is the model's `VSMSettings`, for a mode that reads how its sections were
 generated rather than only the geometry they produced.
 """
