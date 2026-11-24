@@ -82,7 +82,8 @@ segments:
   data:
     - [line, anchor, hook, nothing, 20.0, 100000.0, 5000.0, 0.1, 1000.0]
 """,
-    "      aero_z_offset: 0.0" => "      aero_z_offset: 0.0\n      extra_mass: 2.0")
+    "      aero_z_offset: 0.0" => "      aero_z_offset: 0.0\n      extra_mass: 2.0\n" *
+                               "      unit_inertia: [0.5, 0.5, 0.5, 0.0, 0.0, 0.0]")
 
 SETTINGS_YAML = """
 system:

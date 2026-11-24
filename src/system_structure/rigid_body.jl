@@ -53,8 +53,6 @@ $(TYPEDFIELDS)
     idx::Int64 = 0
     "Entrained-air mass resisting acceleration without adding weight [kg]."
     apparent_mass::SimFloat = 0.0
-    "Inertia of the body alone about its own centre of mass, body frame [kg·m²]."
-    extra_inertia_b::Matrix{SimFloat} = zeros(SimFloat, 3, 3)
     "Offset from the body origin to the centre of mass of the body alone, body frame [m]."
     extra_com_offset_b::KVec3 = zeros(KVec3)
     "The body's aero model; [`AeroNone`](@ref) for a body that is no wing."
@@ -116,7 +114,7 @@ structural points — particle wings) or STATIC (clamped). `D` mirrors the rigid
 distinction into the type domain for aero dispatch. All bodies share the 6-DOF generator
 `rigid_body_eqs!`.
 
-The body's own mass properties (`extra_mass`, `extra_inertia_b`,
+The body's own mass properties (`extra_mass`, `extra_inertia_KA`,
 `extra_com_offset_b`) are set directly or derived from its mesh or points. A
 DYNAMIC or STATIC body adds the points it carries — its `BODY_STATIC` riders, and a
 `RIGID_DYNAMICS` wing's nodes — as point masses of their `total_mass` at their
@@ -127,8 +125,8 @@ settable external wrench, tube wrenches, and aerodynamics.
 
 `origin_ENU` and `Q_KA2ENU` are the initial pose of the body frame; the row's
 `pos_ENU` is the centre of the body's own mass, `extra_com_offset_b` from that origin, and
-`extra_inertia_b` is about that centre in the body frame. An external force or moment the
-row leaves unset reads as a zero vector the row then holds, so it can be written in place.
+`extra_inertia_KA` is about that centre in the body frame. An external force or moment the
+row leaves unset reads as a zero vector.
 """
 const Body{A, D} = KiteGeometry.Body{BodyModel{A, D}}
 
@@ -204,8 +202,7 @@ of mass.
 """
 function body_row(name, aero::A, ::Type{D}; extra_mass, extra_inertia_b, pos_ENU,
                   Q_KA2ENU, fixed=false, model_fields...) where {A, D}
-    model = BodyModel{A, D}(; aero, model_fields...,
-        extra_inertia_b=Matrix{SimFloat}(extra_inertia_b))
+    model = BodyModel{A, D}(; aero, model_fields...)
     mass_centre = pos_ENU + quaternion_to_rotation_matrix(Q_KA2ENU) *
         model.extra_com_offset_b
     return KiteGeometry.Body(; name=Symbol(name), pos_ENU=mass_centre,

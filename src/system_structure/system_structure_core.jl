@@ -439,7 +439,7 @@ end
     setup_wing_frame!(wing, points; prn=true)
 
 Compute a wing's body frame (`Q_KA2ENU`, `origin_ENU`) and, for `RIGID_DYNAMICS`, its own
-COM offset and inertia (`extra_com_offset_b`, `extra_inertia_b`) from its mesh or points and
+COM offset and inertia (`extra_com_offset_b`, `extra_inertia_KA`) from its mesh or points and
 ref points; without ref points the frame keeps the world axes, origin at the wing's COM.
 Without a mesh the inertia comes from the frame points' `extra_mass`; with neither a mesh
 nor point masses, the constructor's inertia stays, or none for a massless wing.
@@ -472,10 +472,10 @@ function setup_wing_frame!(wing, points; prn=true)
         # The hook returns per-unit-mass inertia [m²] in the world axes of `origin_ENU`.
         if !isnothing(inertia_normalized)
             R_initial = initial_rotation(wing)
-            wing.extra_inertia_b .=
+            wing.extra_inertia_KA =
                 R_initial' * (wing.extra_mass .* inertia_normalized) * R_initial
         elseif iszero(wing.extra_mass)
-            wing.extra_inertia_b .= 0.0
+            wing.extra_inertia_KA = zeros(3, 3)
         end
     else  # PARTICLE_DYNAMICS (VSM or flat-plate)
         init_body_frame_from_ref_points!(wing, points; prn)
@@ -536,7 +536,7 @@ function combine_carried_points!(body, points, bodies)
         first_moment .+= mass .* position
     end
     com = total_mass > 0 ? first_moment ./ total_mass : body.extra_com_offset_b
-    inertia = body.extra_inertia_b .+
+    inertia = something(body.extra_inertia_KA, zeros(3, 3)) .+
         point_mass_inertia(body.extra_mass, body.extra_com_offset_b .- com)
     for (mass, position) in carried
         inertia .+= point_mass_inertia(mass, position .- com)

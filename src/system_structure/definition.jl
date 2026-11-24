@@ -19,7 +19,7 @@ function definition_rows(sys)
         pulleys=collect(sys.pulleys),
         tethers=collect(sys.tethers), winches=collect(sys.winches),
         wings=[wing_row(sys, wing) for wing in sys.wings],
-        bodies=[body_row(sys, body) for body in sys.bodies],
+        bodies=collect(sys.bodies),
         tubes=[tube_row!(materials, sys, tube) for tube in sys.tubes],
         materials)
 end
@@ -88,11 +88,6 @@ ref_points_cell(sys, ::Nothing) = nothing
 ref_pair_cell(sys, pair) = isnothing(pair) ? nothing :
     [ref_points_cell(sys, pair[1]), ref_points_cell(sys, pair[2])]
 
-"""`body` with its inertia about its own centre of mass."""
-function body_row(sys, body)
-    setfield!(body, :extra_inertia_KA, MMatrix{3, 3, Float64, 9}(body.extra_inertia_b))
-    return body
-end
 
 function tube_row!(materials, sys, tube)
     body_a, body_b = sys.bodies[tube.bodies[1]], sys.bodies[tube.bodies[2]]

@@ -35,6 +35,8 @@ SymbolicAWEModels.document_format
 SymbolicAWEModels.PointModel
 SymbolicAWEModels.StationModel
 SymbolicAWEModels.WingModel
+SymbolicAWEModels.unit_inertia_tensor
+KiteGeometry.wing_spec(::SymbolicAWEModels.WingModel)
 SymbolicAWEModels.PulleyModel
 SymbolicAWEModels.BodyModel
 SymbolicAWEModels.TetherModel

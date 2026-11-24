@@ -319,6 +319,20 @@ KiteGeometry.model_references(::Type{WingModel}) = (
     y_ref_points=(KiteGeometry.WeightedRefs(:points), KiteGeometry.WeightedRefs(:points)),
     stations=:spanwise_stations)
 
+"""What frames and weighs the body of a wing whose row carries `model`, for KiteGeometry's
+`complete_wings!`: its dynamics type, reference points and mesh mass properties."""
+KiteGeometry.wing_spec(model::WingModel) = KiteGeometry.WingSpec(;
+    particle=model.dynamics_type == "PARTICLE_DYNAMICS", origin=model.origin_idx,
+    z_ref_points=model.z_ref_points, y_ref_points=model.y_ref_points, com=model.com,
+    unit_inertia=unit_inertia_tensor(model.unit_inertia))
+
+"""Per-unit-mass inertia [m²] as a 3×3 matrix, given as one or as `[Ixx, Iyy, Izz, Ixy,
+Ixz, Iyz]`; `nothing` for none."""
+unit_inertia_tensor(::Nothing) = nothing
+unit_inertia_tensor(inertia::AbstractMatrix) = inertia
+unit_inertia_tensor(inertia::AbstractVector) = first(inertia) isa AbstractVector ?
+    reduce(vcat, permutedims.(inertia)) : ObjAdapter.unit_inertia_matrix(inertia)
+
 """
     register_definition_models()
 
