@@ -197,19 +197,9 @@ function mesh_frame(row::Body)
     return KVec3(wing.pos_ENU), quaternion_to_rotation_matrix(wing.Q_KA2ENU)
 end
 
-"""
-    held_vector!(row, field)
-
-The vector column `field` of the model of `row`, a zero vector the model then holds where
-the row leaves it unset.
-"""
-@inline function held_vector!(row, field)
-    values = getproperty(row.model, field)
-    isnothing(values) || return values
-    values = zeros(3)
-    setproperty!(row.model, field, values)
-    return values
-end
+"""The vector column `field` of the model of `row`, a zero vector where it is unset."""
+column_vector(row, field) =
+    something(getproperty(row.model, field), zero(SVector{3, Float64}))
 
 """
     body_row(name, aero, dynamics; extra_mass, extra_inertia_b, pos_ENU, Q_KA2ENU,

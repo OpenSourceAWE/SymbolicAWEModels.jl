@@ -53,7 +53,8 @@ using LinearAlgebra
         system_name="2plate_quat", set,
         dynamics_type=RIGID_DYNAMICS)
 
-    wing = SymbolicAWEModels.SystemState(sys_quat; set, vsm_set).wings[1]
+    state = SymbolicAWEModels.SystemState(sys_quat; set, vsm_set)
+    wing = state.wings[1]
     @test body_dynamics_type(wing) == RIGID_DYNAMICS
     @test length(sys_quat.spanwise_stations) == 3
     @test length(wing.station_idxs) == 3
@@ -61,7 +62,7 @@ using LinearAlgebra
     @test length(wing.wing_segments) == 3
 
     # Geometry was computed from closest VSM panel
-    for station in sys_quat.spanwise_stations
+    for station in state.spanwise_stations
         @test !iszero(station.chord)
         @test !iszero(station.y_airf)
     end

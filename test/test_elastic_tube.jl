@@ -125,8 +125,8 @@ end
     # Reset the initial pose that place! puts the bodies back at.
     function reset_bodies!()
         for (b, x) in ((b1, 0.0), (b2, 1.0))
-            b.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
-            SymbolicAWEModels.set_origin_ENU!(b, [x, 0.0, 0.0])
+            b.row.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
+            SymbolicAWEModels.set_origin_ENU!(b.row, [x, 0.0, 0.0])
             b.vel_w .= 0.0
             b.ω_b .= 0.0
         end
@@ -293,9 +293,9 @@ end
         place!(sam)
         Q_rot = Float64[cos(π / 12), 0.0, 0.0, sin(π / 12)]
         origin = b2.origin_ENU
-        b2.Q_KA2ENU = Q_rot
-        SymbolicAWEModels.set_origin_ENU!(b2, origin)
-        b2.extra_mass = 2.5
+        b2.row.Q_KA2ENU = Q_rot
+        SymbolicAWEModels.set_origin_ENU!(b2.row, origin)
+        b2.row.extra_mass = 2.5
         test_init!(sam; prn=false)
         @test b2.total_mass ≈ 2.5
         @test norm(jt.R_rel0 -

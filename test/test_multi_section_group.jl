@@ -73,7 +73,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     # the wing body as its own mass, it is shared by panel area: all of it, the same
     # left and right.
     @test all(station.body_mass == 0 for station in stations)
-    wing.extra_mass = 1.6
+    wing.row.extra_mass = 1.6
     compute_spatial_station_mapping!(wing, stations, sys.points)
     @test sum(station.body_mass for station in stations) ≈ wing.extra_mass
     @test stations[:left].body_mass ≈ stations[:right].body_mass

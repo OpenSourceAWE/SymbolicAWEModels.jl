@@ -103,8 +103,8 @@ environment:
 
     @testset "Spin-up under applied moment" begin
         rb = sam.state.bodies[:body1]
-        rb.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
-        SymbolicAWEModels.set_origin_ENU!(rb, [0.0, 0.0, 10.0])
+        rb.row.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
+        SymbolicAWEModels.set_origin_ENU!(rb.row, [0.0, 0.0, 10.0])
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
         torque = 0.05

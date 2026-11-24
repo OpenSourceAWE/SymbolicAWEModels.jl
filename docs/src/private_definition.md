@@ -57,7 +57,7 @@ SymbolicAWEModels.tether_row
 SymbolicAWEModels.body_row
 SymbolicAWEModels.wing_column
 SymbolicAWEModels.mesh_frame
-SymbolicAWEModels.held_vector!
+SymbolicAWEModels.column_vector
 SymbolicAWEModels.principal_axes
 SymbolicAWEModels.axis_column
 SymbolicAWEModels.body_principal_frame_method
@@ -109,8 +109,13 @@ SymbolicAWEModels.segment_pulleys
 SymbolicAWEModels.run_value
 SymbolicAWEModels.set_run_value!
 SymbolicAWEModels.segment_rest_length
+SymbolicAWEModels.BodyGeometry
+SymbolicAWEModels.body_geometry
+SymbolicAWEModels.aero_mode
+SymbolicAWEModels.BODY_GEOMETRY_FIELDS
+SymbolicAWEModels.STATION_GEOMETRY_FIELDS
 SymbolicAWEModels.StationGeometry
-SymbolicAWEModels.geometry
+SymbolicAWEModels.station_geometry
 SymbolicAWEModels.station_aero_moment
 SymbolicAWEModels.run_station_aero_moment
 SymbolicAWEModels.station_aero_moment_reader

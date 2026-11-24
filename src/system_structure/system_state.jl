@@ -60,7 +60,7 @@ StaticArrays.similar_type(::Type{<:ColumnQuat}, ::Type{T}, ::Size{(4,)}) where {
 
 Supertype of a record of a run's state: a component of the structure, its `row`, the
 run's state `state` and the component's index `idx`. A property the record does not
-take from the state is the row's.
+take from the state is the row's, read only: the run never writes its definition.
 """
 abstract type ComponentState end
 
@@ -90,6 +90,36 @@ $(TYPEDFIELDS)
     "Deflection of the flap in its initial pose [rad]."
     flap_rest_delta::SimFloat = 0.0
 end
+
+"""
+    BodyGeometry
+
+What a run works out of a body's mass: its own mass properties with those of the points it
+carries ([`update_mass_properties!`](@ref)).
+
+$(TYPEDFIELDS)
+"""
+mutable struct BodyGeometry
+    "Mass of the body with the points it carries [kg]."
+    total_mass::SimFloat
+    "Centre of that mass from the body-frame origin, body frame [m]."
+    com_offset_b::KVec3
+    "Principal moments of inertia about that centre [kg·m²]."
+    inertia_principal::KVec3
+    "Rotation from the body frame into the principal frame."
+    R_b_to_p::Matrix{SimFloat}
+end
+
+"""The fields of a [`BodyGeometry`](@ref) a body record reads and writes as its own."""
+const BODY_GEOMETRY_FIELDS = fieldnames(BodyGeometry)
+
+"""The mass of body `row` a run starts from, before it adds the points it carries."""
+BodyGeometry(row) = BodyGeometry(row.model.total_mass, copy(row.model.com_offset_b),
+    copy(row.model.inertia_principal), copy(row.model.R_b_to_p))
+
+"""The fields of a [`StationGeometry`](@ref) a station record reads and writes as its
+own."""
+const STATION_GEOMETRY_FIELDS = fieldnames(StationGeometry)
 
 """The geometry of station `row` a run starts from: the chord and flap references it
 gives, the rest zero until the run works them out."""
@@ -128,6 +158,8 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const rows::R
     "the tubes as this run simulates them"
     const tubes::Rows{Tube}
+    "what the run works out of each body's mass"
+    const body_geometry::Vector{BodyGeometry}
     "what the run works out of each station's geometry"
     const station_geometry::Vector{StationGeometry}
     "each body's aero mode, with the model's VSM engine where it has one"
@@ -195,7 +227,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         segment_pulleys(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
-                        run_tubes(sys),
+                        run_tubes(sys), [BodyGeometry(row) for row in sys.bodies],
                         [StationGeometry(row) for row in sys.spanwise_stations], modes,
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,
@@ -316,8 +348,8 @@ Base.propertynames(record::ComponentState) =
 end
 
 @inline function Base.setproperty!(record::ComponentState, name::Symbol, value)
-    name in state_properties(typeof(record)) ||
-        return setproperty!(getfield(record, :row), name, value)
+    name in state_properties(typeof(record)) || error("$(getfield(record, :row).name)'s " *
+        "$name is its definition's: set it on the definition, not on a run's state")
     set_state_property!(record, Val(name), value)
     return value
 end
@@ -467,19 +499,22 @@ end
     @state_record Name docstring begin
         property => getter
         property => (getter, setter)
-    end
+    end holder => FIELDS ...
 
 A record type `Name{P, S}` of a run's state and the properties it takes from the state:
 `getter` reads one from record `r`, and `setter` writes `value` to a scalar one; a
-vector one is written in place through its getter. With `forwards_aero`, the record also
-reads and writes the fields of its aero mode's VSM engine.
+vector one is written in place through its getter. Each `holder => FIELDS` adds the
+fields named in the constant `FIELDS`, read and written on `holder(r)`.
 """
-macro state_record(name, doc, block, forwards_aero=false)
+macro state_record(name, doc, block, forwards...)
     accessors = Tuple{Symbol, Any}[(line.args[2], line.args[3]) for line in block.args
         if line isa Expr && line.head === :call && line.args[1] === :(=>)]
-    forwards_aero && for field in VSM_ENGINE_FIELDS
-        push!(accessors, (field, :((getproperty(r.aero, $(QuoteNode(field))),
-                                    setproperty!(r.aero, $(QuoteNode(field)), value)))))
+    for forward in forwards
+        holder, fields = forward.args[2], getfield(__module__, forward.args[3])
+        for field in fields
+            push!(accessors, (field, :((getproperty($holder(r), $(QuoteNode(field))),
+                setproperty!($holder(r), $(QuoteNode(field)), value)))))
+        end
     end
     properties = first.(accessors)
     methods = Expr[]
@@ -572,19 +607,10 @@ works it out.
                             something(r.row.flap_axis, SVector(0.0, 1.0, 0.0))),
                   set_run_value!(r, :flap_axis, value))
     area => (something(r.row.area, NaN), derived(:area))
-    le_pos => (geometry(r).le_pos, geometry(r).le_pos = value)
-    chord => (geometry(r).chord, geometry(r).chord = value)
-    y_airf => (geometry(r).y_airf, geometry(r).y_airf = value)
-    unrefined_section_idxs => (geometry(r).unrefined_section_idxs,
-                               geometry(r).unrefined_section_idxs = value)
-    panel_idxs => (geometry(r).panel_idxs, geometry(r).panel_idxs = value)
-    body_mass => (geometry(r).body_mass, geometry(r).body_mass = value)
-    flap_chord_refs => (geometry(r).flap_chord_refs, geometry(r).flap_chord_refs = value)
-    flap_rest_delta => (geometry(r).flap_rest_delta, geometry(r).flap_rest_delta = value)
-end
+end station_geometry => STATION_GEOMETRY_FIELDS
 
 """The [`StationGeometry`](@ref) of station record `r`."""
-geometry(r) = getfield(run_state(r), :station_geometry)[index(r)]
+station_geometry(r) = getfield(run_state(r), :station_geometry)[index(r)]
 
 @state_record SegmentState """
     SegmentState
@@ -693,7 +719,13 @@ body_slot(body) = getfield(getfield(body, :state), :body_slot0) + index(body)
 body_frame(body) = getfield(getfield(body, :state), :n_wings) + index(body)
 
 """The centre of mass of body record `r` in its body frame, from its origin [m]."""
-com_offset(r) = getfield(r, :row).com_offset_b
+com_offset(r) = body_geometry(r).com_offset_b
+
+"""The aero mode of body record `r`, with the model's VSM engine where it has one."""
+aero_mode(r) = getfield(run_state(r), :aero)[index(r)]
+
+"""The [`BodyGeometry`](@ref) of body record `r`."""
+body_geometry(r) = getfield(run_state(r), :body_geometry)[index(r)]
 
 @state_record BodyState """
     BodyState
@@ -702,7 +734,7 @@ A body of a run's state, a wing among them: its pose and motion in its body fram
 same in its principal frame, derived from them, what the air does to it, and the fields of
 its aero mode's VSM engine, read through to the model's.
 """ begin
-    aero => (getfield(run_state(r), :aero)[index(r)], derived(:aero))
+    aero => (aero_mode(r), derived(:aero))
     vsm_aoa => (mean(r.vsm_solver.sol.alpha_dist), derived(:vsm_aoa))
     pos_w => ColumnVec3(sysstate(r).X, sysstate(r).Y, sysstate(r).Z, body_slot(r))
     vel_w => ColumnVec3(sysstate(r).VX, sysstate(r).VY, sysstate(r).VZ, body_slot(r))
@@ -712,20 +744,20 @@ its aero mode's VSM engine, read through to the model's.
                       sysstate(r).turn_rate_z, body_frame(r))
     R_b_to_w => (quaternion_to_rotation_matrix(r.Q_b_to_w),
                  r.Q_b_to_w .= rotation_matrix_to_quaternion(value))
-    R_p_to_w => (r.R_b_to_w * getfield(r, :row).R_b_to_p', derived(:R_p_to_w))
+    R_p_to_w => (r.R_b_to_w * body_geometry(r).R_b_to_p', derived(:R_p_to_w))
     com_w => (r.pos_w + r.R_b_to_w * com_offset(r), derived(:com_w))
     com_vel => (r.vel_w + cross(r.R_b_to_w * r.ω_b, r.R_b_to_w * com_offset(r)),
                 derived(:com_vel))
     Q_p_to_w => (rotation_matrix_to_quaternion(r.R_p_to_w), derived(:Q_p_to_w))
-    ω_p => (getfield(r, :row).R_b_to_p * r.ω_b, derived(:ω_p))
+    ω_p => (body_geometry(r).R_b_to_p * r.ω_b, derived(:ω_p))
     acc_w => ColumnVec3(sysstate(r).acc_x, sysstate(r).acc_y, sysstate(r).acc_z,
                         body_slot(r))
     wind_vec => ColumnVec3(sysstate(r).wind_x, sysstate(r).wind_y, sysstate(r).wind_z,
                            body_slot(r))
     va_b => (body_apparent_wind(r), derived(:va_b))
     principal_frame_method => (body_principal_frame_method(r.row),
-                               r.row.principal_frame_method = string(value))
-    extra_mass => (something(r.row.extra_mass, 0.0), r.row.extra_mass = value)
+                               derived(:principal_frame_method))
+    extra_mass => (something(r.row.extra_mass, 0.0), derived(:extra_mass))
     origin_ENU => (origin_ENU(r.row), derived(:origin_ENU))
     angular_damping => (run_value(r, :angular_damping, body_angular_damping(r.row)),
                         set_run_value!(r, :angular_damping, value))
@@ -735,11 +767,11 @@ its aero mode's VSM engine, read through to the model's.
     body_frame_damping => (run_value(r, :body_frame_damping,
                                      per_axis(r.row.body_frame_damping)),
                            set_run_value!(r, :body_frame_damping, value))
-    ext_force_w => (run_value(r, :ext_force_w, held_vector!(r.row, :ext_force_w)),
+    ext_force_w => (run_value(r, :ext_force_w, column_vector(r.row, :ext_force_w)),
                     set_run_value!(r, :ext_force_w, value))
-    ext_force_b => (run_value(r, :ext_force_b, held_vector!(r.row, :ext_force_b)),
+    ext_force_b => (run_value(r, :ext_force_b, column_vector(r.row, :ext_force_b)),
                     set_run_value!(r, :ext_force_b, value))
-    ext_moment_b => (run_value(r, :ext_moment_b, held_vector!(r.row, :ext_moment_b)),
+    ext_moment_b => (run_value(r, :ext_moment_b, column_vector(r.row, :ext_moment_b)),
                      set_run_value!(r, :ext_moment_b, value))
     fix_sphere => (run_value(r, :fix_sphere, something(r.row.fix_sphere, false)),
                    set_run_value!(r, :fix_sphere, value))
@@ -764,7 +796,7 @@ its aero mode's VSM engine, read through to the model's.
     heading => (sysstate(r).headings[index(r)], sysstate(r).headings[index(r)] = value)
     course => (sysstate(r).courses[index(r)], sysstate(r).courses[index(r)] = value)
     aoa => (sysstate(r).AoAs[index(r)], sysstate(r).AoAs[index(r)] = value)
-end true
+end aero_mode => VSM_ENGINE_FIELDS body_geometry => BODY_GEOMETRY_FIELDS
 
 """The apparent wind on `point` in the body frame of its wing [m/s], zero where it has
 none."""
