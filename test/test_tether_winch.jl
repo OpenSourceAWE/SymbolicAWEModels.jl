@@ -430,7 +430,7 @@ environment:
             winch_point=:anchor)]
 
         sys2 = system_definition("route2_test", set;
-            points, tethers, winches, prn=false)
+            points, tethers, winches)
 
         # 2 original + 3 intermediate = 5 points
         @test length(sys2.points) == 5
@@ -534,7 +534,7 @@ environment:
 
         # No winches — should build fine
         sys3 = system_definition("no_winch", set;
-            points, segments, tethers, prn=false)
+            points, segments, tethers)
 
         @test length(sys3.winches) == 0
         @test length(sys3.tethers) == 1
@@ -597,7 +597,7 @@ environment:
 
         sys_l = system_definition("len_track_test", set;
             points=points_l, segments=segments_l,
-            tethers=tethers_l, winches=winches_l, prn=false)
+            tethers=tethers_l, winches=winches_l)
         sam_l = SymbolicAWEModel(set, sys_l)
         place!(sam_l)
         test_init!(sam_l; prn=false)

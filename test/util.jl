@@ -31,16 +31,16 @@ function wind_frame_force(force_b, va_b; span_b = [0.0, 1.0, 0.0])
 end
 
 """
-    pin_wing_nodes!(sys, wing, pinned)
+    pin_wing_nodes!(state, wing, pinned)
 
-Freeze (or release) every node of `wing` via `fix_static`, so a deformed shape can
-be held against the aero without the structure relaxing into it. Read live from
-the struct, so it needs no rebuild.
+Freeze (or release) every node of `wing` via its definition's `fix_static`, so a deformed
+shape can be held against the aero without the structure relaxing into it; a fresh
+`init!` reads it, without a rebuild. `state` gives which points are `wing`'s nodes.
 """
-function pin_wing_nodes!(sys, wing, pinned::Bool = true)
-    for point in sys.points
+function pin_wing_nodes!(state, wing, pinned::Bool = true)
+    for point in state.points
         point.is_wing_node && point.wing_idx == wing.idx &&
-            (point.fix_static = pinned)
+            (point.row.fix_static = pinned)
     end
     return nothing
 end

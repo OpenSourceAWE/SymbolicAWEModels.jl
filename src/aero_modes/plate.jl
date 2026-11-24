@@ -24,10 +24,18 @@ AeroPlate(calc_cl, calc_cd; drag_corr=1.0) =
 """
     AeroPlate()
 
-Polar-less marker, used only to select the flat-plate path when parsing a YAML
-`aero_mode`; the real lookups are attached when the flat-plate wing is built.
+A flat plate whose polars a model takes from its settings ([`model_aero`](@ref)).
 """
 AeroPlate() = AeroPlate(nothing, nothing)
+
+"""A flat plate with the polars of `set` where `mode` gives none, and the wing row's
+`drag_corr`."""
+function model_aero(mode::AeroPlate{Nothing}, wing, n_stations, set, vsm_set)
+    isnothing(set) && return mode
+    calc_cl, calc_cd = create_plate_interpolations(set.alpha_cl, set.cl_list, set.cd_list;
+                                                   alpha_cd=set.alpha_cd)
+    return AeroPlate(calc_cl, calc_cd; drag_corr=something(wing.model.drag_corr, 0.93))
+end
 
 is_builtin_aero(::AeroPlate) = true
 aero_mode_tag(::Type{<:AeroPlate}) = "plate"
@@ -82,7 +90,7 @@ end
 # ==================== equation builder ==================== #
 
 """
-    aero_component(::AeroPlate, wing::ParticleWingState, sys_struct; name)
+    aero_component(::AeroPlate, ::ParticleDynamics, wing, sys_struct; name)
 
 Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
 the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
@@ -91,7 +99,7 @@ the other per-point modes; it is the only one that consumes the `va`/`rho` input
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """
-function aero_component(::AeroPlate, wing::ParticleWingState, sys_struct;
+function aero_component(::AeroPlate, ::ParticleDynamics, wing, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
     stations = sys_struct.spanwise_stations
@@ -215,51 +223,3 @@ structural point positions, so nothing is read back.
 """
 read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
                       point_idx) = point_idx + n_aero_log_points(mode, wing)
-
-# ==================== YAML construction ==================== #
-
-function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, station_refs,
-                   stations)
-    return load_plate_wing(definition, w, set, dynamics_type, mode, stations)
-end
-
-"""
-    load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations)
-
-Load flat-plate wing `w` of `definition` from its wing row and the `surfaces` block of
-its extras. Each surface becomes a 1-point `STATIC` [`Station`](@ref) appended to
-`stations`; the wing references them by name. CL/CD interpolations come from `Settings`
-polar data.
-"""
-function load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations)
-    wing = definition.wings[w]
-    name = row_name(wing)
-    cl_interp, cd_interp = create_plate_interpolations(
-        set.alpha_cl, set.cl_list, set.cd_list;
-        alpha_cd=set.alpha_cd)
-
-    section_refs = NameRef[]
-    surfaces = get(definition.extras, "surfaces", nothing)
-    if !isnothing(surfaces) && !isnothing(get(surfaces, "data", nothing))
-        for (si, surf_row) in enumerate(KiteGeometry.parse_table(surfaces))
-            surf_name = haskey(surf_row, :name) && !isnothing(surf_row.name) ?
-                Symbol(surf_row.name) : Symbol("$(name)_plate_$si")
-            twist = haskey(surf_row, :twist) && !isnothing(surf_row.twist) ?
-                float(surf_row.twist) : 0.0
-            push!(stations, Station(
-                surf_name, [cell_ref(surf_row.point_idx)], STATIC, 0.0;
-                x_airf=collect(Float64, surf_row.x_airf),
-                y_airf=collect(Float64, surf_row.y_airf),
-                area=float(surf_row.area), twist))
-            push!(section_refs, surf_name)
-        end
-    end
-
-    PlateWing(name, section_refs, cl_interp, cd_interp;
-              dynamics_type,
-              angular_damping=something(wing.angular_damping, KVec3(0.0, 150.0, 0.0)),
-              drag_corr=something(wing.drag_corr, 0.93),
-              z_ref_points=maybe(ref_pair_spec, wing.z_ref_points),
-              y_ref_points=maybe(ref_pair_spec, wing.y_ref_points),
-              origin=maybe(ref_points_spec, wing.origin_idx))
-end

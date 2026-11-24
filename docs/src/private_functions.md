@@ -282,7 +282,6 @@ SymbolicAWEModels.segment_rest_length_eqs
 ## Plate aerodynamics internals
 
 ```@docs
-SymbolicAWEModels.load_plate_wing
 SymbolicAWEModels.plate_corners
 ```
 
@@ -293,7 +292,6 @@ SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
 SymbolicAWEModels.AeroSpec
 SymbolicAWEModels.setup_model_aero!
-SymbolicAWEModels.store_mesh_pose!
 SymbolicAWEModels.aero_mode_name
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.has_vsm_wing
@@ -305,9 +303,6 @@ SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.setup_aero!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
-SymbolicAWEModels.normalized_inertia
-SymbolicAWEModels.body_in_mesh_frame
-SymbolicAWEModels.normalized_point_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!
 SymbolicAWEModels.write_body_state!

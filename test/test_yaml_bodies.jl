@@ -123,15 +123,16 @@ end
         @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.tubes) == 1
         tube = SymbolicAWEModels.SystemState(sys).tubes[:tube]
-        @test tube.bodies[1] == sys.bodies[:nodeA].idx
-        @test tube.bodies[2] == sys.bodies[:nodeB].idx
-        @test (tube.diameter, tube.pressure, tube.material) == (0.1, 30000.0, :breukels2011)
+        @test tube.bodies[1] == KiteGeometry.row_index(sys.bodies, :nodeA)
+        @test tube.bodies[2] == KiteGeometry.row_index(sys.bodies, :nodeB)
+        @test (tube.diameter, tube.pressure, sys.materials[tube.material].name) ==
+              (0.1, 30000.0, :breukels2011)
         @test tube.model isa TimoshenkoTube
         @test tube.model.rest_length ≈ 1.0     # taken from placed geometry
         @test tube.model.EA ≈ 10000.0
         anchor = sys.points[:tip_anchor]
         @test !anchor.fixed
-        @test anchor.body == sys.bodies[:nodeB].idx
+        @test anchor.body == KiteGeometry.row_index(sys.bodies, :nodeB)
     end
 
     @testset "a tube row without rigidities takes them from its law" begin

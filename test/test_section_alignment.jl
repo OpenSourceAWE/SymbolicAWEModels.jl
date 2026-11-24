@@ -34,9 +34,10 @@ sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
     struc_yaml; system_name="2plate_kite",
     set=set)
 
-wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
+state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+wing = state.wings[1]
 vsm_wing = wing.vsm_wing
-points = sys.points
+points = state.points
 
 # Collect this wing's LE/TE section points: the WING-type points
 # that belong to a station. The structural attachment point (KCU) is

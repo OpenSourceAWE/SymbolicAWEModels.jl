@@ -56,7 +56,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     owned = reduce(vcat, [station.panel_idxs for station in stations])
     @test sort(owned) == collect(1:n_panels)
     station_center(station) =
-        sum(SymbolicAWEModels.initial_body_position(wing, sys.points[i])
+        sum(SymbolicAWEModels.initial_body_position(wing, state.points[i])
             for i in station.points) / length(station.points)
     offset = [0.0, 0.0, wing.aero_z_offset]
     for station in stations, panel_idx in station.panel_idxs
@@ -74,7 +74,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     # left and right.
     @test all(station.body_mass == 0 for station in stations)
     wing.row.extra_mass = 1.6
-    compute_spatial_station_mapping!(wing, stations, sys.points)
+    compute_spatial_station_mapping!(wing, stations, state.points)
     @test sum(station.body_mass for station in stations) ≈ wing.extra_mass
     @test stations[:left].body_mass ≈ stations[:right].body_mass
     @test stations[:center].body_mass > 0
@@ -89,7 +89,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     # match_aero_sections_to_structure! should NOT
     # collapse aero back to 3 sections in this case
     match_aero_sections_to_structure!(
-        wing, sys.points; stations=stations)
+        wing, state.points; stations=stations)
     @test vsm_w.n_unrefined_sections == 4
     @test length(vsm_w.unrefined_sections) == 4
     @test !isnothing(wing.wing_segments)
@@ -98,7 +98,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     # Re-run partition: every section assigned, no
     # overlaps, every station claims ≥ 1 section.
     compute_spatial_station_mapping!(
-        wing, stations, sys.points)
+        wing, stations, state.points)
     assigned = Int64[]
     for station in stations
         @test !isempty(station.unrefined_section_idxs)
@@ -168,6 +168,6 @@ end
     vsm_w.n_unrefined_sections = Int16(2)
 
     @test_throws ErrorException compute_spatial_station_mapping!(
-        wing, stations, sys.points)
+        wing, stations, state.points)
 end
 nothing

@@ -90,11 +90,9 @@ end
 """
     abstract type WingDynamics
 
-Phantom tag for a wing's dynamics, carried as the second type parameter of
-[`Wing`](@ref). It mirrors the `dynamics_type` field but lifts the
-rigid/particle distinction into the type domain so aero (and other) methods can
-dispatch on [`RigidWing`](@ref)/[`ParticleWing`](@ref) instead of branching on
-`dynamics_type`. Subtypes: [`RigidDynamics`](@ref), [`ParticleDynamics`](@ref).
+Tag of a wing's dynamics, which a wing's aero component dispatches on
+([`wing_dynamics`](@ref)) instead of branching on its `dynamics_type`. Subtypes:
+[`RigidDynamics`](@ref), [`ParticleDynamics`](@ref).
 """
 abstract type WingDynamics end
 
@@ -104,13 +102,10 @@ struct RigidDynamics <: WingDynamics end
 """Dynamics tag for a `PARTICLE_DYNAMICS` wing (frame fitted from points)."""
 struct ParticleDynamics <: WingDynamics end
 
-"""
-    wing_dynamics(dynamics_type::WingType) -> Type{<:WingDynamics}
-
-Map a [`WingType`](@ref) to its [`WingDynamics`](@ref) tag.
-"""
-wing_dynamics(dynamics_type::WingType) =
-    dynamics_type == RIGID_DYNAMICS ? RigidDynamics : ParticleDynamics
+"""The [`WingDynamics`](@ref) of wing record `wing`, which its aero component dispatches
+on."""
+wing_dynamics(wing) =
+    body_dynamics_type(wing) == RIGID_DYNAMICS ? RigidDynamics() : ParticleDynamics()
 
 """
     AbstractAeroModel
@@ -217,27 +212,42 @@ AeroSpec{M}(; options...) where {M} =
     AeroSpec{M, typeof(values(options))}(values(options))
 
 """
-    model_aero(aero, body, set, vsm_set)
+    model_aero(mode, wing, n_stations, set, vsm_set)
 
-The aero mode a model flies `body` with: `aero`, or for an [`AeroSpec`](@ref) its mode with
-an engine of its own built from `set` and `vsm_set`, unless there is no `set` to build it
-from.
+The aero mode a model flies the wing whose `wings` row is `wing`, with `n_stations`
+stations, with: `mode`, or for an [`AeroSpec`](@ref) its mode with an engine of its own
+built from `set` and `vsm_set`, unless there is no `set` to build it from.
 """
-model_aero(aero::AbstractAeroModel, body, set, vsm_set) = aero
-function model_aero(spec::AeroSpec{M}, body, set, vsm_set) where {M}
+model_aero(mode::AbstractAeroModel, wing, n_stations, set, vsm_set) = mode
+function model_aero(spec::AeroSpec{M}, wing, n_stations, set, vsm_set) where {M}
     isnothing(set) && return spec
-    isnothing(vsm_set) && error("Wing $(body.name): aero mode $(nameof(M)) needs VSM " *
+    isnothing(vsm_set) && error("Wing $(wing.name): aero mode $(nameof(M)) needs VSM " *
         "geometry, but the model has no `vsm_set` and the project names no `vsm_settings`.")
-    return M(build_vsm_engine(set, vsm_set, body_dynamics_type(body);
-        n_stations=length(body.station_idxs),
-        aero_scale_chord=body.model.aero_scale_chord,
-        aero_z_offset=body.model.aero_z_offset,
-        unsteady=copy_unsteady(body.model.unsteady)); spec.options...)
+    options = spec.options
+    unsteady = haskey(options, :unsteady) ? copy_unsteady(options.unsteady) : UnsteadyAero()
+    return M(build_vsm_engine(set, vsm_set, wing_dynamics_type(wing); n_stations,
+        aero_scale_chord=something(wing.model.aero_scale_chord, 0.0),
+        aero_z_offset=something(wing.model.aero_z_offset, 0.0), unsteady);
+        Base.structdiff(options, NamedTuple{(:unsteady,)})...)
 end
 
-"""A new [`UnsteadyAero`](@ref) with the values of `unsteady`."""
+"""A new [`UnsteadyAero`](@ref) with the values of `unsteady`, so a model's engine shares
+none with another's."""
 copy_unsteady(unsteady::UnsteadyAero) =
     UnsteadyAero((copy(getfield(unsteady, name)) for name in fieldnames(UnsteadyAero))...)
+
+"""The aero mode wing row `wing` is flown with: the one `aero` gives under its name, else
+the one its `aero_mode` column names, else `AeroLinearized` for a rigid wing and
+`AeroDirect` for a particle wing."""
+function wing_aero_spec(wing, aero)
+    haskey(aero, wing.name) && return aero[wing.name]
+    isnothing(wing.model.aero_mode) || return parse_aero_mode(wing.model.aero_mode)
+    return wing_dynamics_type(wing) == RIGID_DYNAMICS ? AeroLinearized() : AeroDirect()
+end
+
+"""The [`WingType`](@ref) wing row `wing` names, `RIGID_DYNAMICS` where it names none."""
+wing_dynamics_type(wing) =
+    parse_wing_type(something(wing.model.dynamics_type, "RIGID_DYNAMICS"))
 
 function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)
     sym in VSM_ENGINE_FIELDS && return getproperty(getfield(mode, :engine), sym)
@@ -371,7 +381,7 @@ function Point(name, pos_ENU, type::DynamicsType;
     model = PointModel(;
         body_frame_damping=axis_column(body_frame_damping),
         world_frame_damping=axis_column(world_frame_damping), area, drag_coeff,
-        fix_sphere, fix_static, wing_idx=wing,
+        fix_sphere, fix_static,
         anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
         apparent_mass=iszero(apparent_mass) ? nothing : Float64(apparent_mass))
     return KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body, tube,
@@ -883,8 +893,7 @@ function tether_row(name, segments, start_point, end_point, stretched_length,
     isnothing(tether_force) || isnothing(stretch_frac) || error(
         "Tether $name: set only one of `tether_force` and `stretch_frac`.")
     return KiteGeometry.Tether(; name=Symbol(name),
-        start_point=something(cell_ref(start_point), 0),
-        end_point=something(cell_ref(end_point), 0),
+        start_point=cell_ref(start_point), end_point=cell_ref(end_point),
         segments=NameRef[cell_ref(segment) for segment in segments],
         init_stretched_length=maybe(Float64, stretched_length),
         init_tether_force=maybe(Float64, tether_force),

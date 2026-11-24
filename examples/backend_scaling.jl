@@ -161,7 +161,7 @@ function build_model(data_path, geometry_path, count, backend)
         project_file("vsm_settings"); data_prefix = false)
     sys, transforms = load_sys_struct_from_yaml(geometry_path;
         system_name = "scaling_$(count)kite", set,
-        aero_mode = AERO_MODE, prn = false)
+        aero_mode = AERO_MODE)
     model = SymbolicAWEModel(set, sys; transforms, backend, vsm_set)
     init!(model; remake = true, prn = false)
     return model

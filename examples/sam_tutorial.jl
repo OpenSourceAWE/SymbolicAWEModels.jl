@@ -115,7 +115,9 @@ for (i, y) in enumerate([-1.0, 0.0, 1.0])
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
-wings = [VSMWing(1, set, eachindex(stations))]
+wings = [Wing(; name=Symbol(1), pos_ENU=zeros(3), body=Symbol(1),
+               model=WingModel(; stations=collect(eachindex(stations))))]
+bodies = [Body(1; extra_mass=0.0, inertia_principal=ones(3), pos=zeros(3))]
 transforms = [
     Transform(; name=:main, elevation=deg2rad(-85), azimuth=0, heading=0,
               base_pos=[0, 0, 0], base_point=1, rot_point=[21 => 1.0],
@@ -123,7 +125,8 @@ transforms = [
 ]
 
 sys = system_definition("wing", set;
-    points, stations, segments, tethers, winches, pulleys, wings)
+    points, spanwise_stations=stations, segments, tethers, winches, pulleys, wings,
+    bodies)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 @info "Wing model created successfully"

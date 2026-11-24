@@ -123,10 +123,8 @@ end
         joinpath(data_path, "rigid_structural_geometry.yaml");
         system_name="frame_invariance", set,
         aero_mode=AeroLinearized())
-    wing = sys.bodies[1]
-    @test body_dynamics_type(wing) == RIGID_DYNAMICS
-
     sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+    @test body_dynamics_type(sam.state.wings[1]) == RIGID_DYNAMICS
     ref = run_case(sam)
     @test norm(ref[1].aero_wrench_w) > 1.0
     @test maximum(norm, ref[1].point_force_w) > 1.0

@@ -759,9 +759,9 @@ and transform base point, and [`PerPointWind`](@ref); no mass, length or stiffne
 """
 function get_sys_struct_hash(state::SystemState)
     (; structure, transforms) = state
-    (; points, segments, pulleys, tethers, winches) = structure
+    (; segments, pulleys, tethers, winches) = structure
     stations = structure.spanwise_stations
-    (; wings, bodies, tubes) = state
+    (; points, wings, bodies, tubes) = state
     data_parts = []
     for (idx, point) in enumerate(points)
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,

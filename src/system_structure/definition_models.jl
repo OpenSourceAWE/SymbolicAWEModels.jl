@@ -5,8 +5,7 @@
     PointModel
 
 What SymbolicAWEModels holds of a point beyond its KiteGeometry `points` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, which no document holds.
+only it reads, each `nothing` where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
@@ -23,27 +22,13 @@ $(TYPEDFIELDS)
     fix_sphere::Union{Nothing, Bool} = nothing
     "Whether the point is frozen in place."
     fix_static::Union{Nothing, Bool} = nothing
-    "The wing the point belongs to, by name or index."
-    wing_idx::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Where the point sits in its body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
     "Entrained-air mass resisting acceleration without adding weight [kg]."
     apparent_mass::Union{Nothing, Float64} = nothing
-    "Index in the structure's points."
-    idx::Int64 = 0
-    "Whether the point is a structural node of a wing: a member of one of its stations."
-    is_wing_node::Bool = false
 end
 
-PointModel(body_frame_damping, world_frame_damping, area, drag_coeff,
-           fix_sphere, fix_static, wing_idx, anchor_b, apparent_mass) =
-    PointModel(; body_frame_damping, world_frame_damping, area, drag_coeff,
-               fix_sphere, fix_static, wing_idx, anchor_b, apparent_mass)
-
-KiteGeometry.model_columns(::Type{PointModel}) =
-    (:body_frame_damping, :world_frame_damping, :area, :drag_coeff,
-     :fix_sphere, :fix_static, :wing_idx, :anchor_b, :apparent_mass)
-KiteGeometry.model_references(::Type{PointModel}) = (wing_idx=:wings,)
+KiteGeometry.model_columns(::Type{PointModel}) = fieldnames(PointModel)
 
 """
     SegmentSpring
@@ -104,6 +89,8 @@ $(TYPEDFIELDS)
 end
 
 KiteGeometry.model_columns(::Type{StationModel}) = fieldnames(StationModel)
+KiteGeometry.model_references(::Type{StationModel}) =
+    (bodies=:bodies, flap_bodies=:bodies, flap_points=:points)
 
 """
     WingModel
@@ -113,35 +100,37 @@ where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
-struct WingModel <: KiteGeometry.AbstractModel
+@kwdef struct WingModel <: KiteGeometry.AbstractModel
     "Name of the aerodynamic model, such as `AeroLinearized`."
-    aero_mode::Union{Nothing, String}
+    aero_mode::Union{Nothing, String} = nothing
     "Spin damping about the body axes [1/s], one value or one per axis."
-    angular_damping::Union{Nothing, Float64, Vector{Float64}}
+    angular_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Scale on the VSM panel chord."
-    aero_scale_chord::Union{Nothing, Float64}
+    aero_scale_chord::Union{Nothing, Float64} = nothing
     "Offset of the VSM panels along the body z-axis [m]."
-    aero_z_offset::Union{Nothing, Float64}
+    aero_z_offset::Union{Nothing, Float64} = nothing
     "How the principal frame is found: `EIGEN_DECOMP` or `Y_ROTATION`."
-    principal_frame_method::Union{Nothing, String}
+    principal_frame_method::Union{Nothing, String} = nothing
     "`PARTICLE_DYNAMICS` or `RIGID_DYNAMICS`."
-    dynamics_type::Union{Nothing, String}
+    dynamics_type::Union{Nothing, String} = nothing
     "The points, weighted, whose position is the wing's origin."
-    origin_idx::Any
+    origin_idx::Any = nothing
     "The two weighted point groups the wing's z-axis runs between."
-    z_ref_points::Any
+    z_ref_points::Any = nothing
     "The two weighted point groups the wing's y-axis runs between."
-    y_ref_points::Any
+    y_ref_points::Any = nothing
     "Origin of the wing's body frame in the authoring frame [m]."
-    pos_cad::Union{Nothing, Vector{Float64}}
+    pos_cad::Union{Nothing, Vector{Float64}} = nothing
     "Centre of the wing's own mass in the authoring frame [m]."
-    com::Union{Nothing, Vector{Float64}}
+    com::Union{Nothing, Vector{Float64}} = nothing
     "Inertia per unit mass [m²], a 3×3 matrix or `[Ixx, Iyy, Izz, Ixy, Ixz, Iyz]`."
-    unit_inertia::Any
+    unit_inertia::Any = nothing
     "Drag correction of a flat-plate wing."
-    drag_corr::Union{Nothing, Float64}
+    drag_corr::Union{Nothing, Float64} = nothing
     "The stations the wing lists, by name or index."
-    stations::Union{Nothing, Vector{KiteGeometry.NameRef}}
+    stations::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
+    "Whether the points of the wing's stations add their moment to it."
+    group_points_moment::Union{Nothing, Bool} = nothing
 end
 
 """
@@ -343,7 +332,7 @@ default, and `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m", "kg");
+                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "m", "kg");
                     default=true)
     register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
@@ -353,12 +342,12 @@ function register_definition_models()
                     default=true)
     register_model!(:wings, "sam_wing", WingModel,
                     ("-", "1/s", "-", "m", "-", "-", "-", "-", "-", "m", "m", "m^2", "-",
-                     "-");
+                     "-", "-");
                     default=true)
     register_model!(:pulleys, "sam_pulley", PulleyModel,
                     ("-", "-", "N*s/m", "-", "m/s"); default=true)
     register_model!(:bodies, "sam_body", BodyModel,
-                    ("-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
+                    ("-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-", "kg", "m");
                     default=true)
     register_model!(:tethers, "sam_tether", TetherModel, (); default=true)
     register_model!(:winches, "sam_winch", WinchModel,

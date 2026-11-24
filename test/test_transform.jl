@@ -449,8 +449,8 @@ using LinearAlgebra
     # Chained Transform Tests (using kps4_plate-style programmatic API)
     # ================================================================
     @testset "Chained Transforms" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, Station, SystemDefinition, create_plate_interpolations
+        using SymbolicAWEModels: Point, Segment, Tether, Winch, Station,
+            SystemDefinition
 
         # Use kps4 settings (2plate_kite has no tethers)
         kps4_data = joinpath(tmpdir, "kps4")
@@ -552,28 +552,23 @@ using LinearAlgebra
                 area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
         ]
-        cl_interp, cd_interp =
-            create_plate_interpolations(
-                set_c.alpha_cl, set_c.cl_list,
-                set_c.cd_list; alpha_cd=set_c.alpha_cd)
-
-        wing_c = PlateWing(:plate_wing,
-            [:main, :right_tip, :left_tip],
-            cl_interp, cd_interp;
-            dynamics_type=PARTICLE_DYNAMICS,
-            z_ref_points=([:right, :left], :top),
-            y_ref_points=(:left, :right),
-            origin=:kcu, drag_corr=0.93 * K)
+        wing_c = Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
+            model=WingModel(; aero_mode="AeroPlate", dynamics_type="PARTICLE_DYNAMICS",
+                stations=[:main, :right_tip, :left_tip],
+                z_ref_points=[[:right, :left], :top], y_ref_points=[:left, :right],
+                origin_idx=:kcu, drag_corr=0.93 * K))
+        body_c = Body(:plate_wing; extra_mass=0.0, inertia_principal=ones(3),
+                      pos=zeros(3))
 
         elev = deg2rad(set_c.elevation)
         azim = deg2rad(10.0)
         kite_angle = deg2rad(3.83)
 
         sys_c = system_definition("chained_test", set_c;
-            points=points_c, stations=stations_c,
+            points=points_c, spanwise_stations=stations_c,
             segments=segments_c,
             tethers=tethers_c, winches=winches_c,
-            wings=[wing_c])
+            wings=[wing_c], bodies=[body_c])
 
         point_idx(name) = KiteGeometry.row_index(sys_c.points, name)
         tether_idxs = [i for (i, point) in enumerate(sys_c.points)

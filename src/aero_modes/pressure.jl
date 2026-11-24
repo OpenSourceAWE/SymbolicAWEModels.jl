@@ -7,7 +7,7 @@
 # ContinuousAero; only the scatter differs (surface pattern vs strut couple).
 
 """
-    AeroPressure(; frame_tol_frac=2.0, live_polars=false)
+    AeroPressure(; frame_tol_frac=2.0, live_polars=false, unsteady=UnsteadyAero())
 
 VSM aerodynamics whose per-section force is distributed onto arbitrary structural
 points (a chord-line skeleton, a strut, or a double-skin membrane of point masses)
@@ -94,8 +94,8 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     live::Any
 end
 
-AeroPressure(; frame_tol_frac=2.0, live_polars=false) =
-    AeroSpec{AeroPressure}(; frame_tol_frac, live_polars)
+AeroPressure(; frame_tol_frac=2.0, live_polars=false, unsteady=UnsteadyAero()) =
+    AeroSpec{AeroPressure}(; frame_tol_frac, live_polars, unsteady)
 AeroPressure(engine::VSMEngine; frame_tol_frac=2.0, live_polars=false) =
     AeroPressure(engine, Vector{Vector{Int64}}(), Vector{Vector{Int64}}(),
         Tuple{Int64, Int64, SimFloat}[], Vector{Vector{SimFloat}}(),
@@ -128,7 +128,7 @@ aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.blend_point,
 # ==================== equation builder ==================== #
 
 """
-    aero_component(mode::AeroPressure, wing::ParticleWingState, sys_struct; name, params)
+    aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct; name, params)
 
 Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
 fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
@@ -140,7 +140,7 @@ per refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
 `traction_net` and the `cl/cd/cm` polars are flat params refreshed every
 `vsm_interval`.
 """
-function aero_component(mode::AeroPressure, wing::ParticleWingState, sys_struct;
+function aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind

@@ -112,7 +112,7 @@ transforms:
     sys, transforms = load_sys_struct_from_yaml(yaml_path;
         system_name="weighted_ref_test", set)
 
-    wing = sys.bodies[1]
+    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
 
     # z_ref_points[1] should be a single point (idx 7, kcu)
     z_p1, z_p2 = wing.z_ref_points

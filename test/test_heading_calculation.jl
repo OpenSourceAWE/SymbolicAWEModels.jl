@@ -149,7 +149,7 @@ function heading_after_reinit(base_pos, dx, target_heading)
                       bodies=[1])]
 
     sys = system_definition("near_vertical_heading", set;
-        points, bodies=[kite], prn=false)
+        points, bodies=[kite])
     place!(sys, transforms)
 
     placed = sys.bodies[:kite]

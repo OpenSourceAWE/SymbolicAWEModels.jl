@@ -270,7 +270,7 @@ end
 
 """
     SymbolicAWEModel(set::Settings, sys_struct::SystemDefinition; transforms=Transform[],
-                     wind_mode=ProfileWind(), kwargs...)
+                     vsm_set=nothing, aero=Dict(), wind_mode=ProfileWind(), kwargs...)
 
 Constructs a `SymbolicAWEModel` from an existing `SystemDefinition`, the KiteGeometry
 `transforms` that place it and the run's settings, which the model holds: `sam.set`,
@@ -284,6 +284,10 @@ physical layout of the kite system and prepares it for symbolic model generation
 - `sys_struct::SystemDefinition`: The physical system definition.
 - `transforms`: The KiteGeometry transforms placing `sys_struct`, as
   [`load_sys_struct_from_yaml`](@ref) returns them; their rates start the run moving.
+- `vsm_set`: The VSM settings the model's engines are built from; the project's
+  `vsm_settings` by default.
+- `aero`: The aero mode of each wing by its name, in place of the one its row names
+  ([`wing_aero_spec`](@ref)): a flat plate's own polars, or a mode's options.
 - `wind_mode::WindMode`: [`PerPointWind`](@ref) makes every point's `wind_vec` a
   settable parameter instead of a height-profile output.
 - `kwargs...`: Further keyword arguments passed to the `SymbolicAWEModel` constructor.
@@ -296,12 +300,13 @@ function SymbolicAWEModel(
     sys_struct::SystemDefinition;
     transforms=Transform[],
     vsm_set=nothing,
+    aero=Dict{Symbol, AbstractAeroModel}(),
     wind_mode::WindMode=ProfileWind(),
     kwargs...
 )
     set.physical_model = sys_struct.metadata.name
     set_hash = get_set_hash(set)
-    state = SystemState(sys_struct; set, transforms, vsm_set, wind_mode)
+    state = SystemState(sys_struct; set, transforms, vsm_set, aero, wind_mode)
     sys_struct_hash = get_sys_struct_hash(state)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)

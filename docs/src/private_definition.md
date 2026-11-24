@@ -106,6 +106,7 @@ SymbolicAWEModels.nan_to_nothing
 SymbolicAWEModels.numeric_unit_stiffness
 SymbolicAWEModels.point_apparent_wind
 SymbolicAWEModels.point_segments
+SymbolicAWEModels.point_wings
 SymbolicAWEModels.segment_tethers
 SymbolicAWEModels.segment_pulleys
 SymbolicAWEModels.run_value

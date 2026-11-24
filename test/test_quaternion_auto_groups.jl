@@ -41,9 +41,10 @@ using LinearAlgebra
         system_name="2plate_refine", set)
 
     @test length(sys_refine.wings) == 1
-    @test body_dynamics_type(sys_refine.bodies[1]) == PARTICLE_DYNAMICS
+    refine_wing = SymbolicAWEModels.SystemState(sys_refine; set, vsm_set).wings[1]
+    @test body_dynamics_type(refine_wing) == PARTICLE_DYNAMICS
     @test length(sys_refine.spanwise_stations) == 3
-    @test length(sys_refine.bodies[1].station_idxs) == 3
+    @test length(refine_wing.station_idxs) == 3
 
     # ── RIGID_DYNAMICS with YAML-defined stations ───────
     # rigid_structural_geometry.yaml has 3 explicit stations

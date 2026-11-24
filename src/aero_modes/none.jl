@@ -11,22 +11,20 @@ rigid/kinematic body. Needs no VSM geometry and carries no state.
 """
 struct AeroNone <: AbstractAeroModel end
 
-"""Whether `body` flies with aerodynamics: a plain body and a wing flown with `AeroNone`
-do not."""
-has_aero(::Body{AeroNone}) = false
-has_aero(::Body) = true
-has_aero(body::BodyState) = has_aero(body.row)
+"""Whether body record `body` flies with aerodynamics: a plain body and a wing flown with
+`AeroNone` do not."""
+has_aero(body) = !(body.aero isa AeroNone)
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::Type{AeroNone}) = "none"
 
 """
-    aero_component(::AeroNone, wing::ParticleWingState, sys_struct; name)
+    aero_component(::AeroNone, ::ParticleDynamics, wing, sys_struct; name)
 
 Zero per-point forces (particle connector contract). AeroNone supports both wing
 dynamics via one method each.
 """
-function aero_component(::AeroNone, wing::ParticleWingState, sys_struct;
+function aero_component(::AeroNone, ::ParticleDynamics, wing, sys_struct;
                         name, params=nothing)
     num_points = length(wing_points(sys_struct, wing))
     connectors = particle_aero_connectors(num_points)
@@ -35,11 +33,11 @@ function aero_component(::AeroNone, wing::ParticleWingState, sys_struct;
 end
 
 """
-    aero_component(::AeroNone, wing::RigidWingState, sys_struct; name)
+    aero_component(::AeroNone, ::RigidDynamics, wing, sys_struct; name)
 
 Zero lumped force/moment (rigid connector contract).
 """
-function aero_component(::AeroNone, wing::RigidWingState, sys_struct;
+function aero_component(::AeroNone, ::RigidDynamics, wing, sys_struct;
                         name, params=nothing)
     num_stations = length(wing.station_idxs)
     connectors = rigid_aero_connectors(num_stations)

@@ -6,7 +6,7 @@ include("definition_models.jl")  # KiteGeometry models of SAM's own columns
 include("types.jl")         # Enums, Point, Station, Segment, Pulley, Tether, Winch
 include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for TimoshenkoTube
 include("rigid_body.jl")    # Body (embedded in Wing and standalone)
-include("wing.jl")          # AbstractWing, Wing (embeds a Body)
+include("wing.jl")
 include("system_state.jl")  # SystemState: what a run holds of each component
 include("system_structure_core.jl")  # SystemDefinition type and constructor
 include("utilities.jl")     # Helpers, validation, state management

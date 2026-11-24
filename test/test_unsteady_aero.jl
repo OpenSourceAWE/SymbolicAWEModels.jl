@@ -39,8 +39,9 @@ using LinearAlgebra
 """
     build_unsteady_case(root, tag; apparent_mass, wagner, rates)
 
-Fresh data directory, `Settings`, `SystemDefinition` and its placing transforms for
-the particle-dynamics 2plate kite with the unsteady corrections set as given. Each
+Fresh data directory, `Settings`, `SystemDefinition`, its placing transforms, VSM settings
+and the model's aero choice for the particle-dynamics 2plate kite, flown with the unsteady
+corrections set as given. Each
 build gets its own `system_name`: the Wagner constants are substituted into the
 emitted equations, so two lags must not share a compiled model.
 """
@@ -59,11 +60,11 @@ function build_unsteady_case(root, tag; apparent_mass=0.0, wagner=false,
     end
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name=tag, set, aero_mode=ContinuousAero())
-    sys.bodies[1].unsteady.apparent_mass = apparent_mass
-    sys.bodies[1].unsteady.wagner = wagner
-    sys.bodies[1].unsteady.wagner_rates = rates
-    return set, sys, transforms, vsm_set
+        system_name=tag, set)
+    unsteady = UnsteadyAero(; apparent_mass, wagner, wagner_rates=rates)
+    aero = Dict{Symbol, SymbolicAWEModels.AbstractAeroModel}(
+        :main_wing => ContinuousAero(; unsteady))
+    return set, sys, transforms, vsm_set, aero
 end
 
 """Wagner's indicial function at `s` semi-chords, for the wing's own constants."""
@@ -74,8 +75,8 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     root = mktempdir()
 
     @testset "apparent mass" begin
-        set, sys, _, vsm_set = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
-        state = SystemState(sys; set, vsm_set)
+        set, sys, _, vsm_set, aero = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
+        state = SystemState(sys; set, vsm_set, aero)
         wing = state.wings[1]
         points = wing_points(state, wing)
 
@@ -111,9 +112,10 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     @testset "apparent mass slows the nodes" begin
         # Same force, more inertia: the wing's nodes must accelerate less.
         accels = map((0.0, 1.0)) do scale
-            set, sys, transforms, vsm_set = build_unsteady_case(root, "am_step_$(scale)";
+            set, sys, transforms, vsm_set, aero = build_unsteady_case(root, "am_step_$(scale)";
                                                        apparent_mass=scale)
-            sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set)
+            sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
+                                   aero)
             test_init!(sam; remake=true)
             points = wing_points(sam.state, sam.state.wings[1])
             before = [copy(p.vel_w) for p in points]
@@ -163,16 +165,16 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     end
 
     @testset "Wagner: off by default" begin
-        set, sys, _, vsm_set = build_unsteady_case(root, "wag_default")
-        wing = SystemState(sys; set, vsm_set).wings[1]
+        set, sys, _, vsm_set, aero = build_unsteady_case(root, "wag_default")
+        wing = SystemState(sys; set, vsm_set, aero).wings[1]
         @test !wagner_enabled(wing)
         @test unsteady_aero(wing).apparent_mass == 0.0
     end
 
     @testset "Wagner: the reference frame is the panels' own" begin
         # The lag shifts every panel's α, so its own α is read in their frame.
-        set, sys, _, vsm_set = build_unsteady_case(root, "wag_frame")
-        wing = SystemState(sys; set, vsm_set).wings[1]
+        set, sys, _, vsm_set, aero = build_unsteady_case(root, "wag_frame")
+        wing = SystemState(sys; set, vsm_set, aero).wings[1]
         panels = wing.vsm_aero.panels
         x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
         @test x_ref ≈ normalize(sum(Vector(panel.x_airf) for panel in panels))
@@ -183,23 +185,26 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     @testset "Wagner: constants are parameters, not structure" begin
         # Retuning a lag must sync, not rebuild: only the on/off switch is
         # structure, because it is what adds or removes the two states.
-        set, slow, _, vsm_set = build_unsteady_case(root, "wag_tune"; wagner=true,
+        set, slow, _, vsm_set, aero = build_unsteady_case(root, "wag_tune"; wagner=true,
                                            rates=(0.02, 0.15))
-        slow_hash = get_sys_struct_hash(SystemState(slow; set, vsm_set))
-        slow.bodies[1].unsteady.wagner_rates = [0.0455, 0.3]
-        slow.bodies[1].unsteady.wagner_gains = [0.2, 0.4]
-        @test get_sys_struct_hash(SystemState(slow; set, vsm_set)) == slow_hash
+        slow_state = SystemState(slow; set, vsm_set, aero)
+        slow_hash = get_sys_struct_hash(slow_state)
+        slow_state.wings[1].unsteady.wagner_rates = [0.0455, 0.3]
+        slow_state.wings[1].unsteady.wagner_gains = [0.2, 0.4]
+        @test get_sys_struct_hash(slow_state) == slow_hash
 
-        off_set, off, _, vsm_set = build_unsteady_case(root, "wag_tune"; wagner=false)
-        @test get_sys_struct_hash(SystemState(off; set=off_set, vsm_set)) != slow_hash
+        off_set, off, _, vsm_set, off_aero = build_unsteady_case(root, "wag_tune"; wagner=false)
+        @test get_sys_struct_hash(SystemState(off; set=off_set, vsm_set,
+                                                    aero=off_aero)) != slow_hash
     end
 
     @testset "Wagner: two states for the whole wing" begin
         # However many panels the wing has, the lag costs exactly two states.
         counts = map((false, true)) do wagner
-            set, sys, transforms, vsm_set = build_unsteady_case(root, "wag_count_$(wagner)";
+            set, sys, transforms, vsm_set, aero = build_unsteady_case(root, "wag_count_$(wagner)";
                                                        wagner)
-            sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set)
+            sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
+                                   aero)
             test_init!(sam; remake=true)
             (length(sam.integrator.u), Int(sam.state.wings[1].vsm_wing.n_panels))
         end

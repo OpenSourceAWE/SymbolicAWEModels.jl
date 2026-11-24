@@ -85,53 +85,6 @@ the same formula for every aero mode, so it does not dispatch.
 calc_side_slip(wing) =
     atan(wing.va_b[2], hypot(wing.va_b[1], wing.va_b[3]))
 
-"""
-    normalized_inertia(mode::AbstractAeroModel, wing, points)
-        -> (com, inertia)
-
-Normalized (per-unit-mass) inertia of the wing body about its COM, in world axes, with
-`inertia` in [m²] — multiply by the wing's own `extra_mass` for the physical tensor
-[kg·m²]. `inertia` is `nothing` when there is no mass to normalize by. The default
-normalizes the wing nodes' point-mass inertia ([`normalized_point_inertia`](@ref)); VSM
-wings with a mesh return its per-unit-mass tensor and COM ([`seed_wing_inertia!`](@ref))
-carried from the mesh's frame into the world, and fall back to the point
-masses otherwise.
-"""
-normalized_inertia(::AbstractAeroModel, wing, points) =
-    normalized_point_inertia(wing, points)
-
-function normalized_inertia(::AeroSpec, wing, points)
-    model = wing.model
-    tensor = model.mesh_unit_inertia
-    (isnothing(tensor) || all(iszero, tensor)) &&
-        return normalized_point_inertia(wing, points)
-    origin, R = mesh_frame(wing)
-    return origin + R * model.mesh_com, R * tensor * R'
-end
-
-"""
-    normalized_point_inertia(wing, points) -> (com, inertia)
-
-Per-unit-mass inertia of the wing's frame points treated as point masses
-(`extra_mass`), normalized by their total mass: the shape a wing without a mesh
-spreads its own mass in, from their `pos_ENU`. With zero total mass, `com` is the unweighted
-centroid and `inertia` is `nothing`.
-"""
-function normalized_point_inertia(wing, points)
-    wing_points = [point for point in points
-                   if wing_frame_member(point, wing.idx)]
-    masses = [point.extra_mass for point in wing_points]
-    total_mass = sum(masses)
-    com = total_mass > 0 ?
-        sum(masses[j] .* wing_points[j].pos_ENU
-            for j in eachindex(wing_points)) / total_mass :
-        mean([point.pos_ENU for point in wing_points])
-    total_mass > 0 || return com, nothing
-    inertia = sum(point_mass_inertia(mass, point.pos_ENU - com)
-                  for (mass, point) in zip(masses, wing_points))
-    return com, inertia / total_mass
-end
-
 # ==================== connector scaffolding ==================== #
 
 function rigid_aero_connectors(num_stations::Int)
@@ -188,7 +141,7 @@ function particle_unknowns(connectors)
 end
 
 """
-    frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
+    frozen_point_force_component(wing, sys_struct; name, params) -> System
 
 Particle aero component binding each wing node's connector force to its frozen
 `point.aero_force_b` flat parameter, set at each refresh
@@ -1048,10 +1001,10 @@ function store_induced_velocity!(v_ind, body_aero, gamma)
 end
 
 """
-    aero_component(mode::AbstractAeroModel, wing::AbstractWing, sys_struct; name, params) -> System
+    aero_component(mode, dynamics::WingDynamics, wing, sys_struct; name, params) -> System
 
 Build the aero subsystem for `wing`, selected by dispatch on both the wing's
-`aero` model and its dynamics type ([`RigidWing`](@ref)/[`ParticleWing`](@ref)).
+`aero` model and its [`WingDynamics`](@ref).
 Returns a `System` exposing the connectors fixed by the dynamics type, all in
 the wing body frame (the wiring layer `aero_eqs!` drives inputs and reads
 outputs; connectors a mode ignores still exist for binding):
@@ -1411,32 +1364,10 @@ function transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offse
     return nothing
 end
 
-"""
-    body_in_mesh_frame(wing) -> (origin, R_b_to_mesh)
-
-The initial pose of `wing`'s body in the frame its mesh is authored in.
-"""
-function body_in_mesh_frame(wing)
-    origin, R = mesh_frame(wing)
-    return R' * (origin_ENU(wing) - origin), R' * initial_rotation(wing)
-end
-
-"""Record the pose of a VSM `wing`'s body in its mesh's frame, on the wing's model."""
-store_mesh_pose!(wing) = store_mesh_pose!(wing.aero, wing)
-store_mesh_pose!(::AbstractAeroModel, wing) = nothing
-function store_mesh_pose!(::AeroSpec, wing)
-    model = wing.model
-    origin, R_b_to_mesh = body_in_mesh_frame(wing)
-    model.mesh_origin_b = KVec3(origin)
-    model.R_b_to_mesh = Matrix{SimFloat}(R_b_to_mesh)
-    return nothing
-end
-
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
-    model = (getfield(wing, :row)).model
     if body_dynamics_type(wing) == RIGID_DYNAMICS
-        transform_vsm_sections_to_body!(wing, model.mesh_origin_b, model.R_b_to_mesh;
+        transform_vsm_sections_to_body!(wing, wing.mesh_origin_b, wing.R_b_to_mesh;
                                         aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.station_idxs)
@@ -1451,7 +1382,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
         compute_station_geometry!(wing, stations, points)
     else  # PARTICLE_DYNAMICS
         isnothing(wing.origin) ||
-            transform_vsm_sections_to_body!(wing, model.mesh_origin_b, model.R_b_to_mesh)
+            transform_vsm_sections_to_body!(wing, wing.mesh_origin_b, wing.R_b_to_mesh)
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; stations)
         setup_particle_point_mapping!(wing, points, stations)

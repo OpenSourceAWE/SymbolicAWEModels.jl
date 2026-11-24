@@ -2020,7 +2020,8 @@ function ParticleWingAero(s, params, idx; name)
     positions = indexed_vector_variables(:point_pos, count; input = true)
     velocities = indexed_vector_variables(:point_vel, count; input = true)
     forces = indexed_vector_variables(:point_force, count)
-    subsys = aero_component(wing.aero, wing, sys_struct; name = :aero, params)
+    subsys = aero_component(wing.aero, wing_dynamics(wing), wing, sys_struct;
+                            name = :aero, params)
     validate_aero_component(subsys, wing)
     orientation = reshape(collect(pose[2]), 3, 3)
     origin = collect(pose[1])
@@ -2269,7 +2270,8 @@ function WingAero(s, params, idx; name)
     twists = [scalar_input(Symbol(:twist_angle_, surface)) for surface in surfaces]
     rates = [scalar_input(Symbol(:twist_vel_, surface)) for surface in surfaces]
     moments = [scalar_output(Symbol(:twist_moment_, surface)) for surface in surfaces]
-    subsys = aero_component(wing.aero, wing, sys_struct; name = :aero, params)
+    subsys = aero_component(wing.aero, wing_dynamics(wing), wing, sys_struct;
+                            name = :aero, params)
     validate_aero_component(subsys, wing)
     orientation = reshape(collect(pose.pose_frame), 3, 3)
     origin = collect(pose.pose_pos)

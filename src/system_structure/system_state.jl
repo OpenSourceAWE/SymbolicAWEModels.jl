@@ -94,27 +94,92 @@ end
 """
     BodyGeometry
 
-What a run works out of a body's mass: its own mass properties with those of the points it
-carries ([`update_mass_properties!`](@ref)).
+What a run works out of a body: its mass with that of the points it carries
+([`update_mass_properties!`](@ref)) and, for the body of a wing, the frame and stations its
+wing's row gives.
 
 $(TYPEDFIELDS)
 """
-mutable struct BodyGeometry
+@kwdef mutable struct BodyGeometry
     "Mass of the body with the points it carries [kg]."
-    total_mass::SimFloat
+    total_mass::SimFloat = 0.0
     "Centre of that mass from the body-frame origin, body frame [m]."
-    com_offset_b::KVec3
+    com_offset_b::KVec3 = zeros(KVec3)
     "Principal moments of inertia about that centre [kg·m²]."
-    inertia_principal::KVec3
+    inertia_principal::KVec3 = zeros(KVec3)
     "Rotation from the body frame into the principal frame."
-    R_b_to_p::Matrix{SimFloat}
+    R_b_to_p::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
+    "Centre of the body's own mass from the body-frame origin, body frame [m]."
+    extra_com_offset_b::KVec3 = zeros(KVec3)
+    "The index of the `wings` row whose body this is, 0 for none."
+    wing_row::Int = 0
+    "The dynamics of that wing, `RIGID_DYNAMICS` for a body that is no wing."
+    dynamics_type::WingType = RIGID_DYNAMICS
+    "Indices of the wing's stations, from +y to -y."
+    station_idxs::Vector{Int} = Int[]
+    "Reference points of the body origin."
+    origin::Union{Nothing, WeightedRefPoints} = nothing
+    "Reference points of the body z axis."
+    z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
+    "Reference points of the body y axis."
+    y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
+    "The body's origin in the frame its wing's mesh is authored in [m]."
+    mesh_origin_b::KVec3 = zeros(KVec3)
+    "The body's axes in the frame its wing's mesh is authored in."
+    R_b_to_mesh::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
 end
 
 """The fields of a [`BodyGeometry`](@ref) a body record reads and writes as its own."""
 const BODY_GEOMETRY_FIELDS = fieldnames(BodyGeometry)
 
-"""The mass of a body before a run works it out: none, with the body's axes principal."""
-BodyGeometry() = BodyGeometry(0.0, zeros(KVec3), zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
+"""
+    BodyGeometry(sys, body)
+
+What a run starts from of body `body` of definition `sys`: its own centre of mass and, for
+the body of a wing, the wing's dynamics, stations and reference points and its pose in the
+frame of the wing's mesh, its mass still to be worked out.
+"""
+function BodyGeometry(sys, body)
+    row = sys.bodies[body]
+    wing = something(findfirst(wing -> wing.body == body, sys.wings), 0)
+    wing == 0 && return BodyGeometry(; extra_com_offset_b=KVec3(own_com_offset(row)))
+    model = sys.wings[wing].model
+    origin = maybe(weighted_ref_points, model.origin_idx)
+    R_b_to_w = quaternion_to_rotation_matrix(row.Q_KA2ENU)
+    origin_pos = isnothing(origin) ? KVec3(row.pos_ENU) :
+        get_ref_position_from_points(sys.points, origin; field=:pos_ENU)
+    mesh_origin, R_mesh_to_w = KVec3(sys.wings[wing].pos_ENU),
+        quaternion_to_rotation_matrix(sys.wings[wing].Q_KA2ENU)
+    return BodyGeometry(; wing_row=wing, dynamics_type=wing_dynamics_type(sys.wings[wing]),
+        extra_com_offset_b=R_b_to_w' * (row.pos_ENU - origin_pos),
+        station_idxs=wing_station_idxs(sys, wing), origin,
+        z_ref_points=maybe(weighted_ref_pair, model.z_ref_points),
+        y_ref_points=maybe(weighted_ref_pair, model.y_ref_points),
+        mesh_origin_b=R_mesh_to_w' * (origin_pos - mesh_origin),
+        R_b_to_mesh=R_mesh_to_w' * R_b_to_w)
+end
+
+"""The stations of wing `wing` of `sys`, from +y to -y: those its row lists, else those
+on it."""
+function wing_station_idxs(sys, wing)
+    listed = sys.wings[wing].model.stations
+    isnothing(listed) || return Vector{Int}(listed)
+    return [i for (i, station) in enumerate(sys.spanwise_stations) if station.wing == wing]
+end
+
+"""The weighted reference points a resolved cell gives: a point index, a list of them
+averaged, or `[index, weight]` pairs."""
+function weighted_ref_points(cell)
+    cell isa Integer && return WeightedRefPoints(cell)
+    n = length(cell)
+    first(cell) isa Integer &&
+        return WeightedRefPoints(NameRef[], Vector{Int}(cell), fill(1.0 / n, n))
+    weights = validate_weights!(Float64[entry[2] for entry in cell])
+    return WeightedRefPoints(NameRef[], Int[entry[1] for entry in cell], weights)
+end
+
+"""The two weighted reference points of a resolved pair of cells."""
+weighted_ref_pair(cells) = (weighted_ref_points(cells[1]), weighted_ref_points(cells[2]))
 
 """The fields of a [`StationGeometry`](@ref) a station record reads and writes as its
 own."""
@@ -145,6 +210,8 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const built_segments::Vector{BuiltSegment}
     "each point's segments"
     const point_segments::Vector{Vector{Int}}
+    "the wing each point belongs to, `nothing` for none"
+    const point_wings::Vector{Union{Nothing, Int}}
     "the tether each segment belongs to, 0 for none"
     const segment_tethers::Vector{Int}
     "the pulley each segment runs over and its side of it, `(0, 0)` for none"
@@ -200,18 +267,25 @@ end
 
 """
     SystemState(sys::SystemDefinition; set=nothing, transforms=Transform[],
-                wind_mode=ProfileWind())
+                vsm_set=nothing, aero=Dict(), wind_mode=ProfileWind())
 
 The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteGeometry
-`transforms`, at its start from the pose `sys` is placed in ([`start_run!`](@ref)).
+`transforms`, at its start from the pose `sys` is placed in ([`start_run!`](@ref)), its
+wings flown with the aero modes `aero` gives by name and else their rows name.
 """
 function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
+                     aero=Dict{Symbol, AbstractAeroModel}(),
                      wind_mode::WindMode=ProfileWind())
-    vsm_set = model_vsm_set(sys, set, vsm_set)
-    modes = AbstractAeroModel[model_aero(body.aero, body, set, vsm_set)
-                              for body in sys.bodies]
-    n_corners = sum(n_aero_log_points(mode, body)
-                    for (mode, body) in zip(modes, sys.bodies); init=0)
+    geometry = [BodyGeometry(sys, body) for body in eachindex(sys.bodies)]
+    specs = [wing_aero_spec(wing, aero) for wing in sys.wings]
+    vsm_set = model_vsm_set(specs, set, vsm_set)
+    modes = AbstractAeroModel[AeroNone() for _ in sys.bodies]
+    for (spec, wing) in zip(specs, sys.wings)
+        modes[wing.body] = model_aero(spec, wing,
+            length(geometry[wing.body].station_idxs), set, vsm_set)
+    end
+    n_corners = sum(n_aero_log_points(mode, geometry[i])
+                    for (i, mode) in enumerate(modes); init=0)
     P, counts = sysstate_counts(sys, n_corners, sum(n_vsm_panels, modes; init=0))
     no_records = Rows{ComponentState}()
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
@@ -222,11 +296,12 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
             tethers=typed_rows(Tether, sys.tethers),
             winches=typed_rows(Winch, sys.winches))
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat),
-                        built_segments, point_segments(sys), segment_tethers(sys),
+                        built_segments, point_segments(sys), point_wings(sys, geometry),
+                        segment_tethers(sys),
                         segment_pulleys(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
-                        run_tubes(sys), [BodyGeometry() for _ in sys.bodies],
+                        run_tubes(sys, geometry), geometry,
                         [StationGeometry(row) for row in sys.spanwise_stations], modes,
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,
@@ -245,25 +320,21 @@ end
 """`rows` as a collection of `T`."""
 typed_rows(::Type{T}, rows) where {T} = Rows{T}(rows)
 
-"""The tubes of `sys` as a run simulates them, built from the rows a document holds."""
-function run_tubes(sys)
-    tubes = Rows(Tube[run_tube(sys, tube) for tube in sys.tubes])
-    for (i, tube) in enumerate(tubes)
-        tube.idx = i
-        tube.bodies = map(ref -> resolve_ref(ref, sys.bodies, "rigid_body"), tube.bodies)
-    end
-    init_tube_rest!.(tubes, Ref(sys.bodies))
+"""The tubes of `sys` as a run simulates them, the bodies' own centres of mass lying as
+their `geometry` gives."""
+function run_tubes(sys, geometry)
+    tubes = Rows(Tube[definition_tube(sys, tube,
+                          map(body -> geometry[body].extra_com_offset_b, tube.bodies))
+                      for tube in sys.tubes])
+    foreach(((i, tube),) -> tube.idx = i, enumerate(tubes))
     return tubes
 end
-function run_tube(sys, tube)
-    tube.model isa AbstractTubeModel && return tube
-    return definition_tube(sys, tube)
-end
 
-"""`vsm_set`, else the project's `vsm_settings` for a run of `set` with a VSM wing."""
-function model_vsm_set(sys, set, vsm_set)
+"""`vsm_set`, else the project's `vsm_settings` for a run of `set` with wings flown with
+the aero mode `specs` of which one is VSM's."""
+function model_vsm_set(specs, set, vsm_set)
     isnothing(vsm_set) || return vsm_set
-    (isnothing(set) || !any(body -> body.aero isa AeroSpec, sys.bodies)) && return nothing
+    (isnothing(set) || !any(spec -> spec isa AeroSpec, specs)) && return nothing
     path = optional_project_file("vsm_settings")
     return isnothing(path) ? nothing : VortexStepMethod.VSMSettings(path; data_prefix=false)
 end
@@ -275,6 +346,21 @@ function point_segments(sys)
         push!(on_point[point_idx], i)
     end
     return on_point
+end
+
+"""The wing each point of `sys` belongs to, `nothing` for none: the wing of a station it is
+on, else the wing whose body it rides, `geometry` giving each body's wing."""
+function point_wings(sys, geometry)
+    wings = Union{Nothing, Int}[nothing for _ in sys.points]
+    for (i, point) in enumerate(sys.points)
+        body = point.body
+        isnothing(body) || geometry[body].wing_row == 0 ||
+            (wings[i] = geometry[body].wing_row)
+    end
+    for station in sys.spanwise_stations, point in station.points
+        wings[point] = station.wing
+    end
+    return wings
 end
 
 """The pulley each segment of `sys` runs over and its side of it, `(0, 0)` for none."""
@@ -578,6 +664,7 @@ A point of a run's state: its position and velocity and the forces on it.
     ext_force_w => (run_value(r, :ext_force_w, zero(KVec3)),
                     set_run_value!(r, :ext_force_w, value))
     is_wing_node => (point_is_wing_node(r), derived(:is_wing_node))
+    wing_idx => (getfield(run_state(r), :point_wings)[index(r)], derived(:wing_idx))
     anchor_b => (point_anchor_b(r), derived(:anchor_b))
     pos_undeformed_b => (point_undeformed_b(r), derived(:pos_undeformed_b))
     beam_frac => (first(point_beam_anchor(r)), derived(:beam_frac))
@@ -754,11 +841,11 @@ its aero mode's VSM engine, read through to the model's.
     wind_vec => ColumnVec3(sysstate(r).wind_x, sysstate(r).wind_y, sysstate(r).wind_z,
                            body_slot(r))
     va_b => (body_apparent_wind(r), derived(:va_b))
-    principal_frame_method => (body_principal_frame_method(r.row),
+    principal_frame_method => (body_principal_frame_method(r),
                                derived(:principal_frame_method))
     extra_mass => (something(r.row.extra_mass, 0.0), derived(:extra_mass))
     origin_ENU => (origin_ENU(r.row), derived(:origin_ENU))
-    angular_damping => (run_value(r, :angular_damping, body_angular_damping(r.row)),
+    angular_damping => (run_value(r, :angular_damping, body_angular_damping(r)),
                         set_run_value!(r, :angular_damping, value))
     world_frame_damping => (run_value(r, :world_frame_damping,
                                       per_axis(r.row.world_frame_damping)),
@@ -776,8 +863,14 @@ its aero mode's VSM engine, read through to the model's.
                    set_run_value!(r, :fix_sphere, value))
     fix_static => (run_value(r, :fix_static, something(r.row.fix_static, false)),
                    set_run_value!(r, :fix_static, value))
-    apparent_mass => (run_value(r, :apparent_mass, r.row.apparent_mass),
+    apparent_mass => (run_value(r, :apparent_mass, something(r.row.apparent_mass, 0.0)),
                       set_run_value!(r, :apparent_mass, value))
+    group_points_moment => (run_value(r, :group_points_moment,
+                                      something(wing_column(r, :group_points_moment), true)),
+                            set_run_value!(r, :group_points_moment, value))
+    wind_disturb => (run_value(r, :wind_disturb, zero(SVector{3, Float64})),
+                     set_run_value!(r, :wind_disturb, value))
+    drag_frac => (run_value(r, :drag_frac, 1.0), set_run_value!(r, :drag_frac, value))
     aero_force_b => ColumnVec3(sysstate(r).aero_force_KA_x, sysstate(r).aero_force_KA_y,
                                sysstate(r).aero_force_KA_z, index(r))
     aero_moment_b => ColumnVec3(sysstate(r).aero_moment_KA_x, sysstate(r).aero_moment_KA_y,
@@ -818,7 +911,7 @@ end
 
 """The apparent wind on `body` in its body frame [m/s]."""
 body_apparent_wind(body) = SVector{3}(body.R_b_to_w' *
-    (body.wind_vec - body.vel_w + getfield(body, :row).wind_disturb))
+    (body.wind_vec - body.vel_w + body.wind_disturb))
 
 """The mass of `point`, its own and half of each segment on it [kg]."""
 function point_total_mass(point)
@@ -880,12 +973,6 @@ function wing_rates(wing)
         acc = collect(wing.acc_w), omega_b = collect(wing.ω_b), alpha_b = zeros(3),
         va_b = collect(wing.va_b), twist_offset = 0.0)
 end
-
-"""A record of a rigid wing."""
-const RigidWingState = BodyState{<:RigidWing}
-
-"""A record of a particle wing."""
-const ParticleWingState = BodyState{<:ParticleWing}
 
 # ==================== STATE VECTOR ==================== #
 

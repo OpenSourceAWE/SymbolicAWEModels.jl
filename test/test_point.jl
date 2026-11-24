@@ -525,17 +525,9 @@ system:
 end
 
 # ============================================================================
-# `point.wing_idx` is the wing the point belongs to, and `nothing` means none
+# A run's `point.wing_idx` is the wing the point belongs to, and `nothing` means none
 # ============================================================================
 @testset "Point without a wing" begin
-    @testset "a point names no wing unless it says so" begin
-        for type in (STATIC, DYNAMIC, KINEMATIC)
-            @test isnothing(Point(:free, zeros(3), type).wing_idx)
-        end
-        @test isnothing(Point(:rider, zeros(3), BODY_STATIC; body=:b).wing_idx)
-        @test Point(:node, zeros(3), DYNAMIC; wing=:main_wing).wing_idx == :main_wing
-    end
-
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
@@ -559,8 +551,10 @@ end
     @testset "free point with no wing builds and flies" begin
         sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "~");
             system_name="point_no_wing", set)
-        @test isnothing(sys.points[:kcu].wing_idx)
-        @test !sys.points[:kcu].is_wing_node
+        free = SystemState(sys).points
+        @test isnothing(free[:kcu].wing_idx)
+        @test !free[:kcu].is_wing_node
+        @test free[:le_left].wing_idx == KiteGeometry.row_index(sys.wings, :main_wing)
 
         sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)

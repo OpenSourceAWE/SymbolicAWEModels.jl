@@ -48,8 +48,8 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_geom", set)
-        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
-        points = sys.points
+        state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
 
         n_struct = count(
@@ -94,8 +94,8 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_polar", set)
-        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
-        points = sys.points
+        state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
 
         # Baseline refined polars from constructor
@@ -199,8 +199,8 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_err", set)
-        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
-        points = sys.points
+        state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
 
         # Create mismatch

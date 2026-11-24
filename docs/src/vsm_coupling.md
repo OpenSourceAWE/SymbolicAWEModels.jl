@@ -318,10 +318,7 @@ the mode:
 - **Low-frequency refresh** (every `vsm_interval` steps, orchestrated by
   [`refresh_aero!`](@ref)): [`refresh_rigid_aero!`](@ref) /
   [`refresh_particle_aero!`](@ref).
-- **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
-  [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
-  wing's own `extra_mass` at the single consumer (default: normalized point-mass inertia
-  from the wing's structural points).
+- **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`).
 - **Log-point visualization**: [`n_aero_log_points`](@ref) /
   [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /
   [`restore_aero_twist!`](@ref) — extra `SysState` slots for the mode's display

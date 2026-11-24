@@ -155,10 +155,11 @@ end
     # Fresh components per call: `SystemDefinition` resolves indices in place.
     function build_beam_sys(name; with_flap=true)
         # The wing owning the flap: a rigid wing with no aero, held where it is.
-        nodeA = Wing(:nodeA, with_flap ? [:flap] : Symbol[], [1.0, 0.0, 0.0, 0.0],
-                     [0.0, 0.0, 0.0], inertia; aero=AeroNone())
-        nodeA.extra_mass = 1.0
-        nodeA.fixed = true
+        wing = Wing(; name=:nodeA, pos_ENU=zeros(3), body=:nodeA,
+            model=WingModel(; aero_mode="AeroNone",
+                            stations=with_flap ? [:flap] : nothing))
+        nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia, pos=zeros(3),
+                     type=STATIC)
         nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0])
         tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
@@ -170,8 +171,8 @@ end
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
         bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; tube=:tube)
         return system_definition(name, set;
-            points=[bridle], wings=[nodeA], bodies=[nodeB], tubes=[tube],
-            stations=with_flap ? [flap] : Station[])
+            points=[bridle], wings=[wing], bodies=[nodeA, nodeB], tubes=[tube],
+            spanwise_stations=with_flap ? [flap] : Station[])
     end
 
     sys = build_beam_sys("flap_beam_test")

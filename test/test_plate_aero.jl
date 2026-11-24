@@ -22,7 +22,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: Point, Segment, Tether, Winch, PlateWing, Station,
+using SymbolicAWEModels: Point, Segment, Tether, Winch, Station,
     Transform, SystemDefinition, create_plate_interpolations, PARTICLE_DYNAMICS
 using KiteUtils
 using LinearAlgebra
@@ -84,14 +84,14 @@ function build_plate_kite(data_root)
             y_airf=[0, 0, 1], area=set.area * rel_side,
             twist=deg2rad(set.alpha_ztip)),
     ]
-    cl_interp, cd_interp = create_plate_interpolations(set.alpha_cl, set.cl_list,
-        set.cd_list; alpha_cd=set.alpha_cd)
-    wing = PlateWing(:plate_wing, [:main, :right_tip, :left_tip],
-        cl_interp, cd_interp; dynamics_type=PARTICLE_DYNAMICS,
-        z_ref_points=([:right, :left], :top), y_ref_points=(:left, :right),
-        origin=:kcu, drag_corr=0.93 * (1.0 - rel_side))
-    sys = system_definition("plate_aero_test", set; points, stations,
-        segments, tethers, winches, wings=[wing])
+    wing = Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
+        model=WingModel(; aero_mode="AeroPlate", dynamics_type="PARTICLE_DYNAMICS",
+            stations=[:main, :right_tip, :left_tip],
+            z_ref_points=[[:right, :left], :top], y_ref_points=[:left, :right],
+            origin_idx=:kcu, drag_corr=0.93 * (1.0 - rel_side)))
+    body = Body(:plate_wing; extra_mass=0.0, inertia_principal=ones(3), pos=zeros(3))
+    sys = system_definition("plate_aero_test", set; points, spanwise_stations=stations,
+        segments, tethers, winches, wings=[wing], bodies=[body])
     transforms = [Transform(; name=:main_tf, elevation=deg2rad(set.elevation),
         azimuth=0.0, heading=0.0, base_pos=zeros(3), base_point=1, body=1,
         points=collect(2:length(sys.points)), bodies=[1])]

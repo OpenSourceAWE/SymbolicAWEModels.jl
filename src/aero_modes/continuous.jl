@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    ContinuousAero()
+    ContinuousAero(; unsteady=UnsteadyAero())
 
 Frozen-circulation VSM aerodynamics with live symbolic force assembly
 (`PARTICLE_DYNAMICS` only). The VSM solver runs every `vsm_interval` steps and
@@ -12,8 +12,8 @@ evaluates the `calc_forces!` chain symbolically per refined panel — geometry
 interpolated from the live strut points with the frozen mesh weights,
 effective angle of attack, polar lookups, and lift/drag directions all live —
 capturing aerodynamic damping between refreshes. Carries a
-[`VSMEngine`](@ref); `ContinuousAero()` selects the mode for a wing
-([`AeroSpec`](@ref)).
+[`VSMEngine`](@ref); `ContinuousAero(; unsteady)` selects the mode for a wing, with the
+unsteady corrections `unsteady` ([`AeroSpec`](@ref)).
 """
 mutable struct ContinuousAero{E} <: AbstractVSMAero
     engine::E
@@ -35,7 +35,7 @@ mutable struct ContinuousAero{E} <: AbstractVSMAero
     cm::Any
 end
 
-ContinuousAero() = AeroSpec{ContinuousAero}()
+ContinuousAero(; unsteady=UnsteadyAero()) = AeroSpec{ContinuousAero}(; unsteady)
 ContinuousAero(engine::VSMEngine) =
     ContinuousAero(engine, zeros(SimFloat, 3, 0), SimFloat[], Int64[], SimFloat[],
                    zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0), nothing, nothing, nothing)
@@ -154,7 +154,7 @@ end
 # ==================== equation builder ==================== #
 
 """
-    aero_component(mode::ContinuousAero, wing::ParticleWingState, sys_struct; name)
+    aero_component(mode::ContinuousAero, ::ParticleDynamics, wing, sys_struct; name)
 
 Symbolic per-refined-panel re-expression of `VortexStepMethod.calc_forces!` on
 the `PARTICLE_DYNAMICS` connector contract. Refined-section positions,
@@ -166,7 +166,7 @@ through the integrator, e.g. `aero_1.alpha`). Each panel force acts on the
 quarter-chord line (75 % LE / 25 % TE) with the pitching moment as an LE/TE
 force couple, distributed to the bounding struts by the mesh weights.
 """
-function aero_component(mode::ContinuousAero, wing::ParticleWingState, sys_struct;
+function aero_component(mode::ContinuousAero, ::ParticleDynamics, wing, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind

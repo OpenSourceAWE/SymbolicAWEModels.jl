@@ -223,11 +223,9 @@ aero_poses = [
             sys, transforms = load_sys_struct_from_yaml(case.yaml;
                 system_name="aero_modes_$(idx)", set,
                 aero_mode=case.make())
-            wing = sys.bodies[1]
-            @test body_dynamics_type(wing) == case.dynamics
-
             sam = SymbolicAWEModel(set, sys; transforms, vsm_set=case.vsm_set)
             wing = sam.state.bodies[1]
+            @test body_dynamics_type(wing) == case.dynamics
             test_init!(sam)
 
             @testset "pose sweep" begin
@@ -412,7 +410,7 @@ aero_poses = [
             case.dynamics == PARTICLE_DYNAMICS &&
             @testset "yaw antisymmetry" begin
                 apply_pose!(sam, set, aero_poses[1])
-                pin_wing_nodes!(sys, wing)
+                pin_wing_nodes!(sam.state, wing)
                 base_pos = wing_node_positions(sam.state, wing)
                 @test !isempty(base_pos)
 
@@ -425,7 +423,7 @@ aero_poses = [
                 force_pos, moment_pos = held(0.05)
                 _, moment_neg = held(-0.05)
                 _, moment_flat = held(0.0)
-                pin_wing_nodes!(sys, wing, false)
+                pin_wing_nodes!(sam.state, wing, false)
 
                 @test abs(moment_pos[3]) > 1e-3 * norm(force_pos)
                 @test abs(moment_flat[3]) < 0.25 * abs(moment_pos[3])

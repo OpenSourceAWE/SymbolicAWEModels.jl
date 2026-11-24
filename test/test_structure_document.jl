@@ -30,7 +30,7 @@ document describes, with the transforms placing it.
 function two_plate_kite(set, vsm_set)
     return load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
-        system_name="2plate_kite", set, prn=false)
+        system_name="2plate_kite", set)
 end
 
 """
@@ -64,7 +64,7 @@ function bodies_and_tubes(set)
                                stiffness_torsion=900.0, stiffness_bending=1500.0,
                                damping=0.002))]
     return system_definition("structure_document_bodies", set; points, segments,
-        bodies, tubes, prn=false)
+        bodies, tubes)
 end
 
 """
@@ -78,8 +78,7 @@ function pretensioned_tether(set; winches=Winch[])
                    Point(:top, [0.0, 0.0, 10.0], DYNAMIC; extra_mass=1.0)]
     tethers = Tether[Tether(:line, 10.0; start_point=:ground, end_point=:top,
                             n_segments=2, stretch_frac=0.99)]
-    return system_definition("structure_document_tether", set; points, tethers, winches,
-        prn=false)
+    return system_definition("structure_document_tether", set; points, tethers, winches)
 end
 
 """World position of `body`'s centre of mass."""
@@ -221,7 +220,7 @@ end
         winch = only(sys.winches)
         winch.gear_ratio = 2 * set.gear_ratio
         winch.drum_radius = 2 * set.drum_radius
-        reread = sys_struct_from_document(structure_document(sys); set, prn=false)
+        reread = sys_struct_from_document(structure_document(sys))
         @test (only(reread.winches).gear_ratio, only(reread.winches).drum_radius) ==
               (2 * set.gear_ratio, 2 * set.drum_radius)
     end
@@ -237,8 +236,7 @@ end
 
     @testset "a document with wings reads back in its initial pose" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        reread = sys_struct_from_document(structure_document(sys); set,
-                                          prn=false)
+        reread = sys_struct_from_document(structure_document(sys))
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
         @test SymbolicAWEModels.origin_ENU(reread.bodies[:main_wing]) ≈
@@ -253,7 +251,7 @@ end
         @test isnothing(JSONSchema.validate(schema, document))
         path = joinpath(tmpdir, "bodies_and_tubes" * extension)
         save_structure_document(path, sys)
-        reread = load_structure_document(path; set, prn=false)
+        reread = load_structure_document(path)
         @test structure_document(reread) == document
         @test reread.bodies[:root].fixed
         @test SymbolicAWEModels.SystemState(reread).tubes[:beam].bodies[1] ==
@@ -277,7 +275,7 @@ end
         sys = pretensioned_tether(set)
         @test sum(segment.rest_length for segment in sys.segments) ≈ 9.9
         document = structure_document(sys)
-        reread = sys_struct_from_document(document; set, prn=false)
+        reread = sys_struct_from_document(document)
         @test structure_document(reread) == document
         @test [point.pos_w for point in SystemState(reread).points] ==
               [point.pos_ENU for point in sys.points]
@@ -306,13 +304,13 @@ end
     @testset "a document whose connectivity_sha does not describe it is refused" begin
         document = structure_document(bodies_and_tubes(set))
         document["metadata"]["connectivity_sha"] = repeat("0", 64)
-        @test_throws "does not describe" sys_struct_from_document(document; set)
+        @test_throws "does not describe" sys_struct_from_document(document)
     end
 
     @testset "a document of another major version is refused" begin
         document = structure_document(bodies_and_tubes(set))
         document["metadata"]["awesIO_version"] = "1.0.0"
-        @test_throws "major version" sys_struct_from_document(document; set)
+        @test_throws "major version" sys_struct_from_document(document)
     end
 
     @testset "a nonlinear stiffness law cannot be written yet" begin
@@ -320,7 +318,7 @@ end
                        Point(:top, [0.0, 0.0, 1.0], DYNAMIC; extra_mass=1.0)]
         segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
                                    10.0, 0.004; rest_length=1.0, density=724.0)]
-        sys = system_definition("nonlinear_link", set; points, segments, prn=false)
+        sys = system_definition("nonlinear_link", set; points, segments)
         @test_throws "awesIO#1" save_structure_document(
             joinpath(tmpdir, "nonlinear.yml"), sys)
     end

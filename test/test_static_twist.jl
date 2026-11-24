@@ -12,47 +12,50 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, validate_station_modes,
-    Wing, Station, update_sys_struct!
+using SymbolicAWEModels: VortexStepMethod, validate_station_modes, Point, Station,
+    update_sys_struct!
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
-@testset "validate_station_modes" begin
-    rigid = Wing(:rigid, NameRef[], [1.0, 0.0, 0.0, 0.0],
-        zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
-    rigid.idx = 1
-    particle = Wing(:particle, NameRef[], [1.0, 0.0, 0.0, 0.0],
-        zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
-    particle.idx = 1
+"""The run of the smallest system with one station of `npoints` points and twist `type` on
+a wing of `dynamics`, flown without aero."""
+function station_check_state(npoints, type, dynamics)
+    set = Settings("system.yaml")
+    points = [Point(Symbol(:p, i), [0.0, Float64(i), 0.0], DYNAMIC) for i in 1:npoints]
+    station = Station(:g, [point.name for point in points], type, 0.25; wing=:wing)
+    wing = Wing(; name=:wing, pos_ENU=zeros(3), body=:wing,
+        model=WingModel(; aero_mode="AeroNone", dynamics_type=string(dynamics),
+                        origin_idx=dynamics == PARTICLE_DYNAMICS ? :p1 : nothing))
+    body = Body(:wing; extra_mass=1.0, inertia_principal=ones(3), pos=zeros(3))
+    sys = system_definition("station_modes", set; points, spanwise_stations=[station],
+                            wings=[wing], bodies=[body])
+    return SystemState(sys)
+end
 
-    mkstation(name, npoints, type) = begin
-        g = Station(name, collect(1:npoints), type, 0.25)
-        g.points = collect(1:npoints)
-        g
+"""Whether `validate_station_modes` accepts the station of [`station_check_state`](@ref)."""
+station_modes_valid(npoints, type, dynamics) =
+    let state = station_check_state(npoints, type, dynamics)
+        validate_station_modes(state.spanwise_stations, state.bodies) === nothing
     end
 
+@testset "validate_station_modes" begin
     # DYNAMIC on rigid + >=2 points -> ok
-    rigid.station_idxs = [1]
-    @test validate_station_modes([mkstation(:g, 2, DYNAMIC)], [rigid]) === nothing
+    @test station_modes_valid(2, DYNAMIC, RIGID_DYNAMICS)
     # STATIC on rigid, any point count -> ok
-    @test validate_station_modes([mkstation(:g, 1, STATIC)], [rigid]) === nothing
-    @test validate_station_modes([mkstation(:g, 3, STATIC)], [rigid]) === nothing
-
+    @test station_modes_valid(1, STATIC, RIGID_DYNAMICS)
+    @test station_modes_valid(3, STATIC, RIGID_DYNAMICS)
     # DYNAMIC on particle -> reject (needs rigid)
-    particle.station_idxs = [1]
-    @test_throws ErrorException validate_station_modes(
-        [mkstation(:g, 2, DYNAMIC)], [particle])
+    @test_throws ErrorException station_modes_valid(2, DYNAMIC, PARTICLE_DYNAMICS)
     # DYNAMIC 1-point -> reject (needs bridle couple)
-    @test_throws ErrorException validate_station_modes(
-        [mkstation(:g, 1, DYNAMIC)], [rigid])
+    @test_throws ErrorException station_modes_valid(1, DYNAMIC, RIGID_DYNAMICS)
     # STATIC on particle + multi-point -> ok (inert aero-section membership
     # marker; the free particles carry the deformation)
-    @test validate_station_modes([mkstation(:g, 2, STATIC)], [particle]) === nothing
+    @test station_modes_valid(2, STATIC, PARTICLE_DYNAMICS)
     # STATIC on particle + 1 point -> ok
-    @test validate_station_modes([mkstation(:g, 1, STATIC)], [particle]) === nothing
+    @test station_modes_valid(1, STATIC, PARTICLE_DYNAMICS)
 end
 
 @testset "STATIC twist on rigid VSM wing" begin

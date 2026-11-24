@@ -79,9 +79,9 @@ function load_pressure_sys(data_path, aero_mode)
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
-    sys, _ = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
-        set, aero_mode)
-    return set, SystemState(sys; set, vsm_set)
+    sys, _ = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test", set)
+    aero = Dict{Symbol, SymbolicAWEModels.AbstractAeroModel}(:main_wing => aero_mode)
+    return set, SystemState(sys; set, vsm_set, aero)
 end
 
 """Give `wing` the apparent wind `va_b` in its body frame, through the wind on it."""
