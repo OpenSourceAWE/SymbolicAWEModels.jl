@@ -319,7 +319,6 @@ function init_body_frame_from_ref_points!(
         wing.y_ref_points, wing.origin; field=:pos_ENU)
     wing.Q_KA2ENU = rotation_matrix_to_quaternion(R_b_to_w)
     set_origin_ENU!(wing, origin_pos)
-    wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
 
     if prn
         origin_rounded = round.(origin_pos; digits=3)
@@ -469,7 +468,6 @@ function setup_wing_frame!(wing, points; prn=true)
             wing.Q_KA2ENU = SimFloat[1, 0, 0, 0]
             set_origin_ENU!(wing, com)
         end
-        wing.com_offset_b .= wing.extra_com_offset_b
 
         # The hook returns per-unit-mass inertia [m²] in the world axes of `origin_ENU`.
         if !isnothing(inertia_normalized)

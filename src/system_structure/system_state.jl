@@ -113,9 +113,8 @@ end
 """The fields of a [`BodyGeometry`](@ref) a body record reads and writes as its own."""
 const BODY_GEOMETRY_FIELDS = fieldnames(BodyGeometry)
 
-"""The mass of body `row` a run starts from, before it adds the points it carries."""
-BodyGeometry(row) = BodyGeometry(row.model.total_mass, copy(row.model.com_offset_b),
-    copy(row.model.inertia_principal), copy(row.model.R_b_to_p))
+"""The mass of a body before a run works it out: none, with the body's axes principal."""
+BodyGeometry() = BodyGeometry(0.0, zeros(KVec3), zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
 
 """The fields of a [`StationGeometry`](@ref) a station record reads and writes as its
 own."""
@@ -227,7 +226,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         segment_pulleys(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
-                        run_tubes(sys), [BodyGeometry(row) for row in sys.bodies],
+                        run_tubes(sys), [BodyGeometry() for _ in sys.bodies],
                         [StationGeometry(row) for row in sys.spanwise_stations], modes,
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,

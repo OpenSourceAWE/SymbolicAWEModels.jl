@@ -161,13 +161,8 @@ from its mass, inertia and pose."""
 function definition_body(body)
     body_type(body) in (DYNAMIC, STATIC) ||
         error("Body $(body.name): type must be DYNAMIC or STATIC, got $(body_type(body)).")
-    model = body.model
-    inertia = Matrix{SimFloat}(something(getfield(body, :extra_inertia_KA), zeros(3, 3)))
-    inertia_principal, R_b_to_p = principal_axes(inertia, body_principal_frame_method(body))
-    model.total_mass = body.extra_mass
-    model.inertia_principal .= inertia_principal
-    model.R_b_to_p = R_b_to_p
-    model.extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
+    body.model.extra_inertia_b =
+        Matrix{SimFloat}(something(getfield(body, :extra_inertia_KA), zeros(3, 3)))
     return body
 end
 

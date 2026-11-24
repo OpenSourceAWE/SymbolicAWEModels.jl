@@ -51,17 +51,8 @@ $(TYPEDFIELDS)
     principal_frame_method::Union{Nothing, String} = nothing
     "Index in the structure's bodies."
     idx::Int64 = 0
-    "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
-    total_mass::SimFloat = 0.0
     "Entrained-air mass resisting acceleration without adding weight [kg]."
     apparent_mass::SimFloat = 0.0
-    "Principal moments of inertia `[Ixx, Iyy, Izz]` with the carried points [kg·m²]."
-    inertia_principal::KVec3 = zeros(KVec3)
-    "Body→principal rotation."
-    R_b_to_p::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
-    "Offset from the body origin to the centre of mass with the carried points, body
-    frame [m]."
-    com_offset_b::KVec3 = zeros(KVec3)
     "Inertia of the body alone about its own centre of mass, body frame [kg·m²]."
     extra_inertia_b::Matrix{SimFloat} = zeros(SimFloat, 3, 3)
     "Offset from the body origin to the centre of mass of the body alone, body frame [m]."
@@ -334,8 +325,8 @@ toggled on a built model.
 inertia about the body's own COM in one of two ways: `inertia_principal` (a length-3
 diagonal principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 `inertia` (a full 3×3 body-frame tensor). Give one, not both. Either is stored as a
-tensor; the stored `inertia_principal` and `R_b_to_p` diagonalise the total with the
-riders, so `R_b_to_p` can differ from the one passed.
+tensor; a run's `inertia_principal` and `R_b_to_p` diagonalise the total with the riders,
+so its `R_b_to_p` can differ from the one passed.
 """
 function Body(name;
         extra_mass::Real,
@@ -377,8 +368,6 @@ function Body(name;
         ext_force_w=Vector{Float64}(ext_force_w), ext_force_b=Vector{Float64}(ext_force_b),
         ext_moment_b=Vector{Float64}(ext_moment_b),
         principal_frame_method=string(principal_frame_method),
-        total_mass=extra_mass, inertia_principal=KVec3(inertia_principal),
-        R_b_to_p=Matrix{SimFloat}(R_b_to_p), com_offset_b=KVec3(com_offset_b),
         extra_com_offset_b=KVec3(com_offset_b))
 end
 

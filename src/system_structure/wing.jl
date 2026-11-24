@@ -160,7 +160,7 @@ function Wing(name, stations::AbstractVector, Q_KA2ENU::AbstractVector,
         body_frame_damping=Vector(broadcast_damping(body_frame_damping)),
         fix_sphere=false, fix_static=false, ext_force_w=zeros(3), ext_force_b=zeros(3),
         ext_moment_b=zeros(3), principal_frame_method=string(principal_frame_method),
-        inertia_principal=KVec3(inertia_principal), station_refs,
+        station_refs,
         group_points_moment, z_ref_points=z_ref, y_ref_points=y_ref, origin=origin_rp)
 end
 
