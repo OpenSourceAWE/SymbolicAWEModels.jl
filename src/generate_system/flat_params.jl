@@ -525,6 +525,23 @@ function set_run_param!(run::RunParams, path, value)
     return true
 end
 
+"""
+    run_station_aero_moment(run, idx) -> Float64
+
+The aerodynamic twist moment on station `idx` [N·m] at `run`'s integrator state.
+"""
+function run_station_aero_moment(run::RunParams, idx)
+    read = get!(run.access, (:station_aero_moment, idx)) do
+        station_aero_moment_reader(run.prob.get_all_state, run.prob, idx)
+    end
+    return read(run.integrator)
+end
+
+"""The function of an integrator that reads station `idx`'s aerodynamic twist moment
+[N·m] from the monolithic system of `prob`."""
+station_aero_moment_reader(_, prob, idx) =
+    getu(prob.sys, prob.sys.station_aero_moment[idx])
+
 """The getter and setter of the parameter at `path` in `run`, `nothing` for none."""
 param_access(run::RunParams, path) =
     get!(() -> build_param_access(run.prob.param_sync, run.prob, path), run.access, path)

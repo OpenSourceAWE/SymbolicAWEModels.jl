@@ -586,7 +586,6 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
             station.twist_ω = has_twist_vel ?
                 Float64(sys_state.twist_vel[i]) : 0.0
         end
-        station.aero_moment = NaN
     end
     for pulley in pulleys
         pulley.idx > length(sys_state.pulley_len) && break

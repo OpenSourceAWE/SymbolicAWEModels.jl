@@ -378,6 +378,17 @@ function winch_readouts(model::KernelModel, sys_struct)
     return readouts
 end
 
+"""The function of an integrator that reads station `idx`'s aerodynamic twist moment
+[N·m] from the kernel `getter` reads its run's state with; `0.0` for a station without
+twist."""
+function station_aero_moment_reader(getter::KernelStateGetter, prob, idx)
+    readout = findfirst(readout -> readout.surface == idx, getter.twist)
+    isnothing(readout) && return integrator -> 0.0
+    slot = getter.twist[readout].aero_moment
+    return integrator -> refresh_outputs!(getter.rhs, integrator.u, integrator.p,
+                                          integrator.t).observable[slot]
+end
+
 function (getter::KernelStateGetter)(integrator, sys_struct)
     scratch = refresh_outputs!(getter.rhs, integrator.u, integrator.p, integrator.t)
     for readout in getter.points
@@ -421,7 +432,6 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         surface = sys_struct.spanwise_stations[readout.surface]
         surface.twist = scratch.output[readout.angle]
         surface.twist_ω = scratch.output[readout.rate]
-        surface.aero_moment = scratch.observable[readout.aero_moment]
     end
     for readout in getter.aero
         wing = sys_struct.bodies[readout.wing]

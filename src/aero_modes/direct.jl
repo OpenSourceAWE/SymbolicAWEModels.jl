@@ -70,13 +70,21 @@ function refresh_rigid_aero!(::AeroDirect, wing, am, stations;
         fill!(wing.aero_jac, 0.0)
         fill!(wing.aero_force_b, 0.0)
         fill!(wing.aero_moment_b, 0.0)
-        for gidx in wing.station_idxs
-            stations[gidx].aero_moment = 0.0
-        end
-        return nothing
+    else
+        rigid_aero_baseline!(wing, stations; vsm_min_wind)
+        apply_direct_forces!(wing, am, wing.aero_x)
     end
-    rigid_aero_baseline!(wing, stations; vsm_min_wind)
-    apply_direct_forces!(wing, am, wing.aero_x)
+    hold_station_moments!(wing, stations)
+    return nothing
+end
+
+"""Hold each of `wing`'s stations that has sections at the twist moment [N·m] its
+baseline coefficients `wing.aero_x` give, until the next refresh."""
+function hold_station_moments!(wing, stations)
+    for (station_pos, gidx) in enumerate(wing.station_idxs)
+        isempty(stations[gidx].unrefined_section_idxs) && continue
+        stations[gidx].aero_moment = wing.aero_x[6 + station_pos]
+    end
     return nothing
 end
 

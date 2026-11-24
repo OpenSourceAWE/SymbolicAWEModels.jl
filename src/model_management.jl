@@ -65,9 +65,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(stations) > 0
         push!(specs, scatter_spec(
             sys.twist_angle => (st, v) -> write_column!(st.sysstate.twist_angles, v),
-            sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v),
-            sys.station_aero_moment =>
-                (st, v) -> write_column!(st.station_aero_moment, v)))
+            sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v)))
     end
     if length(winches) > 0
         push!(specs, scatter_spec(

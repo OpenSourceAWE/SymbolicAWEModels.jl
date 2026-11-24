@@ -107,7 +107,8 @@ end
 station_point_mass(points, station, field) =
     sum(getproperty(points[idx], field) for idx in station.points)
 
-@testset "DYNAMIC station twists with the total mass of its points" begin
+@testset "DYNAMIC station twists with the total mass of its points, $backend" for
+        backend in (MonolithBackend(), KernelBackend())
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     set = Settings("system.yaml")
     set.g_earth = 0.0
@@ -117,7 +118,7 @@ station_point_mass(points, station, field) =
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
         system_name="2plate_kite", set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set, backend)
     init!(sam; prn=false, remake=false, remake_vsm=false)
     update_sys_struct!(sam.prob, sam.integrator, sam.state)
 

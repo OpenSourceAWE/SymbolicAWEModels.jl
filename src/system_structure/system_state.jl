@@ -87,8 +87,6 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const segment_tethers::Vector{Int}
     "the pulley each segment runs over and its side of it, `(0, 0)` for none"
     const segment_pulleys::Vector{Tuple{Int, Int}}
-    "each station's aerodynamic twist moment [N·m]"
-    const station_aero_moment::Vector{SimFloat}
     "the position slot before the first body's in `sysstate.X/Y/Z`"
     const body_slot0::Int
     "the number of wings, whose orientation frames come before the bodies'"
@@ -155,7 +153,6 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat),
                         built_segments, point_segments(sys), segment_tethers(sys),
                         segment_pulleys(sys),
-                        zeros(SimFloat, length(sys.spanwise_stations)),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
                         run_tubes(sys),
@@ -418,13 +415,11 @@ function winch_setting(r, column, setting)
     return isnothing(set) ? NaN : getproperty(set, setting)
 end
 
-"""Write station record `r`'s aerodynamic moment [N·m] where its run reads it."""
-function station_aero_moment!(r, value)
-    run_state(r).station_aero_moment[index(r)] = value
+"""The aerodynamic twist moment on station record `r` [N·m] at its run's integrator
+state, `0.0` before the run has started."""
+function station_aero_moment(r)
     run = getfield(run_state(r), :run)
-    path = (:spanwise_stations, index(r), :aero_moment)
-    isnothing(run) || set_run_param!(run, path, value)
-    return value
+    return isnothing(run) ? 0.0 : run_station_aero_moment(run, index(r))
 end
 
 """
@@ -524,8 +519,7 @@ A station of a run's state: its twist and the moments on it.
     twist_ω => (sysstate(r).twist_vel[index(r)], sysstate(r).twist_vel[index(r)] = value)
     tether_force => (station_tether_load(r).force, derived(:tether_force))
     tether_moment => (station_tether_load(r).moment, derived(:tether_moment))
-    aero_moment => (run_value(r, :aero_moment, run_state(r).station_aero_moment[index(r)]),
-                    station_aero_moment!(r, value))
+    aero_moment => (station_aero_moment(r), set_run_value!(r, :aero_moment, value))
     moment_frac => (run_value(r, :moment_frac, something(r.row.moment_frac, 0.0)),
                     set_run_value!(r, :moment_frac, value))
     damping => (run_value(r, :damping, something(r.row.damping, 50.0)),

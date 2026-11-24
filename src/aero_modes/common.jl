@@ -2076,7 +2076,7 @@ end
     rigid_aero_baseline!(wing, stations; vsm_min_wind=0.5)
 
 Compute the operating point and baseline wind-axis coefficients for one wing:
-writes `wing.aero_y` / `wing.aero_x` and updates `stations[gidx].aero_moment`.
+writes `wing.aero_y` / `wing.aero_x`.
 Returns the context (`va_mag`, section counts, `moment_frac`, `shadow_ref`, `y0`)
 the mode-specific reduction (`refresh_rigid_aero!`) needs for the Jacobian.
 """
@@ -2120,9 +2120,6 @@ function rigid_aero_baseline!(wing, stations;
         moment_frac, shadow_ref)
 
     wing.aero_x .= f_baseline(y0)
-    for (station_index, gidx) in enumerate(station_idxs)
-        stations[gidx].aero_moment = wing.aero_x[6 + station_index]
-    end
 
     return (; va_mag, n_unrefined, n_stations,
             station_idxs, moment_frac, shadow_ref, y0)
