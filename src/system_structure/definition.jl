@@ -93,11 +93,6 @@ function body_row(sys, body)
     return body
 end
 
-"""The parameters of the material of a tube's rigidity `law`: KiteGeometry's constants
-for `breukels2011`, none for another."""
-tube_law_parameters(law) = law == :breukels2011 ? copy(KiteGeometry.BREUKELS2011) :
-    OrderedDict{String, Any}()
-
 function tube_row!(materials, sys, tube)
     body_a, body_b = sys.bodies[tube.bodies[1]], sys.bodies[tube.bodies[2]]
     anchors = (Vector(tube.anchor_a_b - body_a.extra_com_offset_b),
@@ -110,6 +105,6 @@ function tube_row!(materials, sys, tube)
     return KiteGeometry.Tube(; name=definition_name(tube),
         bodies=(tube.bodies[1], tube.bodies[2]), tube.diameter, tube.pressure,
         material=material!(materials, string(tube.material),
-                           tube_law_parameters(tube.material)),
+                           KiteGeometry.tube_law_parameters(tube.material)),
         model=row_model)
 end

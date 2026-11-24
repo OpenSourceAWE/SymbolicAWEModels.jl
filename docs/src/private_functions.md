@@ -526,9 +526,7 @@ SymbolicAWEModels.sync_initial!
 ## Inflated-tube rigidity internals
 
 ```@docs
-SymbolicAWEModels.BREUKELS_BENDING
-SymbolicAWEModels.BREUKELS_COLLAPSE
-SymbolicAWEModels.BREUKELS_TORSION
+SymbolicAWEModels.breukels_constants
 SymbolicAWEModels.check_tube_geometry
 SymbolicAWEModels.breukels_tip_force_coefficients
 SymbolicAWEModels.comer_levy_h

@@ -10,26 +10,19 @@ Two independent sources are available. The Breukels (2011) empirical
 correlations fit a 1 m cantilever tip-force curve and cover the linear regime up
 to collapse. The Comer-Levy (1963) wrinkled-section theory is analytical, needs
 the fabric membrane stiffness `E·t` on top of radius and pressure, and stays
-valid past collapse. Both are exposed as a callable [`TubeRigidityLaw`](@ref)
-that a tube evaluates at its current curvature.
+valid past collapse. Both are exposed as a callable [`TubeRigidityLaw`](@ref) that a
+tube evaluates at its current curvature. The Breukels functions take the correlation
+constants of a tube material ([`breukels_constants`](@ref)), by default KiteGeometry's.
 """
 
-# Breukels (2011) empirical correlation constants for inflated fabric tubes,
-# as used by ASKITE/kite_fem. Radius in m, pressure in bar.
-"""Breukels bending correlation constants `C1`-`C8`."""
-const BREUKELS_BENDING = (
-    C1=6582.82, C2=-272.43, C3=40852.38, C4=14.31,
-    C5=271865251.42, C6=215.93, C7=14021.79, C8=-589.05,
-)
+"""
+    breukels_constants(parameters=KiteGeometry.tube_law_parameters("breukels2011"))
 
-"""Breukels collapse-deflection correlation constants `C9`-`C12`."""
-const BREUKELS_COLLAPSE = (C9=322.55, C10=0.0239, C11=5.3833, C12=0.0461)
-
-"""Breukels torsion correlation constants `C13`-`C19`."""
-const BREUKELS_TORSION = (
-    C13=1467.0, C14=40.908, C15=-191.8, C16=47.406,
-    C17=-17703.0, C18=358.05, C19=0.0918,
-)
+The constants `C1`…`C19` of the Breukels (2011) correlations held in a tube material's
+`parameters`, by default KiteGeometry's.
+"""
+breukels_constants(parameters=KiteGeometry.tube_law_parameters("breukels2011")) =
+    (; (Symbol(name) => Float64(value) for (name, value) in parameters)...)
 
 """Shear correction factor of a thin-walled inflated tube (kite_fem)."""
 const TUBE_SHEAR_COEFF = 8 / 9
@@ -65,7 +58,7 @@ struct TubeRigidityLaw
     curvature_knee::Float64
     "Exponent of the post-knee power-law approach to `moment_collapse`."
     exponent::Float64
-    "Slope the moment deficit leaves the knee at. `M_w/(M_c − M_w)` is C1 there, `exponent` is the plain power law."
+    "Slope the moment deficit leaves the knee at: `M_w/(M_c − M_w)` is C1 there."
     knee_slope::Float64
     "Torsion coefficient `c1` [N·m]."
     c1::Float64
@@ -144,7 +137,7 @@ function check_tube_geometry(radius, pressure)
 end
 
 """
-    breukels_tip_force_coefficients(radius, pressure) -> (asymptote, slope)
+    breukels_tip_force_coefficients(radius, pressure, constants) -> (asymptote, slope)
 
 Saturation force [N] and initial slope [N] of the Breukels 1 m cantilever curve
 `P(δ) = asymptote·(1 - exp(-(slope/asymptote)·δ))` (`radius` [m], `pressure`
@@ -153,9 +146,10 @@ announces it is outside the range it was made in, and letting it through gives a
 negative bending rigidity. The slope changes sign below a radius of roughly
 `-(C8 + C6·pressure)/C7`, about 38 mm at 0.25 bar and 34 mm at 0.5 bar.
 """
-function breukels_tip_force_coefficients(radius, pressure)
+function breukels_tip_force_coefficients(radius, pressure,
+                                         constants=breukels_constants())
     check_tube_geometry(radius, pressure)
-    (; C1, C2, C3, C4, C5, C6, C7, C8) = BREUKELS_BENDING
+    (; C1, C2, C3, C4, C5, C6, C7, C8) = constants
     asymptote = (C1 * radius + C2) * pressure^2 + (C3 * radius^3 + C4)
     slope = (C5 * radius^5 + C6) * pressure + (C7 * radius + C8)
     if asymptote <= 0 || slope <= 0
@@ -170,39 +164,41 @@ function breukels_tip_force_coefficients(radius, pressure)
 end
 
 """
-    breukels_tip_force(deflection, radius, pressure) -> Float64
+    breukels_tip_force(deflection, radius, pressure, constants) -> Float64
 
 Tip force [N] of a 1 m inflated-tube cantilever at normalized tip `deflection`,
 per the Breukels correlation (`radius` [m], `pressure` [bar]).
 """
-function breukels_tip_force(deflection, radius, pressure)
-    asymptote, slope = breukels_tip_force_coefficients(radius, pressure)
+function breukels_tip_force(deflection, radius, pressure,
+                            constants=breukels_constants())
+    asymptote, slope = breukels_tip_force_coefficients(radius, pressure, constants)
     return asymptote * (1 - exp(-(slope / asymptote) * deflection))
 end
 
 """
-    breukels_collapse_deflection(radius, pressure) -> Float64
+    breukels_collapse_deflection(radius, pressure, constants) -> Float64
 
 Normalized tip deflection at which the Breukels 1 m cantilever of `radius` [m] at
 `pressure` [bar] collapses.
 """
-function breukels_collapse_deflection(radius, pressure)
+function breukels_collapse_deflection(radius, pressure,
+                                      constants=breukels_constants())
     check_tube_geometry(radius, pressure)
-    (; C9, C10, C11, C12) = BREUKELS_COLLAPSE
+    (; C9, C10, C11, C12) = constants
     return (C9 * radius^4 + C10) * pressure + C11 * radius^2 + C12
 end
 
 """
-    tube_torsion_law(radius, pressure) -> TubeRigidityLaw
+    tube_torsion_law(radius, pressure, constants) -> TubeRigidityLaw
 
 Breukels torsional rigidity law `GJ(κ)` of an inflated tube (`radius` [m],
 `pressure` [bar]). Errors when the correlation leaves its fitted range and
 returns a non-positive `c1` or `c2`; `c2` does so for a large radius above
 1 bar, where `log(pressure)` changes sign.
 """
-function tube_torsion_law(radius, pressure)
+function tube_torsion_law(radius, pressure, constants=breukels_constants())
     check_tube_geometry(radius, pressure)
-    (; C13, C14, C15, C16, C17, C18, C19) = BREUKELS_TORSION
+    (; C13, C14, C15, C16, C17, C18, C19) = constants
     c1 = (C13 * radius + C14) * pressure + (C15 * radius + C16)
     c2 = C17 * radius^4 * log(pressure) + C18 * radius^3 + C19
     if c1 <= 0 || c2 <= 0
@@ -216,21 +212,21 @@ function tube_torsion_law(radius, pressure)
 end
 
 """
-    tube_linear_rigidities(radius, pressure) -> (EA, GA, EI0, GJ0)
+    tube_linear_rigidities(radius, pressure, constants) -> (EA, GA, EI0, GJ0)
 
 Small-deformation rigidities of an inflated tube from the Breukels laws:
 `GJ0 = c1·c2`, shear modulus from `GJ0` and the section (`J = πr⁴/2`, `A = πr²`),
 `EI0` from the initial slope of the tip-force curve with the shear share of the
 deflection removed, and `EA = EI0·A/I`.
 """
-function tube_linear_rigidities(radius, pressure)
+function tube_linear_rigidities(radius, pressure, constants=breukels_constants())
     area = π * radius^2
     inertia = π * radius^4 / 4
     torsion_constant = 2 * inertia
-    torsion = tube_torsion_law(radius, pressure)
+    torsion = tube_torsion_law(radius, pressure, constants)
     GJ0 = torsion.c1 * torsion.c2
     GA = GJ0 / torsion_constant * area
-    _, slope = breukels_tip_force_coefficients(radius, pressure)
+    _, slope = breukels_tip_force_coefficients(radius, pressure, constants)
     shear_frac = slope / (TUBE_SHEAR_COEFF * GA)
     shear_frac < 1 || error(
         "Breukels shear share ≥ 1 for radius $radius, pressure $pressure")
@@ -240,19 +236,21 @@ function tube_linear_rigidities(radius, pressure)
 end
 
 """
-    tube_law_rigidities(law, diameter, pressure) -> (EA, GA, EI, GJ)
+    tube_law_rigidities(material, diameter, pressure) -> (EA, GA, EI, GJ)
 
-Small-deformation rigidities of a tube of `diameter` [m] at `pressure` [Pa] under
-the stiffness law named `law`. The one law known is `:breukels2011`
+Small-deformation rigidities of a tube of `diameter` [m] at `pressure` [Pa] made of
+KiteGeometry `material`, by its law and parameters. The one law known is `breukels2011`
 ([`tube_linear_rigidities`](@ref)).
 """
-function tube_law_rigidities(law::Symbol, diameter, pressure)
-    law == :breukels2011 && return tube_linear_rigidities(diameter / 2, pressure / 1e5)
+function tube_law_rigidities(material, diameter, pressure)
+    law = String(material.law)
+    law == "breukels2011" && return tube_linear_rigidities(diameter / 2, pressure / 1e5,
+        breukels_constants(material.parameters))
     error("Tube law $law is unknown; give the model's rigidities instead.")
 end
 
 """
-    tube_bending_law(radius, pressure; n_samples=120) -> TubeRigidityLaw
+    tube_bending_law(radius, pressure, constants; n_samples=120) -> TubeRigidityLaw
 
 Breukels bending rigidity law `EI(κ)` of an inflated tube (`radius` [m],
 `pressure` [bar]): moment-curvature samples from the tip-force curve (curvature
@@ -262,17 +260,18 @@ moment, and the post-knee exponent from a least-squares fit of
 anchor, not a tangency — the Breukels curve never runs at `EI0` — so the law is C0
 there, not C1.
 """
-function tube_bending_law(radius, pressure; n_samples=120)
-    _, GA, EI0, _ = tube_linear_rigidities(radius, pressure)
-    collapse = breukels_collapse_deflection(radius, pressure)
-    moment_collapse = breukels_tip_force(collapse, radius, pressure)
+function tube_bending_law(radius, pressure, constants=breukels_constants();
+                          n_samples=120)
+    _, GA, EI0, _ = tube_linear_rigidities(radius, pressure, constants)
+    collapse = breukels_collapse_deflection(radius, pressure, constants)
+    moment_collapse = breukels_tip_force(collapse, radius, pressure, constants)
     moment_knee = 0.5 * moment_collapse
     curvature_knee = moment_knee / EI0
     deflections = range(0.0, collapse; length=n_samples)[2:end]
     x = Float64[]
     y = Float64[]
     for δ in deflections
-        moment = breukels_tip_force(δ, radius, pressure)
+        moment = breukels_tip_force(δ, radius, pressure, constants)
         moment_knee < moment < 0.999 * moment_collapse || continue
         δ_shear = moment / (TUBE_SHEAR_COEFF * GA)
         κ = 3 * (δ - δ_shear)
@@ -409,7 +408,7 @@ function comer_levy_bending_law(radius, pressure, membrane_stiffness; n_samples=
 end
 
 """
-    breukels_membrane_stiffness(radius, pressure_bar) -> Float64
+    breukels_membrane_stiffness(radius, pressure_bar, constants) -> Float64
 
 Membrane stiffness `E·t` [N/m] implied by the Breukels linear bending rigidity,
 `E·t = EI0_breukels / (π·r³)` (inverting `EI0 = E·t·π·r³`). This sources the
@@ -418,8 +417,9 @@ linear regime is unchanged and only the pressure-driven collapse branch is added
 `radius` [m], `pressure_bar` [bar]. Trustworthy only in Breukels' fitted range
 (`radius ≲ 0.15 m`).
 """
-function breukels_membrane_stiffness(radius, pressure_bar)
-    _, _, EI0, _ = tube_linear_rigidities(radius, pressure_bar)
+function breukels_membrane_stiffness(radius, pressure_bar,
+                                     constants=breukels_constants())
+    _, _, EI0, _ = tube_linear_rigidities(radius, pressure_bar, constants)
     return EI0 / (π * radius^3)
 end
 

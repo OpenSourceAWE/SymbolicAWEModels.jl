@@ -566,16 +566,16 @@ function concrete_rigidities(model, rigidities)
 end
 
 """
-    with_law_rigidities(model, law, diameter, pressure) -> AbstractTubeModel
+    with_law_rigidities(model, material, diameter, pressure) -> AbstractTubeModel
 
-A fresh copy of `model` with every rigidity it leaves `nothing` derived from `law` at the
-tube's `diameter` [m] and `pressure` [Pa] ([`tube_law_rigidities`](@ref)).
+A fresh copy of `model` with every rigidity it leaves `nothing` derived from KiteGeometry
+`material` at the tube's `diameter` [m] and `pressure` [Pa] ([`tube_law_rigidities`](@ref)).
 """
-function with_law_rigidities(model::TimoshenkoTube, law, diameter, pressure)
+function with_law_rigidities(model::TimoshenkoTube, material, diameter, pressure)
     fields = rigidity_fields(model)
     rigidities = map(field -> getfield(model, field), fields)
     if any(isnothing, rigidities)
-        EA, GA, EI, GJ = tube_law_rigidities(law, diameter, pressure)
+        EA, GA, EI, GJ = tube_law_rigidities(material, diameter, pressure)
         derived = (; EA, GA, GJ, EIy = EI, EIz = EI)
         rigidities = map((field, value) -> something(value, derived[field]), fields,
                          rigidities)
@@ -585,7 +585,7 @@ function with_law_rigidities(model::TimoshenkoTube, law, diameter, pressure)
     return fresh
 end
 
-function with_law_rigidities(model::ElasticTube, law, diameter, pressure)
+function with_law_rigidities(model::ElasticTube, material, diameter, pressure)
     stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending =
         map(field -> getfield(model, field), rigidity_fields(model))
     return ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
@@ -615,7 +615,9 @@ function Tube(name, body_a, body_b; diameter::Real, pressure::Real,
               law = :breukels2011, model::AbstractTubeModel = TimoshenkoTube(),
               anchor_a = zeros(SimFloat, 3), anchor_b = zeros(SimFloat, 3))
     law = Symbol(law)
-    model = with_law_rigidities(model, law, diameter, pressure)
+    material = KiteGeometry.Material(; name=law, law=String(law),
+                                     parameters=KiteGeometry.tube_law_parameters(law))
+    model = with_law_rigidities(model, material, diameter, pressure)
     model.anchor_a_b .= anchor_a
     model.anchor_b_b .= anchor_b
     return KiteGeometry.Tube(; name=Symbol(name), bodies=cell_ref.((body_a, body_b)),

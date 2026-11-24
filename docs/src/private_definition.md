@@ -84,7 +84,6 @@ SymbolicAWEModels.torque_winch
 SymbolicAWEModels.wing_engine_field
 SymbolicAWEModels.wing_drag_corr
 SymbolicAWEModels.ref_points_cell
-SymbolicAWEModels.tube_law_parameters
 ```
 
 ## Segments, tubes and a run's reads
