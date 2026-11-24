@@ -1075,13 +1075,13 @@ function point_acceleration_w(point, wing_frame, wing_vel)
 end
 
 """
-    wing_kinematics_from_points!(wing, points, set, am, wind_mode;
-                                 zp1, zp2, yp1, yp2, origin, aero_points)
+    wing_kinematics_from_points!(wing, points, set, am, wind_mode, frame, aero_points;
+                                 base_point=0, stations=nothing)
 
 Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current point
 positions/velocities, for a backend that does not carry these quantities as state.
-`zp1`, `zp2`, `yp1`, `yp2` and `origin` are [`WeightedRefPoints`](@ref), so each
-reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
+`frame` is the wing's KiteGeometry `WingFrame`, each of whose references is the weighted
+blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
@@ -1090,9 +1090,9 @@ height profile or, under
 [`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
 owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
 """
-function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode;
-        zp1, zp2, yp1, yp2, origin, aero_points,
-        base_point = 0, stations = nothing)
+function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode,
+        frame, aero_points; base_point = 0, stations = nothing)
+    (zp1, zp2), (yp1, yp2), origin = frame.z_ref_points, frame.y_ref_points, frame.origin
     pos_z1 = get_ref_position_from_points(points, zp1)
     pos_z2 = get_ref_position_from_points(points, zp2)
     pos_y1 = get_ref_position_from_points(points, yp1)
@@ -1111,7 +1111,7 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
         wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
             (vel_z1, vel_z2, vel_y1, vel_y2), axes))
     fill!(wing.acc_w, 0.0)
-    for (idx, weight) in zip(origin.ids, origin.weights)
+    for (idx, weight) in origin
         wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w)
     end
     profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)

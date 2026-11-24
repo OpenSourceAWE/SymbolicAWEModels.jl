@@ -6,7 +6,7 @@
 #
 # Verifies that nested weighted ref point specs like
 #   z_ref_points: [1, [[12, 0.7], [11, 0.3]]]
-# are correctly parsed into WeightedRefPoints with weights.
+# are correctly parsed into a wing frame's weighted reference points.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -16,8 +16,7 @@ end
 using Test
 using LinearAlgebra
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, WeightedRefPoints,
-    VortexStepMethod
+using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 
 # Minimal YAML with a PARTICLE_DYNAMICS wing using weighted z_ref_points
@@ -115,24 +114,24 @@ transforms:
     wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
 
     # z_ref_points[1] should be a single point (idx 7, kcu)
-    z_p1, z_p2 = wing.z_ref_points
-    @test z_p1.ids == [7]
-    @test z_p1.weights == [1.0]
+    z_p1, z_p2 = wing.wing_frame.z_ref_points
+    @test first.(z_p1) == [7]
+    @test last.(z_p1) == [1.0]
 
     # z_ref_points[2] should be weighted: point 3 @ 0.7,
     # point 5 @ 0.3
-    @test z_p2.ids == [3, 5]
-    @test z_p2.weights ≈ [0.7, 0.3]
+    @test first.(z_p2) == [3, 5]
+    @test last.(z_p2) ≈ [0.7, 0.3]
 
     # y_ref_points should be simple single-point refs
-    y_p1, y_p2 = wing.y_ref_points
-    @test y_p1.ids == [1]
-    @test y_p2.ids == [5]
+    y_p1, y_p2 = wing.wing_frame.y_ref_points
+    @test first.(y_p1) == [1]
+    @test first.(y_p2) == [5]
 
     # Weighted origin_idx: point 7 @ 0.7, point 9 @ 0.3
-    @test wing.origin isa WeightedRefPoints
-    @test wing.origin.ids == [7, 9]
-    @test wing.origin.weights ≈ [0.7, 0.3]
+    @test wing.origin == wing.wing_frame.origin
+    @test first.(wing.origin) == [7, 9]
+    @test last.(wing.origin) ≈ [0.7, 0.3]
 
     # The wing origin is the weighted centroid of points 7 and 9
     @test SymbolicAWEModels.origin_ENU(wing) ≈
@@ -148,8 +147,8 @@ transforms:
     sys_4pt, _ = load_sys_struct_from_yaml(yaml_path_4pt;
         system_name="weighted_ref_4pt_test", set)
     wing_4pt = SymbolicAWEModels.SystemState(sys_4pt; set, vsm_set).wings[1]
-    @test wing_4pt.origin.ids == [1, 3, 5, 9]
-    @test wing_4pt.origin.weights ≈ [0.1, 0.2, 0.3, 0.4]
+    @test first.(wing_4pt.origin) == [1, 3, 5, 9]
+    @test last.(wing_4pt.origin) ≈ [0.1, 0.2, 0.3, 0.4]
 
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
@@ -162,13 +161,11 @@ transforms:
     next_step!(sam)
     points = sam.state.points
     wing = sam.state.bodies[1]
-    blend(ref) = sum(w * points[i].pos_w
-                     for (i, w) in zip(ref.ids, ref.weights))
+    blend(ref) = sum(w * points[i].pos_w for (i, w) in ref)
     @test wing.pos_w ≈ blend(wing.origin)
-    @test wing.vel_w ≈ sum(w * points[i].vel_w
-        for (i, w) in zip(wing.origin.ids, wing.origin.weights))
-    z_axis = normalize(blend(wing.z_ref_points[2]) -
-                       blend(wing.z_ref_points[1]))
+    @test wing.vel_w ≈ sum(w * points[i].vel_w for (i, w) in wing.origin)
+    z_axis = normalize(blend(wing.wing_frame.z_ref_points[2]) -
+                       blend(wing.wing_frame.z_ref_points[1]))
     @test wing.R_b_to_w[:, 3] ≈ z_axis
 end
 nothing

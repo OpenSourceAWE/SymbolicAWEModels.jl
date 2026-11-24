@@ -2,23 +2,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    WeightedRefPoints
-
-Weighted combination of reference points for body-frame definition. Supports
-single points, equal-weight averaging, and arbitrary weight combinations.
-
-# Fields
-- `refs`: Unresolved names/indices (filled at construction)
-- `ids`: Resolved point indices (filled by `resolve!`)
-- `weights`: Normalized weights (sum to 1.0)
-"""
-mutable struct WeightedRefPoints
-    const refs::Vector{NameRef}
-    ids::Vector{Int64}
-    const weights::Vector{Float64}
-end
-
-"""
     BodyModel
 
 What SymbolicAWEModels holds of a body beyond its KiteGeometry `bodies` row: the columns

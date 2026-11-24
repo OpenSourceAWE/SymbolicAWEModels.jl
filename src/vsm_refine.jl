@@ -528,9 +528,7 @@ function setup_particle_point_mapping!(wing, points, stations)
         wing.point_to_vsm_point =
             build_point_to_vsm_point_mapping(wing.wing_segments)
     end
-    isnothing(wing.z_ref_points) && error(
-        "PARTICLE_DYNAMICS wing '$(wing.name)': z_ref_points must be specified")
-    isnothing(wing.y_ref_points) && error(
-        "PARTICLE_DYNAMICS wing '$(wing.name)': y_ref_points must be specified")
+    isnothing(wing.wing_frame) && error("PARTICLE_DYNAMICS wing '$(wing.name)': " *
+        "z_ref_points and y_ref_points must be specified")
     return nothing
 end

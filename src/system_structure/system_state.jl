@@ -117,12 +117,10 @@ $(TYPEDFIELDS)
     dynamics_type::WingType = RIGID_DYNAMICS
     "Indices of the wing's stations, from +y to -y."
     station_idxs::Vector{Int} = Int[]
-    "Reference points of the body origin."
-    origin::Union{Nothing, WeightedRefPoints} = nothing
-    "Reference points of the body z axis."
-    z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
-    "Reference points of the body y axis."
-    y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
+    "Reference points of the body origin, pairs of point index and weight."
+    origin::Union{Nothing, Vector{Pair{Int, Float64}}} = nothing
+    "Reference points of the body's origin and axes, KiteGeometry's `WingFrame`."
+    wing_frame::Union{Nothing, KiteGeometry.WingFrame} = nothing
     "The body's origin in the frame its wing's mesh is authored in [m]."
     mesh_origin_b::KVec3 = zeros(KVec3)
     "The body's axes in the frame its wing's mesh is authored in."
@@ -143,8 +141,8 @@ function BodyGeometry(sys, body)
     row = sys.bodies[body]
     wing = something(findfirst(wing -> wing.body == body, sys.wings), 0)
     wing == 0 && return BodyGeometry(; extra_com_offset_b=KVec3(own_com_offset(row)))
-    model = sys.wings[wing].model
-    origin = maybe(weighted_ref_points, model.origin_idx)
+    spec = KiteGeometry.wing_spec(sys.wings[wing].model)
+    origin = spec.origin
     R_b_to_w = quaternion_to_rotation_matrix(row.Q_KA2ENU)
     origin_pos = isnothing(origin) ? KVec3(row.pos_ENU) :
         get_ref_position_from_points(sys.points, origin; field=:pos_ENU)
@@ -152,29 +150,13 @@ function BodyGeometry(sys, body)
         quaternion_to_rotation_matrix(sys.wings[wing].Q_KA2ENU)
     return BodyGeometry(; wing_row=wing, dynamics_type=wing_dynamics_type(sys.wings[wing]),
         extra_com_offset_b=R_b_to_w' * (row.pos_ENU - origin_pos),
-        station_idxs=wing_station_idxs(sys, wing), origin,
-        z_ref_points=maybe(weighted_ref_pair, model.z_ref_points),
-        y_ref_points=maybe(weighted_ref_pair, model.y_ref_points),
+        station_idxs=wing_station_idxs(sys, wing), origin, wing_frame=spec.frame,
         mesh_origin_b=R_mesh_to_w' * (origin_pos - mesh_origin),
         R_b_to_mesh=R_mesh_to_w' * R_b_to_w)
 end
 
 """The stations wing `wing` of `sys` lists, from +y to -y."""
 wing_station_idxs(sys, wing) = Vector{Int}(something(sys.wings[wing].model.stations, Int[]))
-
-"""The weighted reference points a resolved cell gives: a point index, a list of them
-averaged, or `[index, weight]` pairs."""
-function weighted_ref_points(cell)
-    cell isa Integer && return WeightedRefPoints(cell)
-    n = length(cell)
-    first(cell) isa Integer &&
-        return WeightedRefPoints(NameRef[], Vector{Int}(cell), fill(1.0 / n, n))
-    weights = validate_weights!(Float64[entry[2] for entry in cell])
-    return WeightedRefPoints(NameRef[], Int[entry[1] for entry in cell], weights)
-end
-
-"""The two weighted reference points of a resolved pair of cells."""
-weighted_ref_pair(cells) = (weighted_ref_points(cells[1]), weighted_ref_points(cells[2]))
 
 """The fields of a [`StationGeometry`](@ref) a station record reads and writes as its
 own."""
@@ -534,10 +516,10 @@ function point_undeformed_b(r)
         R = initial_rotation(wing)
         return KVec3(R' * (pos - (origin_ENU(wing) .+ R * wing.com_offset_b)))
     end
-    any(isnothing, (wing.z_ref_points, wing.y_ref_points, wing.origin)) &&
+    isnothing(wing.wing_frame) &&
         return zero(KVec3)
-    R, origin = calc_particle_dynamics_wing_frame(state.points, wing.z_ref_points,
-        wing.y_ref_points, wing.origin; field=:pos_ENU)
+    R, origin = calc_particle_dynamics_wing_frame(state.points, wing.wing_frame;
+                                                  field=:pos_ENU)
     return KVec3(R' * (pos - origin))
 end
 

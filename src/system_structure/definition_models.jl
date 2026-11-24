@@ -154,9 +154,6 @@ $(TYPEDFIELDS)
     friction_epsilon::Union{Nothing, Float64} = nothing
 end
 
-PulleyModel(type, efficiency, damping, brake, friction_epsilon) =
-    PulleyModel(; type, efficiency, damping, brake, friction_epsilon)
-
 KiteGeometry.model_columns(::Type{PulleyModel}) =
     (:type, :efficiency, :damping, :brake, :friction_epsilon)
 

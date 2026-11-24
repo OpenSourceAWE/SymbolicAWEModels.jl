@@ -473,8 +473,8 @@ The source code is organized into modular directories:
 - **`src/system_structure/`** — component types and assembly
   - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
     [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref)
-  - `wing.jl`: [`WeightedRefPoints`](@ref) constructors, VSM engine construction
-    and VSM panel placement
+  - `wing.jl`: VSM engine construction, VSM panel placement and a wing's frame from
+    its reference points
   - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
     [`ElasticTube`](@ref)
   - `system_structure_core.jl`: `SystemDefinition` constructor, reference

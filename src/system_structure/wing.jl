@@ -1,50 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# ==================== WEIGHTED REF POINTS ==================== #
-
-"""Single point from a Symbol ref."""
-WeightedRefPoints(ref::Symbol) =
-    WeightedRefPoints(NameRef[ref], Int64[], [1.0])
-
-"""Single point from a String ref (converted to Symbol)."""
-WeightedRefPoints(ref::AbstractString) =
-    WeightedRefPoints(Symbol(ref))
-
-"""
-    WeightedRefPoints(id::Integer)
-
-Single point from a resolved index. Stores in `ids`
-(not `refs`) so `resolve!` is a no-op.
-"""
-WeightedRefPoints(id::Integer) =
-    WeightedRefPoints(NameRef[], Int64[Int64(id)], [1.0])
-
-"""
-    WeightedRefPoints(refs::AbstractVector)
-
-Equal-weight average of multiple ref points, or weighted
-if elements are `(name, weight)` tuples.
-
-Supports:
-- `[:le, :te]` → equal-weight average
-- `[(:le, 0.7), (:te, 0.3)]` → weighted combination
-"""
-function WeightedRefPoints(refs::AbstractVector)
-    isempty(refs) && error(
-        "WeightedRefPoints requires at least one " *
-        "reference point, got empty vector")
-    if refs[1] isa Tuple
-        names = NameRef[cell_ref(entry[1]) for entry in refs]
-        weights = Float64[Float64(entry[2]) for entry in refs]
-        validate_weights!(weights)
-        return WeightedRefPoints(names, Int64[], weights)
-    end
-    names = NameRef[cell_ref(v) for v in refs]
-    n = length(names)
-    WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
-end
-
 # ==================== VSM ENGINE ==================== #
 
 """
@@ -63,20 +19,6 @@ function count_aero_log_points(wings)
 end
 
 # ==================== CONSTRUCTORS ==================== #
-
-"""Warn and normalize if weights don't sum to 1."""
-function validate_weights!(weights::Vector{Float64})
-    s = sum(weights)
-    s > 0 || error(
-        "Ref point weights sum to $s; " *
-        "all weights must be positive")
-    if !isapprox(s, 1.0; atol=1e-6)
-        @warn "Ref point weights sum to $s, " *
-            "normalizing to 1.0"
-        weights ./= s
-    end
-    return weights
-end
 
 """
     create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
@@ -229,37 +171,22 @@ end
 Base.getindex(positions::PointPositions, i) =
     getproperty(positions.points[i], positions.field)
 
-"""`ref_pt` as KiteGeometry's reference points: pairs of index and weight."""
-ref_points(ref_pt::WeightedRefPoints) =
-    [id => weight for (id, weight) in zip(ref_pt.ids, ref_pt.weights)]
+"""
+    get_ref_position_from_points(points, refs; field=:pos_w)
+
+Weighted position of the reference points `refs`, pairs of point index and weight, from
+each point's `field` (`:pos_w`, `:vel_w` or `:pos_ENU`), by KiteGeometry's `ref_position`.
+"""
+get_ref_position_from_points(points::AbstractVector, refs; field::Symbol=:pos_w) =
+    KiteGeometry.ref_position(PointPositions(points, field), refs)
 
 """
-    get_ref_position_from_points(points, ref_pt; field=:pos_w)
+    calc_particle_dynamics_wing_frame(points, frame::KiteGeometry.WingFrame; field=:pos_w)
 
-Weighted position from structural points, through KiteGeometry's `ref_position`. `field`
-selects which point coordinate to read (`:pos_w` or `:pos_ENU`).
+The `R_b_to_w` rotation matrix and origin position the reference points of `frame` give,
+from each point's `field`, by KiteGeometry's `wing_frame`.
 """
-get_ref_position_from_points(points::AbstractVector, ref_pt::WeightedRefPoints;
-                             field::Symbol=:pos_w) =
-    KiteGeometry.ref_position(PointPositions(points, field),
-                              zip(ref_pt.ids, ref_pt.weights))
-
-"""
-    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin;
-                                      field=:pos_w)
-
-The `R_b_to_w` rotation matrix and origin position from structural point positions, each
-point's `field`, by KiteGeometry's `wing_frame`.
-"""
-function calc_particle_dynamics_wing_frame(points::AbstractVector,
-                                           z_ref_points::Tuple{WeightedRefPoints,
-                                                               WeightedRefPoints},
-                                           y_ref_points::Tuple{WeightedRefPoints,
-                                                               WeightedRefPoints},
-                                           origin::WeightedRefPoints;
-                                           field::Symbol=:pos_w)
-    frame = KiteGeometry.WingFrame(ref_points(origin), ref_points.(z_ref_points),
-                                   ref_points.(y_ref_points))
-    return KiteGeometry.wing_frame(PointPositions(points, field), frame)
-end
+calc_particle_dynamics_wing_frame(points::AbstractVector, frame::KiteGeometry.WingFrame;
+                                  field::Symbol=:pos_w) =
+    KiteGeometry.wing_frame(PointPositions(points, field), frame)
 

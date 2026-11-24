@@ -805,16 +805,11 @@ function get_sys_struct_hash(state::SystemState)
                      aero_hash_id(wing.aero), polar_format,
                      flow_curvature_enabled(wing), wagner_enabled(wing))
 
-        # Include wing reference points in hash
-        ref_hash(ref) = (ref.ids, ref.weights)
-        rp_hash(ref_points) = isnothing(ref_points) ? nothing :
-            (ref_hash(ref_points[1]), ref_hash(ref_points[2]))
-        origin_hash(origin) = isnothing(origin) ? nothing :
-            ref_hash(origin)
-        wing_data = (wing_data...,
-            rp_hash(wing.z_ref_points),
-            rp_hash(wing.y_ref_points),
-            origin_hash(wing.origin), transform_base_point(transforms, wing.idx))
+        frame = wing.wing_frame
+        frame_refs = isnothing(frame) ? nothing :
+            (frame.origin, frame.z_ref_points, frame.y_ref_points)
+        wing_data = (wing_data..., frame_refs, wing.origin,
+                     transform_base_point(transforms, wing.idx))
         push!(data_parts, wing_data)
     end
     per_point_wind(state) && push!(data_parts, ("wind_mode", :per_point))

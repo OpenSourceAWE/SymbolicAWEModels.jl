@@ -445,10 +445,8 @@ Fit each `PARTICLE_DYNAMICS` body's frame and origin to its reference points.
 function fit_body_frames!(points, bodies)
     for body in bodies
         body_dynamics_type(body) == PARTICLE_DYNAMICS || continue
-        (isnothing(body.z_ref_points) || isnothing(body.y_ref_points) ||
-         isnothing(body.origin)) && continue
-        R_b_to_w, origin = calc_particle_dynamics_wing_frame(
-            points, body.z_ref_points, body.y_ref_points, body.origin)
+        isnothing(body.wing_frame) && continue
+        R_b_to_w, origin = calc_particle_dynamics_wing_frame(points, body.wing_frame)
         body.R_b_to_w = R_b_to_w
         body.pos_w .= origin
     end

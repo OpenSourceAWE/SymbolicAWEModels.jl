@@ -251,7 +251,6 @@ SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
 SymbolicAWEModels.expand_tethers!
-SymbolicAWEModels.validate_weights!
 SymbolicAWEModels.wing_frame_member
 ```
 
@@ -448,6 +447,7 @@ SymbolicAWEModels.ObjAdapter.unit_inertia_vector
 
 ```@docs
 SymbolicAWEModels.get_ref_position_from_points
+SymbolicAWEModels.PointColumns
 SymbolicAWEModels.sym_calc_R_t_to_w
 ```
 

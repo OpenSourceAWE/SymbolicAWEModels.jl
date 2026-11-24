@@ -480,8 +480,8 @@ The mapping enables:
   PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions including the
   `WingType` enum and `AbstractAeroModel` types
-- `src/system_structure/wing.jl`: `WeightedRefPoints` constructors, VSM engine
-  construction and VSM panel placement
+- `src/system_structure/wing.jl`: VSM engine construction, VSM panel placement and
+  a wing's frame from its reference points
 - `src/aero_modes/`: one file per aero mode (`none.jl`, `direct.jl`,
   `linearized.jl`, `continuous.jl`, `pressure.jl`, `plate.jl`), plus `common.jl`
   with the dispatch interface, the connector scaffolding and the shared VSM

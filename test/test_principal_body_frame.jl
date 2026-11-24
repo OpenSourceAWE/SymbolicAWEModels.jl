@@ -50,7 +50,7 @@ using LinearAlgebra
     wing = state.wings[:main_wing]
     @test body_dynamics_type(wing) == RIGID_DYNAMICS
     @test !isnothing(wing.origin)
-    @test !isnothing(wing.z_ref_points)
+    @test !isnothing(wing.wing_frame)
 
     # wing.R_p_to_w uses Q_p_to_w (same as runtime)
     R_p_to_w_from_q = wing.R_p_to_w

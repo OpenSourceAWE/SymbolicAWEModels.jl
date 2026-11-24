@@ -818,19 +818,15 @@ Wire a fitted wing's reference points into it: the four frame references and the
 origin's position and velocity, each a weighted blend of point outputs.
 """
 function wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
-    wing = sys_struct.bodies[idx]
-    references = ((wing.z_ref_points[1], :z1_pos, :pos),
-                  (wing.z_ref_points[2], :z2_pos, :pos),
-                  (wing.y_ref_points[1], :y1_pos, :pos),
-                  (wing.y_ref_points[2], :y2_pos, :pos),
-                  (wing.origin, :origin_pos, :pos),
-                  (wing.origin, :origin_vel, :vel))
-    for (reference, target, source) in references
-        for (position, point) in enumerate(reference.ids)
-            weight = length(reference.ids) == 1 ? 1.0 : reference.weights[position]
-            connect!(builder, point_instances[point], source, body_instance, target;
-                     weight)
-        end
+    frame = sys_struct.bodies[idx].wing_frame
+    references = ((frame.z_ref_points[1], :z1_pos, :pos),
+                  (frame.z_ref_points[2], :z2_pos, :pos),
+                  (frame.y_ref_points[1], :y1_pos, :pos),
+                  (frame.y_ref_points[2], :y2_pos, :pos),
+                  (frame.origin, :origin_pos, :pos),
+                  (frame.origin, :origin_vel, :vel))
+    for (reference, target, source) in references, (point, weight) in reference
+        connect!(builder, point_instances[point], source, body_instance, target; weight)
     end
     return nothing
 end

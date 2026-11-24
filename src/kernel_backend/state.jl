@@ -88,22 +88,18 @@ struct BodyReadout
 end
 
 """
-    KinematicWingReadout(body, z1, z2, y1, y2, origin, aero_points)
+    KinematicWingReadout(body, frame, aero_points)
 
 The reference points a fitted (`KINEMATIC`) wing's kinematics are rebuilt from after
 a step. Such a wing has no state of its own — its frame, apparent wind and per-point
 apparent wind are functions of where its points ended up, which is what
-[`wing_kinematics_from_points!`](@ref) computes. Each reference is the wing's own
-[`WeightedRefPoints`](@ref), so a blend of several points is rebuilt at the same
-weights the [`Wiring`](@ref) feeds the kinematic body kernel.
+[`wing_kinematics_from_points!`](@ref) computes. `frame` is the wing's KiteGeometry
+`WingFrame`, so a blend of several points is rebuilt at the same weights the
+[`Wiring`](@ref) feeds the kinematic body kernel.
 """
 struct KinematicWingReadout
     body::Int
-    z1::WeightedRefPoints
-    z2::WeightedRefPoints
-    y1::WeightedRefPoints
-    y2::WeightedRefPoints
-    origin::WeightedRefPoints
+    frame::KiteGeometry.WingFrame
     aero_points::Vector{Int}
 end
 
@@ -254,9 +250,7 @@ function kinematic_wing_readouts(sys_struct)
         body_type(body) == KINEMATIC || continue
         aero = [i for (i, point) in enumerate(sys_struct.points)
                 if point.is_wing_node && point.wing_idx == idx]
-        push!(readouts, KinematicWingReadout(idx, body.z_ref_points[1],
-            body.z_ref_points[2], body.y_ref_points[1],
-            body.y_ref_points[2], body.origin, aero))
+        push!(readouts, KinematicWingReadout(idx, body.wing_frame, aero))
     end
     return readouts
 end
@@ -443,11 +437,8 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         wing = sys_struct.bodies[readout.body]
         base_point = transform_base_point(sys_struct.transforms, wing.idx)
         wing_kinematics_from_points!(wing, sys_struct.points, sys_struct.set,
-            sys_struct.am, sys_struct.wind_mode;
-            zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
-            yp2 = readout.y2, origin = readout.origin,
-            aero_points = readout.aero_points, base_point,
-            stations = sys_struct.spanwise_stations)
+            sys_struct.am, sys_struct.wind_mode, readout.frame, readout.aero_points;
+            base_point, stations = sys_struct.spanwise_stations)
     end
     for readout in getter.rigid
         wing = sys_struct.bodies[readout.wing]

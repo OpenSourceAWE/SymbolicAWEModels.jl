@@ -96,12 +96,6 @@ ElasticTube
 ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping)
 ```
 
-## Indexing
-
-```@docs
-WeightedRefPoints
-```
-
 ## Inflated-tube rigidity
 
 ```@docs

@@ -75,7 +75,7 @@ export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
-export WeightedRefPoints
+
 # Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
 export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law
