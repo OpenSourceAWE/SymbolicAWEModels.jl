@@ -552,7 +552,7 @@ using LinearAlgebra
                 area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
         ]
-        wing_c = Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
+        wing_c = KiteGeometry.Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
             model=WingModel(; aero_mode="AeroPlate", dynamics_type="PARTICLE_DYNAMICS",
                 stations=[:main, :right_tip, :left_tip],
                 z_ref_points=[[:right, :left], :top], y_ref_points=[:left, :right],

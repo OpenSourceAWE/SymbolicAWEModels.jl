@@ -137,8 +137,7 @@ end
     PulleyModel
 
 What SymbolicAWEModels holds of a pulley beyond its KiteGeometry `pulleys` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, which no document holds.
+only it reads, each `nothing` where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
@@ -153,8 +152,6 @@ $(TYPEDFIELDS)
     brake::Union{Nothing, Bool} = nothing
     "Friction smoothing width [m/s]."
     friction_epsilon::Union{Nothing, Float64} = nothing
-    "Index in the structure's pulleys."
-    idx::Int64 = 0
 end
 
 PulleyModel(type, efficiency, damping, brake, friction_epsilon) =
@@ -173,8 +170,6 @@ builds the structure, which no document holds.
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
-    "Index in the structure's tethers."
-    idx::Int64 = 0
     "Number of segments a tether given by its end points is split into at build."
     n_segments::Int64 = 0
     "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
@@ -188,8 +183,8 @@ KiteGeometry.model_columns(::Type{TetherModel}) = ()
     WinchModel{W}
 
 What SymbolicAWEModels holds of a winch beyond its KiteGeometry `winches` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, and the motor dynamics `W` (an [`AbstractWinchModel`](@ref)).
+only it reads, each `nothing` where the row leaves it unset, and the motor dynamics `W` (an
+[`AbstractWinchModel`](@ref)).
 A property it has no field for is the dynamics'; `friction_epsilon` is the dynamics' where
 they have one.
 
@@ -210,8 +205,6 @@ $(TYPEDFIELDS)
     viscous_coefficient::Union{Nothing, Float64} = nothing
     "Total rotational inertia [kg·m²]."
     inertia_total::Union{Nothing, Float64} = nothing
-    "Index in the structure's winches."
-    idx::Int64 = 0
     "Motor dynamics."
     dynamics::W
 end

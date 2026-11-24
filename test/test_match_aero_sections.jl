@@ -232,7 +232,7 @@ vsm_set = VortexStepMethod.VSMSettings(
             wing, state.points)
         wing.wing_segments = nothing
         @test_throws "run from -y to +y" match_aero_sections_to_structure!(
-            wing, sys.points)
+            wing, state.points)
         @test_throws "run from -y to +y" transform_vsm_sections_to_body!(
             wing, wing.origin_ENU, SymbolicAWEModels.initial_rotation(wing))
     end
@@ -246,8 +246,8 @@ end
             struc_yaml;
             system_name="quat_geom", set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set).wings[1]
-        points = sys_q.points
+        state = SymbolicAWEModels.SystemState(sys_q; set, vsm_set)
+        wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
 
         # wing_segments populated by constructor
@@ -283,8 +283,8 @@ end
             struc_yaml;
             system_name="quat_preserve", set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set).wings[1]
-        points = sys_q.points
+        state = SymbolicAWEModels.SystemState(sys_q; set, vsm_set)
+        wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
 
         n_struct = length(wing.station_idxs)

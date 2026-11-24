@@ -37,7 +37,6 @@ points:
     - "world_frame_damping"
     - "area"
     - "drag_coeff"
-    - "wing_idx"
   units:
     - "-"
     - "-"
@@ -47,7 +46,6 @@ points:
     - "N*s/m"
     - "N*s/m"
     - "m^2"
-    - "-"
     - "-"
   data:
     -
@@ -63,7 +61,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "te_left"
       - false
@@ -77,7 +74,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "le_center"
       - false
@@ -91,7 +87,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "te_center"
       - false
@@ -105,7 +100,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "le_right"
       - false
@@ -119,7 +113,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "te_right"
       - false
@@ -133,7 +126,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "steering_left"
       - false
@@ -147,7 +139,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "steering_right"
       - false
@@ -161,7 +152,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "kcu"
       - false
@@ -175,7 +165,6 @@ points:
       - 0.0
       - 0.1
       - 1.0
-      - "main_wing"
     -
       - "ground"
       - true
@@ -189,7 +178,6 @@ points:
       - 0.0
       - 0.0
       - 0.0
-      - "main_wing"
     -
       - "main_tether_point_1"
       - false
@@ -199,7 +187,6 @@ points:
         - 0.0
         - 12.767407385316302
       - 0.0
-      - ~
       - ~
       - ~
       - ~
@@ -217,7 +204,6 @@ points:
       - ~
       - ~
       - ~
-      - ~
     -
       - "main_tether_point_3"
       - false
@@ -227,7 +213,6 @@ points:
         - 0.0
         - 7.66044443118978
       - 0.0
-      - ~
       - ~
       - ~
       - ~
@@ -245,7 +230,6 @@ points:
       - ~
       - ~
       - ~
-      - ~
     -
       - "main_tether_point_5"
       - false
@@ -255,7 +239,6 @@ points:
         - 0.0
         - 2.5534814770632592
       - 0.0
-      - ~
       - ~
       - ~
       - ~
@@ -758,7 +741,7 @@ bodies:
       -
         - 0.9688212939880393
         - 0.0
-        - 0.24776057054208825
+        - 0.2477605705420883
         - 0.0
       - 0.0
       -

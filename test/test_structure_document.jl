@@ -204,7 +204,7 @@ end
             pretensioned_tether(set;
                                 winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
         winch = only(sys.winches)
-        row = sys.winches[winch.idx]
+        row = sys.winches[1]
         winch.brake = 1.0
         winch.model.friction_epsilon = 3.0
         @test row.model.brake == 1.0

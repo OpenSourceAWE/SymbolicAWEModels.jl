@@ -84,7 +84,7 @@ function build_plate_kite(data_root)
             y_airf=[0, 0, 1], area=set.area * rel_side,
             twist=deg2rad(set.alpha_ztip)),
     ]
-    wing = Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
+    wing = KiteGeometry.Wing(; name=:plate_wing, pos_ENU=zeros(3), body=:plate_wing,
         model=WingModel(; aero_mode="AeroPlate", dynamics_type="PARTICLE_DYNAMICS",
             stations=[:main, :right_tip, :left_tip],
             z_ref_points=[[:right, :left], :top], y_ref_points=[:left, :right],

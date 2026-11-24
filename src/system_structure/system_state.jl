@@ -159,13 +159,8 @@ function BodyGeometry(sys, body)
         R_b_to_mesh=R_mesh_to_w' * R_b_to_w)
 end
 
-"""The stations of wing `wing` of `sys`, from +y to -y: those its row lists, else those
-on it."""
-function wing_station_idxs(sys, wing)
-    listed = sys.wings[wing].model.stations
-    isnothing(listed) || return Vector{Int}(listed)
-    return [i for (i, station) in enumerate(sys.spanwise_stations) if station.wing == wing]
-end
+"""The stations wing `wing` of `sys` lists, from +y to -y."""
+wing_station_idxs(sys, wing) = Vector{Int}(something(sys.wings[wing].model.stations, Int[]))
 
 """The weighted reference points a resolved cell gives: a point index, a list of them
 averaged, or `[index, weight]` pairs."""
@@ -844,7 +839,7 @@ its aero mode's VSM engine, read through to the model's.
     principal_frame_method => (body_principal_frame_method(r),
                                derived(:principal_frame_method))
     extra_mass => (something(r.row.extra_mass, 0.0), derived(:extra_mass))
-    origin_ENU => (origin_ENU(r.row), derived(:origin_ENU))
+    origin_ENU => (origin_ENU(r), derived(:origin_ENU))
     angular_damping => (run_value(r, :angular_damping, body_angular_damping(r)),
                         set_run_value!(r, :angular_damping, value))
     world_frame_damping => (run_value(r, :world_frame_damping,

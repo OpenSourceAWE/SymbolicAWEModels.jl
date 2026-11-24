@@ -147,7 +147,7 @@ transforms:
     write(yaml_path_4pt, yaml_4pt)
     sys_4pt, _ = load_sys_struct_from_yaml(yaml_path_4pt;
         system_name="weighted_ref_4pt_test", set)
-    wing_4pt = sys_4pt.bodies[1]
+    wing_4pt = SymbolicAWEModels.SystemState(sys_4pt; set, vsm_set).wings[1]
     @test wing_4pt.origin.ids == [1, 3, 5, 9]
     @test wing_4pt.origin.weights ≈ [0.1, 0.2, 0.3, 0.4]
 

@@ -115,7 +115,7 @@ for (i, y) in enumerate([-1.0, 0.0, 1.0])
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
-wings = [Wing(; name=Symbol(1), pos_ENU=zeros(3), body=Symbol(1),
+wings = [KiteGeometry.Wing(; name=Symbol(1), pos_ENU=zeros(3), body=Symbol(1),
                model=WingModel(; stations=collect(eachindex(stations))))]
 bodies = [Body(1; extra_mass=0.0, inertia_principal=ones(3), pos=zeros(3))]
 transforms = [

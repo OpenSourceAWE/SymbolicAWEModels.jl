@@ -26,8 +26,9 @@ function station_check_state(npoints, type, dynamics)
     set = Settings("system.yaml")
     points = [Point(Symbol(:p, i), [0.0, Float64(i), 0.0], DYNAMIC) for i in 1:npoints]
     station = Station(:g, [point.name for point in points], type, 0.25; wing=:wing)
-    wing = Wing(; name=:wing, pos_ENU=zeros(3), body=:wing,
+    wing = KiteGeometry.Wing(; name=:wing, pos_ENU=zeros(3), body=:wing,
         model=WingModel(; aero_mode="AeroNone", dynamics_type=string(dynamics),
+                        stations=[:g],
                         origin_idx=dynamics == PARTICLE_DYNAMICS ? :p1 : nothing))
     body = Body(:wing; extra_mass=1.0, inertia_principal=ones(3), pos=zeros(3))
     sys = system_definition("station_modes", set; points, spanwise_stations=[station],

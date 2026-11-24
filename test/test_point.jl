@@ -575,7 +575,7 @@ end
     end
 
     @testset "wing that does not exist is rejected at load" begin
-        @test_throws ArgumentError load_sys_struct_from_yaml(
+        @test_throws "wing 7 does not exist" load_sys_struct_from_yaml(
             geometry_with_wing(:kcu, "7");
             system_name="wing_out_of_range", set)
     end

@@ -155,7 +155,7 @@ end
     # Fresh components per call: `SystemDefinition` resolves indices in place.
     function build_beam_sys(name; with_flap=true)
         # The wing owning the flap: a rigid wing with no aero, held where it is.
-        wing = Wing(; name=:nodeA, pos_ENU=zeros(3), body=:nodeA,
+        wing = KiteGeometry.Wing(; name=:nodeA, pos_ENU=zeros(3), body=:nodeA,
             model=WingModel(; aero_mode="AeroNone",
                             stations=with_flap ? [:flap] : nothing))
         nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia, pos=zeros(3),
