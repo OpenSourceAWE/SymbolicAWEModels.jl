@@ -483,10 +483,10 @@ end
     update_from_sysstate!(sys::SystemState, sys_state::SysState)
 
 Copy the state a `SysState` carries (point positions, wing orientations, winch
-lengths, twist angles, segment spring forces) into a run's state, e.g. to plot one
-snapshot of a `SysLog` with the Makie extension. Fields `SysState`
-cannot supply (net point forces, winch forces, station moments) are set to `NaN` so
-they are not plotted.
+lengths, twist angles, segment spring forces, the wings' circulation) into a run's
+state, e.g. to plot one snapshot of a `SysLog` with the Makie extension or to resume
+from it. Fields `SysState` cannot supply (net point forces, winch forces) are set to
+`NaN` so they are not plotted.
 
 `sys` must have been created with the same model configuration as the simulation that
 produced the log; its point count must match the parametric type `P` of `SysState{P}`.
@@ -576,6 +576,10 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
                     sys_state.turn_rate_y[frame], sys_state.turn_rate_z[frame]))
         end
     end
+
+    gamma = getfield(sys, :sysstate).gamma_distribution
+    length(sys_state.gamma_distribution) == length(gamma) &&
+        copyto!(gamma, sys_state.gamma_distribution)
 
     # Logs written before twist_vel existed restart the surfaces at rest.
     has_twist_vel = length(sys_state.twist_vel) == length(stations)

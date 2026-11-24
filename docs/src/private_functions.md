@@ -336,6 +336,10 @@ SymbolicAWEModels.apply_direct_forces!
 SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.circulation
+SymbolicAWEModels.n_vsm_panels
+SymbolicAWEModels.circulation_start
+SymbolicAWEModels.solve_circulation!
 SymbolicAWEModels.warn_or_rethrow
 SymbolicAWEModels.solve_and_freeze_circulation!
 SymbolicAWEModels.set_particle_panel_va!

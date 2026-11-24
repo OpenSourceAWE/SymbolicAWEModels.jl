@@ -332,6 +332,7 @@ function copy_run_columns!(to::SysState, from::SysState)
     copyto!(to.headings, from.headings)
     copyto!(to.courses, from.courses)
     copyto!(to.AoAs, from.AoAs)
+    copyto!(to.gamma_distribution, from.gamma_distribution)
     return to
 end
 

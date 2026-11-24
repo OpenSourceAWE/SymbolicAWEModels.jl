@@ -94,7 +94,7 @@ overwrites it with the RHS-applied linearized force.
 function refresh_rigid_aero!(::AeroLinearized, wing, am, stations;
                              vsm_min_wind=0.5)
     ctx = rigid_aero_baseline!(wing, stations; vsm_min_wind)
-    gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
+    gamma0 = copy(circulation(wing))
     f_dual = y -> vsm_aero_coeffs(wing, y, ctx.va_mag, ctx.n_unrefined,
         ctx.n_stations, ctx.station_idxs, stations,
         ctx.moment_frac, ctx.shadow_ref; gamma_init=gamma0)
@@ -110,11 +110,11 @@ end
 
 """
     refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals;
-                           vsm_min_wind=0.5, cold_start=false)
+                           vsm_min_wind=0.5)
 
 Unsupported: `AeroLinearized` is not implemented for `PARTICLE_DYNAMICS` wings and
 errors. Use `AeroDirect` (per-point nonlinear VSM) for particle wings.
 """
 refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals;
-                       vsm_min_wind=0.5, cold_start=false) = error(
+                       vsm_min_wind=0.5) = error(
     "PARTICLE_DYNAMICS + AeroLinearized not yet implemented")

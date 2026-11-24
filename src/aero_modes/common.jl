@@ -1224,11 +1224,10 @@ at the operating point, plus the `ForwardDiff` Jacobian over `[α, β, ω₁, ω
 distribution. Non-VSM modes (`AeroNone`/`AeroPlate`) are no-ops, so callers
 should gate this on [`has_vsm_wing`](@ref).
 
-`cold_start` discards the previous solve's circulation as the warm start
-([`safe_vsm_solve!`](@ref)), making the result a function of the current state
-alone. The per-step refresh wants the warm start; the first solve after a
-[`reinit!`](@ref) must not have it, or it inherits whatever ran on this model
-before.
+Each VSM solve starts from the wing's [`circulation`](@ref) in the run's state and
+leaves its converged circulation there. `cold_start` clears it first, so the solves start
+from the solver's initial distribution: past stall the iteration has more than one fixed
+point, and the first solve after a [`reinit!`](@ref) must not depend on what ran before.
 
 `vsm_warn_on_fail` downgrades a `VortexStepMethod.SolveFailure` to a warning
 ([`warn_or_rethrow`](@ref)).
@@ -1241,6 +1240,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
 
     length(wings) == 0 && return nothing
 
+    cold_start && foreach(wing -> fill!(circulation(wing), 0.0), wings)
     for wing in wings
         sync_aero_density!(wing, sam.am)
         apply_apparent_mass!(sam.state, wing,
@@ -1268,7 +1268,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
         apply_flap_delta!(wing.aero, wing, sam.state)
         try
             refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
-                                   vsm_min_wind, cold_start)
+                                   vsm_min_wind)
         catch failure
             warn_or_rethrow(failure, vsm_warn_on_fail, wing)
         end
@@ -1307,8 +1307,7 @@ refresh_rigid_aero!(::AbstractAeroModel, wing, am, stations;
                     vsm_min_wind=0.5) = nothing
 
 """
-    refresh_particle_aero!(mode, wing, points, va_point_b_vals;
-                           vsm_min_wind=0.5, cold_start=false)
+    refresh_particle_aero!(mode, wing, points, va_point_b_vals; vsm_min_wind=0.5)
 
 Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
 - `AeroNone` / any non-VSM mode → no-op (fallback).
@@ -1317,11 +1316,9 @@ Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
   ([`distribute_panel_forces_to_points!`](@ref)); below `vsm_min_wind` the point
   forces are zeroed.
 - `AeroLinearized` → unsupported (errors).
-
-`cold_start` forwards to [`safe_vsm_solve!`](@ref).
 """
 refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
-                       vsm_min_wind=0.5, cold_start=false) = nothing
+                       vsm_min_wind=0.5) = nothing
 
 # ==================== per-wing lifecycle ==================== #
 
@@ -1845,30 +1842,58 @@ restore_live_shape!(::AbstractAeroModel, wing, points) = nothing
 # ==================== shared VSM numerics ==================== #
 
 """
-    safe_vsm_solve!(solver, body_aero, gamma_init=nothing;
-                    moment_frac=0.1, cold_start=false)
+    circulation(wing) -> AbstractVector
+
+`wing`'s circulation per VSM panel [m²/s], its slice of its run's `SysState`
+`gamma_distribution`: the aerodynamic state its solves start from and leave, all zero
+before the first.
+"""
+function circulation(wing)
+    modes = getfield(run_state(wing), :aero)
+    start = sum(n_vsm_panels, view(modes, 1:(index(wing) - 1)); init=0)
+    panels = start .+ (1:n_vsm_panels(modes[index(wing)]))
+    return view(sysstate(wing).gamma_distribution, panels)
+end
+
+"""The number of VSM panels of aero `mode`, none without an engine."""
+n_vsm_panels(mode::AbstractVSMAero) = length(mode.vsm_aero.panels)
+n_vsm_panels(::AbstractAeroModel) = 0
+
+"""The start of a solve from circulation `gamma`: a copy of it, `nothing` for the solver's
+initial distribution where it is all zero."""
+circulation_start(gamma) = all(iszero, gamma) ? nothing : copy(gamma)
+
+"""
+    solve_circulation!(wing, solver, body_aero; moment_frac=0.1)
+
+Solve `wing`'s VSM `solver` on `body_aero` from its [`circulation`](@ref)
+([`safe_vsm_solve!`](@ref)) and keep the converged circulation there.
+"""
+function solve_circulation!(wing, solver, body_aero; moment_frac=0.1)
+    gamma = circulation(wing)
+    safe_vsm_solve!(solver, body_aero, circulation_start(gamma); moment_frac)
+    gamma .= solver.sol.gamma_distribution
+    return nothing
+end
+
+"""
+    safe_vsm_solve!(solver, body_aero, gamma_init; moment_frac=0.1)
 
 Solve under `throw_on_fail`, so a solve that missed the solver's tolerances or
 came back non-finite throws `VortexStepMethod.SolveFailure`. The circulation and
 the two angle-of-attack distributions of the last converged solve, which `solve!`
 has already overwritten with the diverged ones, are restored before it leaves.
 
-Without `gamma_init`, `solve!` warm-starts from the circulation it left in
-`solver.sol` last time. `cold_start` starts from the solver's configured initial
-distribution instead: past stall the iteration has more than one fixed point, so
-a warm start makes the answer a function of what ran before rather than of the
-current state.
+The solve starts from the circulation `gamma_init`, else, where it is `nothing`, from the
+solver's configured initial distribution.
 """
-function safe_vsm_solve!(solver, body_aero,
-                          gamma_init=nothing; moment_frac=0.1, cold_start=false)
+function safe_vsm_solve!(solver, body_aero, gamma_init; moment_frac=0.1)
     gamma_converged = isnothing(solver.sol.gamma_distribution) ? nothing :
         copy(solver.sol.gamma_distribution)
     alpha_converged = copy(solver.lr.alpha_dist)
     alpha_corrected_converged = copy(solver.sol.alpha_dist)
-    gamma_start = isnothing(gamma_init) ? solver.sol.gamma_distribution : gamma_init
-    cold_start && (gamma_start = nothing)
     try
-        VortexStepMethod.solve!(solver, body_aero, gamma_start;
+        VortexStepMethod.solve!(solver, body_aero, gamma_init;
             moment_frac, log=false, throw_on_fail=true)
     catch failure
         failure isa VortexStepMethod.SolveFailure || rethrow()
@@ -1882,18 +1907,17 @@ function safe_vsm_solve!(solver, body_aero,
 end
 
 """
-    solve_and_freeze_circulation!(mode, wing; cold_start=false)
+    solve_and_freeze_circulation!(mode, wing)
 
 Solve and freeze the per-refined-panel induced velocity into `mode.v_ind` and the
 chord blend weights into `mode.chord_weight`, shared by the continuous VSM modes.
-Warm starting is `VortexStepMethod.solve!`'s own, gated by `use_gamma_prev` and by
-`cold_start` ([`safe_vsm_solve!`](@ref)), which throws on a failed solve before
-anything frozen is written.
+The solve starts from the wing's [`circulation`](@ref) and throws on a failure before
+anything frozen is written ([`solve_circulation!`](@ref)).
 """
-function solve_and_freeze_circulation!(mode, wing; cold_start=false)
+function solve_and_freeze_circulation!(mode, wing)
     solver = wing.vsm_solver
     body_aero = wing.vsm_aero
-    safe_vsm_solve!(solver, body_aero; cold_start)
+    solve_circulation!(wing, solver, body_aero)
     store_induced_velocity!(mode.v_ind, body_aero, solver.lr.gamma_new)
     store_chord_weights!(mode.chord_weight, body_aero)
     return nothing
@@ -2115,11 +2139,11 @@ function rigid_aero_baseline!(wing, stations;
     end
 
     shadow_ref = Ref{Any}(nothing)
-    f_baseline = y -> vsm_aero_coeffs(wing, y, va_mag,
-        n_unrefined, n_stations, station_idxs, stations,
-        moment_frac, shadow_ref)
-
-    wing.aero_x .= f_baseline(y0)
+    gamma = circulation(wing)
+    wing.aero_x .= vsm_aero_coeffs(wing, y0, va_mag, n_unrefined, n_stations,
+        station_idxs, stations, moment_frac, shadow_ref;
+        gamma_init=circulation_start(gamma))
+    gamma .= wing.vsm_solver.sol.gamma_distribution
 
     return (; va_mag, n_unrefined, n_stations,
             station_idxs, moment_frac, shadow_ref, y0)

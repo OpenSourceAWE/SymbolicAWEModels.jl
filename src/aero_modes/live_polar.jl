@@ -368,7 +368,7 @@ surface_pattern(mode::AeroPressure, panel, panel_idx, alpha) =
     end
 
 """
-    solve_with_live_polars!(mode::AeroPressure, wing, points; cold_start=false)
+    solve_with_live_polars!(mode::AeroPressure, wing, points)
 
 Solve the wing with polars regenerated from its current shape, sampled about
 [`live_polar_alpha`](@ref). One sampling and one solve: a sampled polar holds its
@@ -380,11 +380,11 @@ past the range — there the panel's polar is flat and no longer tracks the shap
 The traction pattern is regenerated from the same deformed shapes once the solve has
 converged, so the forces and their placement both follow the deformation.
 """
-function solve_with_live_polars!(mode::AeroPressure, wing, points; cold_start=false)
+function solve_with_live_polars!(mode::AeroPressure, wing, points)
     state = mode.live::LivePolarState
     update_live_deflection!(mode, wing, points)
     refit_live_polars!(mode, wing, live_polar_alpha(wing))
-    solve_and_freeze_circulation!(mode, wing; cold_start)
+    solve_and_freeze_circulation!(mode, wing)
     refresh_live_pressure!(mode, wing)
     drift = AirfoilAero.polar_drift(state.source,
         collect(SimFloat, wing.vsm_solver.lr.alpha_dist))

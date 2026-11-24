@@ -95,6 +95,8 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const rows::R
     "the tubes as this run simulates them"
     const tubes::Rows{Tube}
+    "each body's aero mode, with the model's VSM engine where it has one"
+    const aero::Vector{AbstractAeroModel}
     "the records of the bodies, built once: a body's type is its row's, which differs
     from body to body"
     bodies::Rows{ComponentState}
@@ -115,16 +117,18 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
 end
 
 """
-    sysstate_counts(sys) -> (P, counts)
+    sysstate_counts(state) -> (P, counts)
 
 The position slot count `P` and the keywords `counts` of `KiteUtils.SysState(P; ...)`
-for `sys`, shared by a run's state and the log frames written from it.
+for run `state`, shared by its `sysstate` and the log frames written from it: its
+`gamma_distribution` holds the circulation of every VSM panel of its wings, in order.
 """
-function sysstate_counts(sys, n_corners=count_aero_log_points(wing_bodies(sys)))
+function sysstate_counts(sys, n_corners=count_aero_log_points(wing_bodies(sys)),
+                         panels=sum(n_vsm_panels, sys.aero; init=0))
     counts = (wings = length(sys.wings), orients = n_orient_frames(sys),
               deflections = n_flap_deflections(sys), pulleys = length(sys.pulleys),
               winches = length(sys.winches), tethers = length(sys.tethers),
-              segments = length(sys.segments))
+              segments = length(sys.segments), panels)
     return position_slots(sys, n_corners).total, counts
 end
 
@@ -138,10 +142,11 @@ The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteG
 function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                      wind_mode::WindMode=ProfileWind())
     vsm_set = model_vsm_set(sys, set, vsm_set)
-    modes = [model_aero(body.aero, body, set, vsm_set) for body in sys.bodies]
+    modes = AbstractAeroModel[model_aero(body.aero, body, set, vsm_set)
+                              for body in sys.bodies]
     n_corners = sum(n_aero_log_points(mode, body)
                     for (mode, body) in zip(modes, sys.bodies); init=0)
-    P, counts = sysstate_counts(sys, n_corners)
+    P, counts = sysstate_counts(sys, n_corners, sum(n_vsm_panels, modes; init=0))
     no_records = Rows{ComponentState}()
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
     rows = (points=typed_rows(Point, sys.points),
@@ -155,12 +160,12 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         segment_pulleys(sys),
                         first(position_slots(sys, n_corners).bodies) - 1,
                         length(sys.wings), rows,
-                        run_tubes(sys),
+                        run_tubes(sys), modes,
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,
                         isnothing(set) ? nothing : AtmosphericModel(set), wind_mode,
                         nothing)
-    bodies = Rows(ComponentState[BodyState(body, state, i, modes[i])
+    bodies = Rows(ComponentState[BodyState(body, state, i)
                                  for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)
     setfield!(state, :wings, Rows(ComponentState[bodies[i] for i in eachindex(sys.wings)]))
@@ -430,12 +435,13 @@ end
 
 A record type `Name{P, S}` of a run's state and the properties it takes from the state:
 `getter` reads one from record `r`, and `setter` writes `value` to a scalar one; a
-vector one is written in place through its getter.
+vector one is written in place through its getter. With `forwards_aero`, the record also
+reads and writes the fields of its aero mode's VSM engine.
 """
-macro state_record(name, doc, block, with_aero=false)
+macro state_record(name, doc, block, forwards_aero=false)
     accessors = Tuple{Symbol, Any}[(line.args[2], line.args[3]) for line in block.args
         if line isa Expr && line.head === :call && line.args[1] === :(=>)]
-    with_aero && for field in VSM_ENGINE_FIELDS
+    forwards_aero && for field in VSM_ENGINE_FIELDS
         push!(accessors, (field, :((getproperty(r.aero, $(QuoteNode(field))),
                                     setproperty!(r.aero, $(QuoteNode(field)), value)))))
     end
@@ -450,11 +456,10 @@ macro state_record(name, doc, block, with_aero=false)
             :(@inline set_state_property!(r::$name, ::Val{$key}, value) = $setter))
     end
     return esc(quote
-        @doc $doc struct $(with_aero ? :($name{P, S, A}) : :($name{P, S})) <: ComponentState
+        @doc $doc struct $name{P, S} <: ComponentState
             row::P
             state::S
             idx::Int
-            $(with_aero ? :(aero::A) : nothing)
         end
         state_properties(::Type{<:$name}) = $(Tuple(properties))
         $(methods...)
@@ -644,10 +649,10 @@ com_offset(r) = getfield(r, :row).com_offset_b
     BodyState
 
 A body of a run's state, a wing among them: its pose and motion in its body frame, the
-same in its principal frame, derived from them, what the air does to it, and its own
-aero mode, with this run's VSM engine where it has one.
+same in its principal frame, derived from them, what the air does to it, and the fields of
+its aero mode's VSM engine, read through to the model's.
 """ begin
-    aero => (getfield(r, :aero), derived(:aero))
+    aero => (getfield(run_state(r), :aero)[index(r)], derived(:aero))
     vsm_aoa => (mean(r.vsm_solver.sol.alpha_dist), derived(:vsm_aoa))
     pos_w => ColumnVec3(sysstate(r).X, sysstate(r).Y, sysstate(r).Z, body_slot(r))
     vel_w => ColumnVec3(sysstate(r).VX, sysstate(r).VY, sysstate(r).VZ, body_slot(r))

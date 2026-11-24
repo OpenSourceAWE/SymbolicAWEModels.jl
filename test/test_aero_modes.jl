@@ -38,7 +38,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, PARTICLE_DYNAMICS,
-    RIGID_DYNAMICS, AERO_SCALE_CHORD
+    RIGID_DYNAMICS, AERO_SCALE_CHORD, refresh_aero!
 using KiteUtils
 using LinearAlgebra
 
@@ -356,6 +356,21 @@ aero_poses = [
                 solver.rtol, solver.max_iterations = rtol, max_iterations
                 next_step!(sam; dt=0.05, vsm_interval=1)
                 @test solver.sol.gamma_distribution != gamma
+            end
+
+            # Gamma is the aerodynamic state: a refresh from the run's
+            # `gamma_distribution` gives the same circulation whatever the solver
+            # last held.
+            case.reference == :vsm &&
+            @testset "circulation is the SysState's gamma_distribution" begin
+                gamma = copy(sam.state.sysstate.gamma_distribution)
+                @test any(!iszero, gamma)
+                refresh_aero!(sam)
+                refreshed = copy(sam.state.sysstate.gamma_distribution)
+                copyto!(sam.state.sysstate.gamma_distribution, gamma)
+                fill!(wing.vsm_solver.sol.gamma_distribution, 1.0)
+                refresh_aero!(sam)
+                @test sam.state.sysstate.gamma_distribution ≈ refreshed rtol=1e-12
             end
 
             # A KINEMATIC wing's body frame is fitted from reference points, so
