@@ -512,7 +512,7 @@ each one's share — the only things the air it entrains can slow down:
 
 - a free `DYNAMIC` node integrates itself and takes all of it;
 - a node anchored to a rigid body is placed by that body, which takes all of it;
-- a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two
+- a node riding a Timoshenko tube's deformed centerline is placed by the two
   bodies the tube spans, which split it by where along the element it sits
   (`beam_frac`).
 """
@@ -1831,6 +1831,22 @@ function circulation(sam, wing_idx)
     return view(sam.sysstate.gamma_distribution, panels)
 end
 
+"""
+    circulation_alpha(sam, wing_idx) -> Vector{SimFloat}
+
+The angle of attack [rad] each VSM panel of wing `wing_idx` of `sam` flies at its
+[`circulation`](@ref), in the panels' current apparent wind and the influence its engine
+last worked out; each panel's geometric angle before the engine has solved once.
+"""
+function circulation_alpha(sam, wing_idx)
+    body_aero = sam.aero[wing_idx].vsm_aero
+    v_ind = zeros(SimFloat, 3, length(body_aero.panels))
+    all(iszero, body_aero.AIC) ||
+        store_induced_velocity!(v_ind, body_aero, circulation(sam, wing_idx))
+    return [SimFloat(first(VortexStepMethod.calculate_relative_alpha_and_relative_velocity(
+                panel, v_ind[:, i]))) for (i, panel) in enumerate(body_aero.panels)]
+end
+
 """The number of VSM panels of aero `mode`, none without an engine."""
 n_vsm_panels(mode::AbstractVSMAero) = length(mode.vsm_aero.panels)
 n_vsm_panels(::AbstractAeroModel) = 0
@@ -1857,31 +1873,13 @@ end
     safe_vsm_solve!(solver, body_aero, gamma_init; moment_frac=0.1)
 
 Solve under `throw_on_fail`, so a solve that missed the solver's tolerances or
-came back non-finite throws `VortexStepMethod.SolveFailure`. The circulation and
-the two angle-of-attack distributions of the last converged solve, which `solve!`
-has already overwritten with the diverged ones, are restored before it leaves.
-
-The solve starts from the circulation `gamma_init`, else, where it is `nothing`, from the
-solver's configured initial distribution.
+came back non-finite throws `VortexStepMethod.SolveFailure`. The solve starts from the
+circulation `gamma_init`, else, where it is `nothing`, from the solver's configured initial
+distribution.
 """
-function safe_vsm_solve!(solver, body_aero, gamma_init; moment_frac=0.1)
-    gamma_converged = isnothing(solver.sol.gamma_distribution) ? nothing :
-        copy(solver.sol.gamma_distribution)
-    alpha_converged = copy(solver.lr.alpha_dist)
-    alpha_corrected_converged = copy(solver.sol.alpha_dist)
-    try
-        VortexStepMethod.solve!(solver, body_aero, gamma_init;
-            moment_frac, log=false, throw_on_fail=true)
-    catch failure
-        failure isa VortexStepMethod.SolveFailure || rethrow()
-        isnothing(gamma_converged) ||
-            copyto!(solver.sol.gamma_distribution, gamma_converged)
-        copyto!(solver.lr.alpha_dist, alpha_converged)
-        copyto!(solver.sol.alpha_dist, alpha_corrected_converged)
-        rethrow()
-    end
-    return nothing
-end
+safe_vsm_solve!(solver, body_aero, gamma_init; moment_frac=0.1) =
+    VortexStepMethod.solve!(solver, body_aero, gamma_init;
+        moment_frac, log=false, throw_on_fail=true)
 
 """
     solve_and_freeze_circulation!(mode, sam, wing_idx)

@@ -281,28 +281,13 @@ function refit_live_polars!(mode::AeroPressure, wing_idx, alpha)
     return confidence
 end
 
-"""
-    live_polar_alpha(mode) -> Vector{SimFloat}
-
-The angles of attack [rad] to sample each panel's polar of VSM aero `mode` about: the
-previous solve's converged `lr.alpha_dist`, or, before there is one, each panel's
-geometric angle from its own apparent wind. Sampling the first solve of a run about zero
-would hand it polars that say nothing at the real angle.
-"""
-function live_polar_alpha(mode)
-    alpha = collect(SimFloat, mode.vsm_solver.lr.alpha_dist)
-    all(iszero, alpha) || return alpha
-    return [SimFloat(VortexStepMethod.calculate_relative_alpha_and_relative_velocity(
-                panel, zeros(SimFloat, 3))[1])
-            for panel in mode.vsm_aero.panels]
-end
 
 """
     check_live_polar(sam, wing_idx; panel_idx=nothing) -> NamedTuple
 
 XFoil against the live polar one panel of wing `wing_idx` of `sam` is flying, at the state
-the model is in now: the panel's own deformed shape, its converged angle of attack and its
-Reynolds. `panel_idx` defaults to the panel NeuralFoil is least confident about, which
+the model is in now: the panel's own deformed shape, the angle of attack its circulation
+gives it and its Reynolds. `panel_idx` defaults to the panel NeuralFoil is least confident about, which
 is the one worth asking about. See `AirfoilAero.compare_live_polar` for what comes back.
 
 The `Live polar off the trained shape range` warning says the network is extrapolating.
@@ -311,17 +296,17 @@ the input shape, not the answer. One viscous solve, so it is cheap enough to cal
 the REPL mid-run and far too slow to call every step.
 """
 check_live_polar(sam::SymbolicAWEModel, wing_idx; panel_idx=nothing) =
-    check_live_polar(sam.aero[wing_idx], wing_idx; panel_idx)
+    check_live_polar(sam.aero[wing_idx], sam, wing_idx; panel_idx)
 
-check_live_polar(::AbstractAeroModel, wing_idx; panel_idx=nothing) =
+check_live_polar(::AbstractAeroModel, sam, wing_idx; panel_idx=nothing) =
     error("check_live_polar: wing $wing_idx is not flying live polars.")
 
-function check_live_polar(mode::AeroPressure, wing_idx; panel_idx=nothing)
+function check_live_polar(mode::AeroPressure, sam, wing_idx; panel_idx=nothing)
     mode.live_polars || error("check_live_polar: wing $wing_idx is not flying live polars.")
     state = mode.live::LivePolarState
     idx = isnothing(panel_idx) ? argmin(state.source.confidence) : panel_idx
     return AirfoilAero.compare_live_polar(state.source, mode.vsm_aero.panels[idx], idx,
-        mode.vsm_solver.lr.alpha_dist[idx], panel_reynolds(mode)[idx])
+        circulation_alpha(sam, wing_idx)[idx], panel_reynolds(mode)[idx])
 end
 
 """
@@ -379,7 +364,7 @@ surface_pattern(mode::AeroPressure, panel, panel_idx, alpha) =
     solve_with_live_polars!(mode::AeroPressure, sam, wing_idx)
 
 Solve wing `wing_idx` of `sam` with polars regenerated from its current shape, sampled about
-[`live_polar_alpha`](@ref). One sampling and one solve: a sampled polar holds its
+[`circulation_alpha`](@ref). One sampling and one solve: a sampled polar holds its
 last value past either end rather than extrapolating, so a solve landing outside the
 sampled range reads a bounded answer instead of a runaway one and needs no refit to
 be safe. How far it landed is reported by `AirfoilAero.polar_drift`, which warns once
@@ -391,7 +376,7 @@ converged, so the forces and their placement both follow the deformation.
 function solve_with_live_polars!(mode::AeroPressure, sam, wing_idx)
     state = mode.live::LivePolarState
     update_live_deflection!(mode, sam, wing_idx)
-    refit_live_polars!(mode, wing_idx, live_polar_alpha(mode))
+    refit_live_polars!(mode, wing_idx, circulation_alpha(sam, wing_idx))
     solve_and_freeze_circulation!(mode, sam, wing_idx)
     refresh_live_pressure!(mode)
     drift = AirfoilAero.polar_drift(state.source,

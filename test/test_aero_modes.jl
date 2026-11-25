@@ -336,8 +336,7 @@ aero_poses = [
             @testset "failed solve warns and is reused" begin
                 solver = sam.aero[wing].vsm_solver
                 rtol, max_iterations = solver.rtol, solver.max_iterations
-                gamma = copy(solver.sol.gamma_distribution)
-                alpha = copy(solver.lr.alpha_dist)
+                gamma = copy(SymbolicAWEModels.circulation(sam, wing))
                 solver.rtol, solver.max_iterations = 0.0, 2
 
                 @test_throws VortexStepMethod.SolveFailure next_step!(
@@ -352,12 +351,11 @@ aero_poses = [
                 @test count(record -> occursin("Reusing the last converged",
                                                record.message), logs) == 2
                 @test solver.lr.gamma_new != gamma
-                @test solver.sol.gamma_distribution == gamma
-                @test solver.lr.alpha_dist == alpha
+                @test SymbolicAWEModels.circulation(sam, wing) == gamma
 
                 solver.rtol, solver.max_iterations = rtol, max_iterations
                 next_step!(sam; dt=0.05, vsm_interval=1)
-                @test solver.sol.gamma_distribution != gamma
+                @test SymbolicAWEModels.circulation(sam, wing) != gamma
             end
 
             # Gamma is the aerodynamic state: a refresh from the run's
