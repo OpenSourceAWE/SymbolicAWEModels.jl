@@ -22,8 +22,8 @@ using Test
 
 # GLMakie requires OpenGL — skip tests on CI runners without GPU drivers
 const GLMAKIE_AVAILABLE = try
-    @eval using GLMakie
-    @eval using MakieControlPlots
+    @eval import GLMakie
+    @eval import MakieControlPlots
     GLMakie.activate!(; visible=false)
     true
 catch e
