@@ -260,7 +260,7 @@ same panels for comparison.
 
 ## Inflated-tube rigidity laws
 
-Rigidities for the [`TimoshenkoTube`](@ref)s of a beam wing whose leading edge
+Rigidities for the Timoshenko tubes ([`TimoshenkoTubeModel`](@ref)) of a beam wing whose leading edge
 and struts are pressurised fabric tubes. [`tube_bending_law`](@ref) and
 [`tube_torsion_law`](@ref) come from the empirical Breukels correlations;
 [`comer_levy_bending_law`](@ref) is the analytical alternative that stays valid

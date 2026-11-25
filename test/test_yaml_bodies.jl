@@ -123,21 +123,22 @@ end
         @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.tubes) == 1
         tube = sys.tubes[:tube]
-        model = run_value(SymbolicAWEModel(set, sys), :tubes, :tube, :model)
+        run = SymbolicAWEModel(set, sys)
+        tube_value(quantity) = run_value(run, :tubes, :tube, quantity)
         @test tube.bodies[1] == KiteGeometry.row_index(sys.bodies, :nodeA)
         @test tube.bodies[2] == KiteGeometry.row_index(sys.bodies, :nodeB)
         @test (tube.diameter, tube.pressure, sys.materials[tube.material].name) ==
               (0.1, 30000.0, :breukels2011)
-        @test model isa TimoshenkoTube
-        @test model.rest_length ≈ 1.0     # taken from placed geometry
-        @test model.EA ≈ 10000.0
+        @test tube.model isa TimoshenkoTubeModel
+        @test tube_value(:rest_length) ≈ 1.0     # taken from placed geometry
+        @test tube_value(:EA) ≈ 10000.0
         anchor = sys.points[:tip_anchor]
         @test !anchor.fixed
         @test anchor.body == KiteGeometry.row_index(sys.bodies, :nodeB)
     end
 
     @testset "a tube row without rigidities takes them from its law" begin
-        # A row leaves its rigidities unset; the run's element derives them.
+        # A row leaves its rigidities unset; the run derives them.
         material(law) = Material(; name=law, law=String(law),
                                  parameters=KiteGeometry.tube_law_parameters(law))
         function run_tube(tube, law=:breukels2011)
@@ -146,7 +147,9 @@ end
                       for (name, pos_ENU) in ((:a, [0.0, 0.0, 0.0]), (:b, [1.0, 0.0, 0.0]))]
             strut = system_definition("yaml_bodies_strut", set;
                 materials=[material(law)], bodies, tubes=[tube])
-            return run_value(SymbolicAWEModel(set, strut), :tubes, 1, :model)
+            run = SymbolicAWEModel(set, strut)
+            return (; (field => run_value(run, :tubes, 1, field)
+                       for field in (:EA, :GA, :GJ, :EIy, :EIz))...)
         end
         model = run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1, pressure=30000.0,
                              material=:breukels2011))

@@ -3,8 +3,8 @@
 
 """
 Rigidity laws of pressurised fabric tubes, supplying the `EA`, `GA`, `GJ`, `EIy`
-and `EIz` of a [`TimoshenkoTube`](@ref) that models an inflated leading edge or
-strut.
+and `EIz` of a Timoshenko tube ([`TimoshenkoTubeModel`](@ref)) that models an inflated
+leading edge or strut.
 
 Two independent sources are available. The Breukels (2011) empirical
 correlations fit a 1 m cantilever tip-force curve and cover the linear regime up
@@ -36,12 +36,11 @@ const SOFTENING_EXPONENT_RANGE = (0.05, 100.0)
 """
     TubeRigidityLaw
 
-Callable effective rigidity of an inflated tube for one [`TimoshenkoTube`](@ref)
-mode, evaluated at that mode's curvature [1/m]. `mode == :torsion` returns
-`GJ(κ) = c1·atan(c2·κ)/κ` (Breukels). `mode == :bending` returns `EI(κ)`: the
-linear rigidity below the knee curvature and the smooth power-law approach to the
-collapse moment above it. One struct covers both modes because all callable
-rigidities of a tube must share a type.
+Callable effective rigidity of an inflated tube for one mode of a Timoshenko tube
+([`TimoshenkoTubeModel`](@ref)), evaluated at that mode's curvature [1/m].
+`mode == :torsion` returns `GJ(κ) = c1·atan(c2·κ)/κ` (Breukels). `mode == :bending`
+returns `EI(κ)`: the linear rigidity below the knee curvature and the smooth power-law
+approach to the collapse moment above it.
 
 $(TYPEDFIELDS)
 """

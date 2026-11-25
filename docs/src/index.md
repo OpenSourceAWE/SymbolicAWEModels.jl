@@ -106,7 +106,7 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - Spanwise stations ([`StationModel`](@ref)) — twist degrees of freedom for aeroelastic
   coupling
 - Bodies ([`BodyModel`](@ref)) — plain rigid bodies, linked by inflated tubes,
-  simulated as [`TimoshenkoTube`](@ref) beam elements or [`ElasticTube`](@ref) springs
+  simulated as [`TimoshenkoTubeModel`](@ref) beam elements or [`ElasticTubeModel`](@ref) springs
   ([`TimoshenkoTubeModel`](@ref), [`ElasticTubeModel`](@ref))
 - KiteGeometry `Transform`s — spherical coordinate positioning of components
 

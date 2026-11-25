@@ -213,9 +213,12 @@ end
 """
     TimoshenkoTubeModel
 
-The columns of a KiteGeometry `tubes` row with model `timoshenko`, a
-[`TimoshenkoTube`](@ref), each `nothing` where the row leaves it unset. A rigidity is a
-number or, in a structure built in Julia, a callable of its strain or curvature.
+The columns of a KiteGeometry `tubes` row with model `timoshenko`, each `nothing` where the
+row leaves it unset: a 2-node corotational Timoshenko beam element, whose stiffness couples
+each node's transverse displacement to its rotation (shear reduction
+`Φ = 12·EI/(k·GA·L²)`); a chain of tubes forms a beam. A rigidity is a number or, in a
+structure built in Julia, a callable of its strain or curvature returning the effective
+rigidity there; one left unset follows from the tube's material.
 
 $(TYPEDFIELDS)
 """
@@ -230,13 +233,13 @@ $(TYPEDFIELDS)
     EIy::Any = nothing
     "Bending rigidity about the z-axis [N·m²]."
     EIz::Any = nothing
-    "Shear correction coefficient."
+    "Shear correction coefficient, 5/6 when unset."
     shear_coeff::Union{Nothing, Float64} = nothing
-    "Rayleigh damping, damping over stiffness [s]."
+    "Rayleigh damping, damping over stiffness [s]; 0 when unset."
     damping::Union{Nothing, Float64} = nothing
-    "Tube end in the first body's frame [m]."
+    "Tube end in the first body's frame, from its frame origin [m]."
     anchor_a::Union{Nothing, Vector{Float64}} = nothing
-    "Tube end in the second body's frame [m]."
+    "Tube end in the second body's frame, from its frame origin [m]."
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
 end
 KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
@@ -246,9 +249,11 @@ KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
 """
     ElasticTubeModel
 
-The columns of a KiteGeometry `tubes` row with model `elastic`, an
-[`ElasticTube`](@ref), each `nothing` where the row leaves it unset. A stiffness is a
-number or, in a structure built in Julia, a callable of its strain or angle.
+The columns of a KiteGeometry `tubes` row with model `elastic`, each `nothing` where the
+row leaves it unset: a lumped 6-DOF spring between the tube's two ends, their relative pose
+in the first body's frame split into axial, shear, torsion and bending springs. A
+stiffness is a number (force `k·Δ`) or, in a structure built in Julia, a callable of its
+displacement or angle (force `f(Δ)`); every stiffness must be set.
 
 $(TYPEDFIELDS)
 """
@@ -261,16 +266,25 @@ $(TYPEDFIELDS)
     stiffness_torsion::Any = nothing
     "Bending stiffness [N·m/rad]."
     stiffness_bending::Any = nothing
-    "Rayleigh damping, damping over stiffness [s]."
+    "Rayleigh damping, damping over stiffness [s]; 0 when unset."
     damping::Union{Nothing, Float64} = nothing
-    "Tube end in the first body's frame [m]."
+    "Tube end in the first body's frame, from its frame origin [m]."
     anchor_a::Union{Nothing, Vector{Float64}} = nothing
-    "Tube end in the second body's frame [m]."
+    "Tube end in the second body's frame, from its frame origin [m]."
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
 end
 KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
     (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,
      :damping, :anchor_a, :anchor_b)
+
+"""
+    rigidity_fields(model) -> Tuple
+
+The columns of the tube row model `model` holding a rigidity or stiffness.
+"""
+rigidity_fields(::TimoshenkoTubeModel) = (:EA, :GA, :GJ, :EIy, :EIz)
+rigidity_fields(::ElasticTubeModel) =
+    (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending)
 
 
 KiteGeometry.model_references(::Type{WingModel}) = (

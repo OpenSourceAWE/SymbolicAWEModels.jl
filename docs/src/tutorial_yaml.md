@@ -391,8 +391,8 @@ A body ([`BodyModel`](@ref)) is a plain rigid body — no aerodynamics, no struc
 points of its own. Bodies are linked by tubes: an inflated tube of one
 `diameter` [m] and `pressure` [Pa], whose `law` gives its rigidities and whose
 `model` is the element it is simulated as — `timoshenko`, a 2-node
-[`TimoshenkoTube`](@ref) beam element, or `elastic`, a lumped 6-DOF
-[`ElasticTube`](@ref) spring. A chain of Timoshenko tubes forms a beam, and the
+beam element ([`TimoshenkoTubeModel`](@ref)), or `elastic`, a lumped 6-DOF
+spring ([`ElasticTubeModel`](@ref)). A chain of Timoshenko tubes forms a beam, and the
 placed bodies fix each tube's rest length. `BODY_STATIC` points ride a body
 (`body_idx`) or a Timoshenko tube (`tube`).
 

@@ -87,7 +87,7 @@ end
     run_mismatches(kernel, monolith; atol)
 
 Every read-back mismatch between two runs: each quantity of each item of every
-collection, and each field of every tube model.
+collection.
 """
 function run_mismatches(kernel, monolith; atol=1e-6)
     found = Tuple{String, Int, Symbol, Float64}[]
@@ -97,14 +97,6 @@ function run_mismatches(kernel, monolith; atol=1e-6)
             push_mismatch!(found, String(collection), idx, name,
                            run_value(kernel, collection, idx, name),
                            run_value(monolith, collection, idx, name), atol)
-        end
-    end
-    for idx in eachindex(kernel.definition.tubes)
-        a = run_value(kernel, :tubes, idx, :model)
-        b = run_value(monolith, :tubes, idx, :model)
-        for name in propertynames(a)
-            push_mismatch!(found, "tube models", idx, name, getproperty(a, name),
-                           getproperty(b, name), atol)
         end
     end
     return found

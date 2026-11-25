@@ -389,8 +389,8 @@ its own job on Ubuntu with Julia 1.12.
 | `test_principal_body_frame` | [`WingModel`](@ref) | Principal vs body frame separation |
 | `test_principal_frame_invariance` | [`WingModel`](@ref) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
 | `test_rigid_body` | `Body`, [`BodyModel`](@ref) | Free rigid-body motion, gravity, damping |
-| `test_elastic_tube` | [`ElasticTube`](@ref) | Lumped 6-DOF spring between bodies |
-| `test_timoshenko_tube` | [`TimoshenkoTube`](@ref) | Beam bending, shear, axial, torsion vs closed form |
+| `test_elastic_tube` | [`ElasticTubeModel`](@ref) | Lumped 6-DOF spring between bodies |
+| `test_timoshenko_tube` | [`TimoshenkoTubeModel`](@ref) | Beam bending, shear, axial, torsion vs closed form |
 | `test_tube_laws` | — | Breukels inflated-tube correlations and their fitted range |
 | `test_aero_modes` | [`AbstractAeroModel`](@ref) | Mode dispatch and connector contract |
 | `test_continuous_aero` | [`ContinuousAero`](@ref) | Live symbolic force assembly |
@@ -479,8 +479,8 @@ The source code is organized into modular directories:
     columns
   - `wing.jl`: VSM engine construction, VSM panel placement and a wing's frame from
     its reference points
-  - `rigid_body.jl`: [`BodyModel`](@ref), [`TimoshenkoTube`](@ref),
-    [`ElasticTube`](@ref)
+  - `rigid_body.jl`: [`BodyModel`](@ref), a body's inertia and frames, and a Timoshenko
+    tube's element frame
   - `system_structure_core.jl`: [`system_definition`](@ref) and a wing's station
     mapping
   - `run_values.jl`: the run's quantity tables, [`run_value`](@ref) and

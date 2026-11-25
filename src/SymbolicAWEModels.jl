@@ -75,7 +75,6 @@ export PointModel, StationModel, SegmentSpring, PulleyModel, WinchModel, WingMod
        BodyModel
 export TimoshenkoTubeModel, ElasticTubeModel
 export segment_role
-export AbstractTubeModel, TimoshenkoTube, ElasticTube
 export VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations

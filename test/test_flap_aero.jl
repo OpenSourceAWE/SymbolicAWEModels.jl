@@ -9,7 +9,7 @@
 # station carries δ = the LE→TE hinge angle into the (α, δ) polars. Putting a
 # spanwise moment on the TE body deflects the flap — δ changes and the live RHS
 # per-panel force responds (δ enters cl/cd/cm every step). Runs both the lumped
-# `ElasticTube` hinge and the distributed `TimoshenkoTube` beam, with a δ-swept
+# elastic-tube hinge and the distributed Timoshenko-tube beam, with a δ-swept
 # POLAR_MATRICES polar so the flap actually bites.
 
 using Pkg

@@ -16,8 +16,8 @@ using LaTeXStrings
 using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
-using SymbolicAWEModels: wing_body, point_wing, wing_node, tube_anchors_b, tube_model,
-    quaternion_to_rotation_matrix
+using SymbolicAWEModels: wing_body, point_wing, wing_node, tube_anchors_b, tube_rest,
+    tube_columns, quaternion_to_rotation_matrix
 using VortexStepMethod
 using GeometryBasics
 
@@ -357,10 +357,10 @@ rigid_body_frames(sam) = [(body_pos(sam, body_idx), body_R(sam, body_idx))
 """
     elastic_tubes(sam) -> Vector{Int}
 
-The indices of the tubes of the run `sam` simulated as a lumped `ElasticTube`.
+The indices of the tubes of the run `sam` simulated as a lumped elastic tube.
 """
 elastic_tubes(sam) = [tube_idx for (tube_idx, tube) in enumerate(sam.definition.tubes)
-                      if tube.model isa ElasticTubeModel]
+                      if tube_columns(tube) isa ElasticTubeModel]
 
 """
     tube_anchors_w(sam, tube_idx) -> (anchor_a_w, anchor_b_w)
@@ -409,14 +409,14 @@ function beam_centerline(sam, tube_idx)
     body_a, body_b = sam.definition.tubes[tube_idx].bodies
     R_a, R_b = body_R(sam, body_a), body_R(sam, body_b)
     x_a, x_b = tube_anchors_w(sam, tube_idx)
-    model = tube_model(sam, tube_idx)
+    rest = tube_rest(sam, tube_idx)
     e1, e2, e3, beam_len =
         SymbolicAWEModels.timoshenko_element_frame(x_a, x_b, R_a)
     element_frame = [e1[1] e2[1] e3[1];
                      e1[2] e2[2] e3[2];
                      e1[3] e2[3] e3[3]]
-    Da = (element_frame' * R_a) * model.R_a_rel0'
-    Db = (element_frame' * R_b) * model.R_b_rel0'
+    Da = (element_frame' * R_a) * rest.R_a_rel0'
+    Db = (element_frame' * R_b) * rest.R_b_rel0'
     θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
            0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
@@ -459,7 +459,7 @@ function beam_elements(sam)
         push!(elements, (pivot, Point3f(pos_b), radius))
     end
     for (tube_idx, tube) in enumerate(tubes)
-        tube.model isa TimoshenkoTubeModel || continue
+        tube_columns(tube) isa TimoshenkoTubeModel || continue
         radius = Float32(tube.diameter / 2)
         samples = beam_centerline(sam, tube_idx)
         norm(samples[end] .- samples[1]) < 1e-9 && continue

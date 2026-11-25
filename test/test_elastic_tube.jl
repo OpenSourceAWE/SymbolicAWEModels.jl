@@ -116,22 +116,31 @@ end
         second_tube = Tube(; name=Symbol(2), bodies=(:b1, :b2), diameter=0.1,
                            pressure=3e4, material=:breukels2011,
                            model=ElasticTubeModel(; element..., anchor_a=[0.25, 0.0, 0.0]))
-        # The run's elements carry the anchors, so read them from a run.
+        # The anchors are quantities of the run, so read them from a run.
         pair = [Body(; name, pos_ENU, extra_mass=1.0,
                      extra_inertia_KA=Matrix(Diagonal(inertia)))
                 for (name, pos_ENU) in ((:b1, [0.0, 0.0, 0.0]), (:b2, [1.0, 0.0, 0.0]))]
         pair_sam = SymbolicAWEModel(set, system_definition("joint_test", set;
             materials, bodies=pair, tubes=[first_tube, second_tube]))
-        @test run_value(pair_sam, :tubes, 1, :model).anchor_a_b == [0.5, 0.0, 0.0]
-        @test run_value(pair_sam, :tubes, 2, :model).anchor_a_b == [0.25, 0.0, 0.0]
+        @test run_value(pair_sam, :tubes, 1, :anchor_a_b) == [0.5, 0.0, 0.0]
+        @test run_value(pair_sam, :tubes, 2, :anchor_a_b) == [0.25, 0.0, 0.0]
         @test first_tube.name === Symbol("1")
+    end
+
+    @testset "An elastic tube's unset stiffness names the tube and the column" begin
+        unset = Tube(; name=:unset, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+                     material=:breukels2011,
+                     model=ElasticTubeModel(; stiffness_shear=1.0, stiffness_torsion=1.0,
+                                            stiffness_bending=1.0))
+        unset_sys = system_definition("joint_test", set; materials, bodies=[body1, body2],
+                                      tubes=[unset])
+        @test_throws "tube unset: stiffness_axial is unset" SymbolicAWEModel(set, unset_sys)
     end
 
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
     b1, b2 = sam.definition.bodies[:b1], sam.definition.bodies[:b2]
     body_value(sam, name, quantity) = run_value(sam, :bodies, name, quantity)
-    tube_element() = run_value(sam, :tubes, :j1, :model)
 
     # The tube's stiffnesses a fresh init! reads from its definition row.
     function set_stiffness!(; axial, shear, torsion, bending)
@@ -292,11 +301,11 @@ end
         sam_r = SymbolicAWEModel(set, sys_r)
         test_init!(sam_r; prn=false)
 
-        jr = run_value(sam_r, :tubes, :j1, :model)
+        rest(quantity) = run_value(sam_r, :tubes, :j1, quantity)
         Rz30 = [cos(2half) -sin(2half) 0.0; sin(2half) cos(2half) 0.0; 0.0 0.0 1.0]
         @info "Rest captured from CAD: anchor offset and relative rotation."
-        @test jr.rest_offset_a ≈ [1.0, 0.0, 0.0] atol=1e-9
-        @test norm(jr.R_rel0 - Rz30) < 1e-9
+        @test rest(:rest_offset_a) ≈ [1.0, 0.0, 0.0] atol=1e-9
+        @test norm(rest(:R_rel0) - Rz30) < 1e-9
 
         pos0 = body_value(sam_r, :b2, :pos_w)
         for _ in 1:50
@@ -321,7 +330,7 @@ end
         b2.extra_mass = 2.5
         test_init!(sam; prn=false)
         @test body_value(sam, :b2, :total_mass) ≈ 2.5
-        @test norm(tube_element().R_rel0 -
+        @test norm(run_value(sam, :tubes, :j1, :R_rel0) -
                    SymbolicAWEModels.quaternion_to_rotation_matrix(Q_rot)) < 1e-12
         @test body_value(sam, :b2, :Q_b_to_w) == [1.0, 0.0, 0.0, 0.0]
     end

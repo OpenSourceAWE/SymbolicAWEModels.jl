@@ -53,7 +53,7 @@ end
 """
     beam_hermite_ride_eqs(sam, i, force_on_point, params; kwargs...)
 
-Kinematics of point `i` of `sam` that rides its `TimoshenkoTube`'s corotational cubic-Hermite
+Kinematics of point `i` of `sam` that rides its Timoshenko tube's corotational cubic-Hermite
 centerline at `beam_frac` (transverse deflection from the two end slopes, plus a
 frame-carried `beam_offset_b`), and the load it feeds to the two end bodies split by
 axial fraction. Mutates `body_force`/`body_moment` in place; returns the point's
@@ -67,7 +67,7 @@ function beam_hermite_ride_eqs(sam, i, force_on_point, params;
     a, b = sam.definition.tubes[tube_idx].bodies
     R_a = collect(body_R_b_to_w[:, :, a])
     R_b = collect(body_R_b_to_w[:, :, b])
-    ex = beam_hermite_ride_expressions(tube_model(sam, tube_idx), params, i;
+    ex = beam_hermite_ride_expressions(tube_idx, params, i;
         pos_a = collect(body_pos_w[:, a]), R_a, com_a = collect(body_com_w[:, a]),
         com_vel_a = collect(body_com_vel[:, a]), omega_a_w = R_a * collect(body_ω_b[:, a]),
         pos_b = collect(body_pos_w[:, b]), R_b, com_b = collect(body_com_w[:, b]),

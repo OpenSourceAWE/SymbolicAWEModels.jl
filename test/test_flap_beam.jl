@@ -73,15 +73,15 @@ the Julia mirror of the symbolic branch in `point_eqs!`, used as the ground trut
 function hermite_point_w(sam, tube, point)
     body_a, body_b = sam.definition.tubes[tube].bodies
     body(name, quantity) = run_value(sam, :bodies, name, quantity)
-    element = run_value(sam, :tubes, tube, :model)
+    element(quantity) = run_value(sam, :tubes, tube, quantity)
     R_a = S.quaternion_to_rotation_matrix(body(body_a, :Q_b_to_w))
     R_b = S.quaternion_to_rotation_matrix(body(body_b, :Q_b_to_w))
-    x_a = body(body_a, :pos_w) .+ R_a * element.anchor_a_b
-    x_b = body(body_b, :pos_w) .+ R_b * element.anchor_b_b
+    x_a = body(body_a, :pos_w) .+ R_a * element(:anchor_a_b)
+    x_b = body(body_b, :pos_w) .+ R_b * element(:anchor_b_b)
     e1, e2, e3, len = S.timoshenko_element_frame(x_a, x_b, R_a)
     element_frame = [e1 e2 e3]
-    Da = (element_frame' * R_a) * element.R_a_rel0'
-    Db = (element_frame' * R_b) * element.R_b_rel0'
+    Da = (element_frame' * R_a) * element(:R_a_rel0)'
+    Db = (element_frame' * R_b) * element(:R_b_rel0)'
     θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
            0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),

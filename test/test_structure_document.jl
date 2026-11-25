@@ -63,7 +63,7 @@ function bodies_and_tubes(set)
                                 compression_damping_frac=1.0))]
     push!(materials.rows, Material(; name=:breukels2011, law="breukels2011",
         parameters=KiteGeometry.tube_law_parameters(:breukels2011)))
-    # A tube's anchors are from each body's own mass centre: the hub's lies 0.01 m along x.
+    # A tube's anchors are from each body's frame origin.
     tubes = Tube[
         Tube(; name=:beam, bodies=(:root, :tip), diameter=0.12, pressure=3.0e4,
              material=:breukels2011,
@@ -74,7 +74,7 @@ function bodies_and_tubes(set)
              model=ElasticTubeModel(; stiffness_axial=1.2e5, stiffness_shear=4.0e4,
                                     stiffness_torsion=900.0, stiffness_bending=1500.0,
                                     damping=0.002, anchor_a=[0.1, 0.0, 0.0],
-                                    anchor_b=[-0.1, 0.0, 0.0] - hub_com_offset_b))]
+                                    anchor_b=[-0.1, 0.0, 0.0]))]
     return system_definition("structure_document_bodies", set; points, segments,
         materials, bodies, tubes)
 end

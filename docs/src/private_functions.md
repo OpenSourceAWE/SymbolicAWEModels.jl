@@ -194,8 +194,6 @@ SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.rigidity_fields
-SymbolicAWEModels.concrete_rigidities
-SymbolicAWEModels.with_law_rigidities
 SymbolicAWEModels.timoshenko_element_frame
 SymbolicAWEModels.particle_wing_parts
 SymbolicAWEModels.compute_station_geometry!

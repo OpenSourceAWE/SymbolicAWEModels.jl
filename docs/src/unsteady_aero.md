@@ -65,7 +65,7 @@ often not the node. `apparent_mass_carriers` picks it, and there are three cases
 - a free `DYNAMIC` node carries its own air, through `point_acceleration`;
 - a node anchored to a rigid body is *placed* by that body and integrates nothing of
   its own, so its air goes to the body, through `rigid_body_pose_expressions`;
-- a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two bodies
+- a node riding a Timoshenko tube's deformed centerline is placed by the two bodies
   the tube spans, which split its air by `beam_frac`, where along the element it
   sits.
 

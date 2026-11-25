@@ -498,11 +498,11 @@ function timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
 end
 
 """
-    timoshenko_element_wrench(model, params; frame, theta_a, theta_b, force_a, force_b,
+    timoshenko_element_wrench(tube_idx, params; frame, theta_a, theta_b, force_a, force_b,
         moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Corotational Timoshenko element wrench of the run's tube `model` ([`tube_model`](@ref)).
+Corotational Timoshenko element wrench of tube `tube_idx` of the run `params` reads.
 Given the two nodes' world poses (`pos`, `R_b_to_w`, `com`, `com_vel`, world spin
 `omega_w`) and the tube's rest geometry/rigidities, it builds the
 element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
@@ -513,12 +513,11 @@ each node (world frame, transported to each COM). `frame`/`theta_a`/`theta_b`/`f
 standalone ones as the caller binds them, so the reused frame/force subtrees are not
 re-embedded; `tear_eqs` binds them.
 """
-function timoshenko_element_wrench(model, params;
+function timoshenko_element_wrench(tube_idx, params;
         frame, theta_a, theta_b, force_a, force_b, moment_a, moment_b,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
-    tp = params.tubes[model.idx]
-    tube_model = tp.model
+    tp = params.tubes[tube_idx]
     anchor_a = collect(tp.anchor_a_b)
     anchor_b = collect(tp.anchor_b_b)
     Ra = collect(R_a)
@@ -530,9 +529,9 @@ function timoshenko_element_wrench(model, params;
                   e1[2] e2[2] e3[2];
                   e1[3] e2[3] e3[3]]
     element_frame = collect(frame)
-    L0 = tube_model.rest_length
-    R_a_rel0 = collect(tube_model.R_a_rel0)
-    R_b_rel0 = collect(tube_model.R_b_rel0)
+    L0 = tp.rest_length
+    R_a_rel0 = collect(tp.R_a_rel0)
+    R_b_rel0 = collect(tp.R_b_rel0)
     Da = (element_frame' * Ra) * R_a_rel0'
     Db = (element_frame' * Rb) * R_b_rel0'
     θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]),
@@ -544,19 +543,19 @@ function timoshenko_element_wrench(model, params;
     θ_a = collect(theta_a)
     θ_b = collect(theta_b)
     δ = len - L0
-    kshear = tube_model.shear_coeff
+    kshear = tp.shear_coeff
     ε = δ / L0
     κt = (θ_b[1] - θ_a[1]) / L0
     κy = (θ_b[2] - θ_a[2]) / L0
     κz = (θ_b[3] - θ_a[3]) / L0
     γy = 0.5 * (θ_a[2] + θ_b[2])
     γz = 0.5 * (θ_a[3] + θ_b[3])
-    rigidities = (timoshenko_rigidity(model, params, :EA, ε),
-                  timoshenko_rigidity(model, params, :GA, γy),
-                  timoshenko_rigidity(model, params, :GA, γz),
-                  timoshenko_rigidity(model, params, :GJ, κt),
-                  timoshenko_rigidity(model, params, :EIy, κy),
-                  timoshenko_rigidity(model, params, :EIz, κz))
+    rigidities = (timoshenko_rigidity(tube_idx, params, :EA, ε),
+                  timoshenko_rigidity(tube_idx, params, :GA, γy),
+                  timoshenko_rigidity(tube_idx, params, :GA, γz),
+                  timoshenko_rigidity(tube_idx, params, :GJ, κt),
+                  timoshenko_rigidity(tube_idx, params, :EIy, κy),
+                  timoshenko_rigidity(tube_idx, params, :EIz, κz))
     stiff = timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
@@ -568,7 +567,7 @@ function timoshenko_element_wrench(model, params;
     # Element-frame spin: roll follows node A, tilt is the chord's own rotation
     # rate. Subtracting it leaves deformation rate only, so rigid motion is mute.
     frame_spin = (axis ⋅ ω_a_w) .* axis .+ (axis × Δv) ./ len
-    beta = tube_model.damping
+    beta = tp.damping
     rate_a = element_frame' * (ω_a_w .- frame_spin)
     rate_b = element_frame' * (ω_b_w .- frame_spin)
     damp = timoshenko_local_wrench(rigidities, L0, kshear, beta * stretch_vel,
@@ -590,23 +589,21 @@ function timoshenko_element_wrench(model, params;
 end
 
 """
-    elastic_tube_wrench(model, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
-        omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    elastic_tube_wrench(tube_idx, params; force_w, torque_w, pos_a, R_a, com_a,
+        com_vel_a, omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Lumped 6-DOF restoring wrench of the run's [`ElasticTube`](@ref) `model`
-([`tube_model`](@ref)). From the relative
-pose of the two anchors (in body A's frame) it builds the per-DOF restoring
-force/torque (axial,
-shear, torsion, bending stiffness + damping) and returns
+Lumped 6-DOF restoring wrench of elastic tube `tube_idx` ([`ElasticTubeModel`](@ref)) of
+the run `params` reads. From the relative pose of the two anchors (in body A's frame) it
+builds the per-DOF restoring force/torque (axial, shear, torsion, bending stiffness +
+damping) and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the equal-and-opposite
 wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
 wrench variables, array slices or standalone ones as the caller binds them.
 """
-function elastic_tube_wrench(model, params; force_w, torque_w,
+function elastic_tube_wrench(tube_idx, params; force_w, torque_w,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
-    tp = params.tubes[model.idx]
-    tube_model = tp.model
+    tp = params.tubes[tube_idx]
     Ra = collect(R_a)
     Rb = collect(R_b)
     anchor_a = collect(tp.anchor_a_b)
@@ -615,8 +612,8 @@ function elastic_tube_wrench(model, params; force_w, torque_w,
     cb = collect(com_b)
     pos_anchor_a = collect(pos_a) .+ Ra * anchor_a
     pos_anchor_b = collect(pos_b) .+ Rb * anchor_b
-    rest_offset = collect(tube_model.rest_offset_a)
-    R_rel0 = collect(tube_model.R_rel0)
+    rest_offset = collect(tp.rest_offset_a)
+    R_rel0 = collect(tp.R_rel0)
     Δr_a = Ra' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
     R_rel = R_rel0' * (Ra' * Rb)
     Δθ_a = [0.5 * (R_rel[3, 2] - R_rel[2, 3]),
@@ -631,10 +628,10 @@ function elastic_tube_wrench(model, params; force_w, torque_w,
     Δv_a = Ra' * ((vel_anchor_b .- vel_anchor_a) .-
                   (ω_a_w × (pos_anchor_b .- pos_anchor_a)))
     Δω_a = Ra' * (ω_b_w .- ω_a_w)
-    beta = tube_model.damping
+    beta = tp.damping
     elastic(kind, Δ, rate) =
-        -tube_stiffness_term(model, params, kind, Δ) -
-        tube_rayleigh_term(model, params, kind, Δ, rate, beta)
+        -tube_stiffness_term(tube_idx, params, kind, Δ) -
+        tube_rayleigh_term(tube_idx, params, kind, Δ, rate, beta)
     force_a = [elastic(1, Δr_a[1], Δv_a[1]),
                elastic(2, Δr_a[2], Δv_a[2]),
                elastic(2, Δr_a[3], Δv_a[3])]
@@ -656,12 +653,11 @@ function elastic_tube_wrench(model, params; force_w, torque_w,
 end
 
 """
-    beam_hermite_ride_expressions(model, params, point_idx; pos_a, R_a, com_a, com_vel_a,
-        omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    beam_hermite_ride_expressions(tube_idx, params, point_idx; pos_a, R_a, com_a,
+        com_vel_a, omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Kinematics of a point riding the corotational cubic-Hermite centerline of the run's tube
-`model` ([`tube_model`](@ref)) at the
-point's `beam_frac`. From the two end bodies' world poses it
+Kinematics of a point riding the corotational cubic-Hermite centerline of tube `tube_idx` of
+the run `params` reads at the point's `beam_frac`. From the two end bodies' world poses it
 builds the element frame, the two nodes' chord-relative rotations, the transverse Hermite
 deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac,
 ride_velocity)` — the ride position, its rigid-blend velocity, the axial fraction that
@@ -670,12 +666,11 @@ splits any force at the point onto the two end bodies (`(1−sfrac)` to A, `sfra
 position `p`, so a backend can tear `pos_point` first and avoid re-embedding the heavy
 element-frame subtree in the velocity.
 """
-function beam_hermite_ride_expressions(model, params, point_idx;
+function beam_hermite_ride_expressions(tube_idx, params, point_idx;
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w,
         frame = nothing, theta_a = nothing, theta_b = nothing)
-    tp = params.tubes[model.idx]
-    tube_model = tp.model
+    tp = params.tubes[tube_idx]
     Ra = collect(R_a)
     Rb = collect(R_b)
     x_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
@@ -685,8 +680,8 @@ function beam_hermite_ride_expressions(model, params, point_idx;
                   e1[2] e2[2] e3[2];
                   e1[3] e2[3] e3[3]]
     element_frame = frame === nothing ? frame_expr : collect(frame)
-    Da = (element_frame' * Ra) * collect(tube_model.R_a_rel0)'
-    Db = (element_frame' * Rb) * collect(tube_model.R_b_rel0)'
+    Da = (element_frame' * Ra) * collect(tp.R_a_rel0)'
+    Db = (element_frame' * Rb) * collect(tp.R_b_rel0)'
     θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
                 0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
@@ -1581,9 +1576,8 @@ function HermiteRidePoint(s, params, idx; name)
         arm_b(t)[1:3], [output = true]
         height(t), [output = true]
     end
-    sam = params.reg.sam
-    model = tube_model(sam, sam.definition.points[idx].tube)
-    ex = beam_hermite_ride_expressions(model, params, idx; joint_poses(io)...)
+    ex = beam_hermite_ride_expressions(s.definition.points[idx].tube, params, idx;
+                                       joint_poses(io)...)
     eqs = [
         collect(vars[1]) .~ ex.pos_point
         collect(vars[2]) .~ ex.ride_velocity(vars[1])
@@ -1712,14 +1706,14 @@ joint_wrench_eqs(io, ex) = [
 """
     ElasticTubeComponent(s, params, idx; name)
 
-Tube `idx` as a lumped 6-DOF [`ElasticTube`](@ref): reads both end bodies' poses and
-emits the restoring wrench on each, through [`elastic_tube_wrench`](@ref).
+Tube `idx` as a lumped 6-DOF spring ([`ElasticTubeModel`](@ref)): reads both end bodies'
+poses and emits the restoring wrench on each, through [`elastic_tube_wrench`](@ref).
 """
 function ElasticTubeComponent(s, params, idx; name)
     io = joint_variables()
     torn = @variables joint_force(t)[1:3] joint_torque(t)[1:3]
-    ex = elastic_tube_wrench(tube_model(params.reg.sam, idx), params; force_w = torn[1],
-                              torque_w = torn[2], joint_poses(io)...)
+    ex = elastic_tube_wrench(idx, params; force_w = torn[1], torque_w = torn[2],
+                             joint_poses(io)...)
     return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
                   param_unknowns(params); name)
 end
@@ -1743,11 +1737,9 @@ function TimoshenkoTubeComponent(s, params, idx; name)
         element_moment_a(t)[1:3]
         element_moment_b(t)[1:3]
     end
-    ex = timoshenko_element_wrench(tube_model(params.reg.sam, idx), params;
-        frame = torn[1],
-        theta_a = torn[2], theta_b = torn[3], force_a = torn[4],
-        force_b = torn[5], moment_a = torn[6], moment_b = torn[7],
-        joint_poses(io)...)
+    ex = timoshenko_element_wrench(idx, params; frame = torn[1], theta_a = torn[2],
+        theta_b = torn[3], force_a = torn[4], force_b = torn[5], moment_a = torn[6],
+        moment_b = torn[7], joint_poses(io)...)
     return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
                   param_unknowns(params); name)
 end

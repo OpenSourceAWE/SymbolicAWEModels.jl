@@ -832,12 +832,13 @@ function structure_hash(sam)
                            something(body.wing, 0)))
     end
     for (idx, tube) in enumerate(sys.tubes)
-        model = tube_model(sam, idx)
+        columns = tube_columns(tube)
         # Rigidity type selects the generated law (scalar vs callable of strain).
         rigidity_types = [value isa Real ? "float" : string(typeof(value))
-                          for value in getfield.(Ref(model), rigidity_fields(model))]
+                          for value in (run_value(sam, :tubes, idx, field)
+                                        for field in rigidity_fields(columns))]
         push!(data_parts, ("tube", idx, tube.bodies[1], tube.bodies[2],
-                           nameof(typeof(model)), rigidity_types...))
+                           nameof(typeof(columns)), rigidity_types...))
     end
     return sha1(string(data_parts))
 end

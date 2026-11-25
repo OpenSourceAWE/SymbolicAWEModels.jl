@@ -1084,13 +1084,16 @@ end
     add_tube!(builder, table, bindings, sam, tube_idx, bodies)
 
 Add tube `tube_idx` and wire it: both end bodies' poses in, the restoring wrench on
-each back out. Its model picks the component ([`tube_kernel`](@ref)); its parameters
+each back out. Its row model picks the component ([`tube_kernel`](@ref)); its parameters
 are remapped over `tubes`.
 """
 function add_tube!(builder, table, bindings, sam, tube_idx, bodies)
-    model = tube_model(sam, tube_idx)
-    kind, make = tube_kernel(model)
-    key = callable_field_key(kind, model, rigidity_fields(model))
+    columns = tube_columns(sam.definition.tubes[tube_idx])
+    kind, make = tube_kernel(columns)
+    fields = rigidity_fields(columns)
+    rigidities = NamedTuple{fields}(map(field -> run_value(sam, :tubes, tube_idx, field),
+                                        fields))
+    key = callable_field_key(kind, rigidities, fields)
     entry = kernel!(builder, table, sam, key, tube_idx,
                     params -> make(sam, params, tube_idx; name = kind),
                     JOINT_INPUTS, JOINT_OUTPUTS)
@@ -1112,12 +1115,13 @@ function add_tube!(builder, table, bindings, sam, tube_idx, bodies)
 end
 
 """
-    tube_kernel(model) -> (kind, make)
+    tube_kernel(columns) -> (kind, make)
 
-The kernel kind a tube model is built as and the component constructor building it.
+The kernel kind a tube with the row model `columns` is built as and the component
+constructor building it.
 """
-tube_kernel(::ElasticTube) = (:elastic_tube, ElasticTubeComponent)
-tube_kernel(::TimoshenkoTube) = (:timoshenko_tube, TimoshenkoTubeComponent)
+tube_kernel(::ElasticTubeModel) = (:elastic_tube, ElasticTubeComponent)
+tube_kernel(::TimoshenkoTubeModel) = (:timoshenko_tube, TimoshenkoTubeComponent)
 
 """
     add_segment!(builder, table, bindings, sam, k, role) -> Int

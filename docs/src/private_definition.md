@@ -155,9 +155,14 @@ SymbolicAWEModels.station_place
 SymbolicAWEModels.station_vsm
 SymbolicAWEModels.station_vsm_value
 SymbolicAWEModels.station_y_airf
+SymbolicAWEModels.law_rigidity
 SymbolicAWEModels.structure_hash
 SymbolicAWEModels.tube_anchors_b
-SymbolicAWEModels.tube_model
+SymbolicAWEModels.tube_column
+SymbolicAWEModels.tube_columns
+SymbolicAWEModels.tube_rest
+SymbolicAWEModels.tube_rest_value
+SymbolicAWEModels.tube_rigidity
 SymbolicAWEModels.update_run_state!
 SymbolicAWEModels.validate_run
 SymbolicAWEModels.vsm_point_to_struct

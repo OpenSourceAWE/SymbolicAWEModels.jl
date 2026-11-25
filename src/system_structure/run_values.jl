@@ -247,9 +247,30 @@ const WING_QUANTITIES = (
 
 """The run's quantities of each tube, by name."""
 const TUBE_QUANTITIES = (
-    model = Derived((sam, tube_idx) -> tube_model(sam, tube_idx)),
+    EA = Parameter((sam, tube_idx) -> tube_rigidity(sam, tube_idx, :EA)),
+    GA = Parameter((sam, tube_idx) -> tube_rigidity(sam, tube_idx, :GA)),
+    GJ = Parameter((sam, tube_idx) -> tube_rigidity(sam, tube_idx, :GJ)),
+    EIy = Parameter((sam, tube_idx) -> tube_rigidity(sam, tube_idx, :EIy)),
+    EIz = Parameter((sam, tube_idx) -> tube_rigidity(sam, tube_idx, :EIz)),
+    stiffness_axial = Parameter((sam, tube_idx) ->
+        tube_rigidity(sam, tube_idx, :stiffness_axial)),
+    stiffness_shear = Parameter((sam, tube_idx) ->
+        tube_rigidity(sam, tube_idx, :stiffness_shear)),
+    stiffness_torsion = Parameter((sam, tube_idx) ->
+        tube_rigidity(sam, tube_idx, :stiffness_torsion)),
+    stiffness_bending = Parameter((sam, tube_idx) ->
+        tube_rigidity(sam, tube_idx, :stiffness_bending)),
+    shear_coeff = Parameter((sam, tube_idx) -> tube_column(sam, tube_idx, :shear_coeff,
+                                                           5 / 6)),
+    damping = Parameter((sam, tube_idx) -> tube_column(sam, tube_idx, :damping, 0.0)),
     anchor_a_b = Derived((sam, tube_idx) -> tube_anchors_b(sam, tube_idx)[1]),
     anchor_b_b = Derived((sam, tube_idx) -> tube_anchors_b(sam, tube_idx)[2]),
+    rest_length = Derived((sam, tube_idx) -> tube_rest_value(sam, tube_idx, :rest_length)),
+    R_a_rel0 = Derived((sam, tube_idx) -> tube_rest_value(sam, tube_idx, :R_a_rel0)),
+    R_b_rel0 = Derived((sam, tube_idx) -> tube_rest_value(sam, tube_idx, :R_b_rel0)),
+    rest_offset_a = Derived((sam, tube_idx) ->
+        tube_rest_value(sam, tube_idx, :rest_offset_a)),
+    R_rel0 = Derived((sam, tube_idx) -> tube_rest_value(sam, tube_idx, :R_rel0)),
 )
 
 """The quantity tables of a run's collections, by collection."""
@@ -993,40 +1014,65 @@ end
 
 # ==================== TUBES ==================== #
 
-"""The ends of tube `tube_idx` of `sam` on its two bodies, each from its body's origin, body
-frame [m]."""
-function tube_anchors_b(sam, tube_idx)
-    tube = sam.definition.tubes[tube_idx]
-    body_a, body_b = tube.bodies
-    return (KVec3(something(tube.model.anchor_a, zeros(3)) +
-                  extra_com_offset_b(sam, body_a)),
-            KVec3(something(tube.model.anchor_b, zeros(3)) +
-                  extra_com_offset_b(sam, body_b)))
+"""
+    tube_columns(tube)
+
+The columns of the element the KiteGeometry `tubes` row `tube` is simulated as: its
+model's, else those of a [`TimoshenkoTubeModel`](@ref) with every column unset.
+"""
+tube_columns(tube) =
+    tube.model isa KiteGeometry.NoModel ? TimoshenkoTubeModel() : tube.model
+
+"""
+    tube_column(sam, tube_idx, column, fallback)
+
+Column `column` of tube `tube_idx` of `sam`, else `fallback`; `nothing` for a column its
+kind of element does not have.
+"""
+function tube_column(sam, tube_idx, column, fallback)
+    columns = tube_columns(sam.definition.tubes[tube_idx])
+    hasfield(typeof(columns), column) || return nothing
+    return something(getfield(columns, column), fallback)
 end
 
 """
-    tube_model(sam, tube_idx)
+    tube_rigidity(sam, tube_idx, column)
 
-Tube `tube_idx` of `sam` as its run simulates it: its element, with the rigidities its row
-leaves unset from its material, its anchors from each body's origin, and its rest state
-in the bodies' initial poses ([`init_rest!`](@ref)).
+Rigidity `column` of tube `tube_idx` of `sam`, a number or a callable: its row's, else the
+one of a Timoshenko tube's material at its diameter and pressure
+([`tube_law_rigidities`](@ref)); `nothing` for a column its kind of element does not have.
 """
-function tube_model(sam, tube_idx)
+function tube_rigidity(sam, tube_idx, column)
     tube = sam.definition.tubes[tube_idx]
-    columns = (; (field => getfield(tube.model, field)
-                  for field in fieldnames(typeof(tube.model))
-                  if !(field in (:anchor_a, :anchor_b)) &&
-                     !isnothing(getfield(tube.model, field)))...)
-    model = tube.model isa ElasticTubeModel ? ElasticTube(; columns...) :
-        TimoshenkoTube(; columns...)
-    model = with_law_rigidities(model, sam.definition.materials[tube.material],
-                                tube.diameter, tube.pressure)
-    model.idx = tube_idx
-    anchor_a, anchor_b = tube_anchors_b(sam, tube_idx)
-    model.anchor_a_b .= anchor_a
-    model.anchor_b_b .= anchor_b
-    init_rest!(model, tube_initial_frames(sam, tube_idx)...)
-    return model
+    columns = tube_columns(tube)
+    hasfield(typeof(columns), column) || return nothing
+    value = getfield(columns, column)
+    isnothing(value) && return law_rigidity(columns, sam, tube_idx, column)
+    return value isa Real ? SimFloat(value) : value
+end
+
+"""
+    law_rigidity(columns, sam, tube_idx, column)
+
+Rigidity `column` of tube `tube_idx` of `sam`, whose element has the row model `columns`,
+from its material: an elastic tube has none, so it errors.
+"""
+function law_rigidity(::TimoshenkoTubeModel, sam, tube_idx, column)
+    tube = sam.definition.tubes[tube_idx]
+    EA, GA, EI, GJ = tube_law_rigidities(sam.definition.materials[tube.material],
+                                         tube.diameter, tube.pressure)
+    return getfield((; EA, GA, GJ, EIy = EI, EIz = EI), column)
+end
+law_rigidity(::ElasticTubeModel, sam, tube_idx, column) =
+    error("tube $(sam.definition.tubes[tube_idx].name): $column is unset; an elastic " *
+          "tube takes no stiffness from its material")
+
+"""The ends of tube `tube_idx` of `sam` on its two bodies, each from its body's frame
+origin, body frame [m]."""
+function tube_anchors_b(sam, tube_idx)
+    columns = tube_columns(sam.definition.tubes[tube_idx])
+    return (KVec3(something(columns.anchor_a, zeros(3))),
+            KVec3(something(columns.anchor_b, zeros(3))))
 end
 
 """
@@ -1043,6 +1089,34 @@ function tube_initial_frames(sam, tube_idx)
     return R_a, R_b, origin_ENU(sam, body_a) .+ R_a * anchor_a,
         origin_ENU(sam, body_b) .+ R_b * anchor_b
 end
+
+"""
+    tube_rest(sam, tube_idx) -> NamedTuple
+
+The rest state of tube `tube_idx` of `sam`, in which it is unstrained, from its bodies'
+initial poses: for an elastic tube its anchor offset in body A's frame `rest_offset_a`
+[m] and the relative rotation `R_rel0 = R_a' R_b`; for a Timoshenko tube its length
+`rest_length` [m] and each node's orientation in the element frame, `R_a_rel0` and
+`R_b_rel0`.
+"""
+tube_rest(sam, tube_idx) = tube_rest(tube_columns(sam.definition.tubes[tube_idx]),
+                                     tube_initial_frames(sam, tube_idx)...)
+
+function tube_rest(::ElasticTubeModel, R_a, R_b, anchor_a_w, anchor_b_w)
+    return (; rest_offset_a = KVec3(R_a' * (anchor_b_w .- anchor_a_w)),
+            R_rel0 = Matrix{SimFloat}(R_a' * R_b))
+end
+
+function tube_rest(::TimoshenkoTubeModel, R_a, R_b, x_a, x_b)
+    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
+    element_frame = [e1 e2 e3]
+    return (; rest_length = len, R_a_rel0 = Matrix{SimFloat}(element_frame' * R_a),
+            R_b_rel0 = Matrix{SimFloat}(element_frame' * R_b))
+end
+
+"""Rest quantity `name` of tube `tube_idx` of `sam` ([`tube_rest`](@ref)); `nothing` for one
+its kind of element does not have."""
+tube_rest_value(sam, tube_idx, name) = get(tube_rest(sam, tube_idx), name, nothing)
 
 """
     beam_anchor(sam, pos_ENU, tube_idx) -> (beam_frac, beam_offset_b)

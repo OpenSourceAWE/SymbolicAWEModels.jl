@@ -82,11 +82,6 @@ VSMEngine
 create_plate_interpolations
 TimoshenkoTubeModel
 ElasticTubeModel
-AbstractTubeModel
-TimoshenkoTube
-TimoshenkoTube(; EA, GA, GJ, EIy, EIz, shear_coeff, damping)
-ElasticTube
-ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping)
 ```
 
 ## Inflated-tube rigidity

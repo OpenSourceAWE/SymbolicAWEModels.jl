@@ -106,7 +106,7 @@ end
         @test length(sys.tubes) == 1
         @test sys.tubes[:tube].bodies[1] == 1
         @test sys.tubes[:tube].bodies[2] == 2
-        @test run_value(SymbolicAWEModel(set, sys), :tubes, :tube, :model).rest_length ≈
+        @test run_value(SymbolicAWEModel(set, sys), :tubes, :tube, :rest_length) ≈
               beam_length
     end
 
@@ -185,7 +185,7 @@ end
         set_run_value!(sam_nl, :bodies, :nodeB, quantity, value)
 
     @testset "Nonlinear axial (callable rigidity)" begin
-        @test !(run_value(sam_nl, :tubes, :tube, :model).EA isa Real)
+        @test !(run_value(sam_nl, :tubes, :tube, :EA) isa Real)
         load = 20.0
         test_init!(sam_nl; prn=false)
         load_tip_nl!(:ext_force_w, [load, 0.0, 0.0])

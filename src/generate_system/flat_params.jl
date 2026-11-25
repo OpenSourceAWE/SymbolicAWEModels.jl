@@ -196,8 +196,7 @@ param_computed!(reg::ParamRegistry, name::Symbol, reader) =
 """Types the view descends *through* (everything else is a leaf)."""
 param_descend(x) = x isa Rows || x isa AbstractAeroModel ||
                    x isa AbstractWinchModel || x isa WinchModel ||
-                   x isa AbstractTubeModel || x isa VSMEngine || x isa Settings ||
-                   x isa UnsteadyAero
+                   x isa VSMEngine || x isa Settings || x isa UnsteadyAero
 
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 

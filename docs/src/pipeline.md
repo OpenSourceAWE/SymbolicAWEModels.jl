@@ -100,7 +100,7 @@ using ModelingToolkit.jl. It calls specialized equation builders for each subsys
 | `station_eqs!()` | `src/generate_system/station_eqs.jl` | Twist deformation dynamics |
 | `rigid_body_eqs!()` | `src/generate_system/rigid_body_eqs.jl` | 6-DOF body dynamics in the principal frame |
 | `body_eqs!()` | `src/generate_system/body_eqs.jl` | Body-frame pose outputs |
-| `elastic_tube_eqs!()` | `src/generate_system/elastic_tube_eqs.jl` | [`ElasticTube`](@ref) 6-DOF springs |
+| `elastic_tube_eqs!()` | `src/generate_system/elastic_tube_eqs.jl` | [`ElasticTubeModel`](@ref) 6-DOF springs |
 | `timoshenko_tube_eqs!()` | `src/generate_system/timoshenko_tube_eqs.jl` | Corotational beam elements |
 | `scalar_eqs!()` | `src/generate_system/scalar_eqs.jl` | Winch dynamics, kinematics |
 | `aero_eqs!()` | `src/generate_system/aero_eqs.jl` | Wires each wing's aero component (mode-agnostic) |
