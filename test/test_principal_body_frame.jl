@@ -21,7 +21,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, RIGID_DYNAMICS,
-    VortexStepMethod
+    VortexStepMethod, wing_body
 using LinearAlgebra
 
 @testset "Principal-Body Frame Separation" begin
@@ -46,21 +46,27 @@ using LinearAlgebra
         yaml_path;
         name="frame_test", set)
 
-    state = SystemState(sys; set, vsm_set)
-    wing = state.wings[:main_wing]
-    @test body_dynamics_type(wing) == RIGID_DYNAMICS
-    @test !isnothing(wing.origin)
-    @test !isnothing(wing.wing_frame)
+    sam = SymbolicAWEModel(set, sys; vsm_set)
+    wing_idx = KiteGeometry.row_index(sys.wings, :main_wing)
+    body_idx = wing_body(sam, wing_idx)
+    body(quantity) = run_value(sam, :bodies, body_idx, quantity)
+    point(i, quantity) = run_value(sam, :points, i, quantity)
+    station(i, quantity) = run_value(sam, :spanwise_stations, i, quantity)
+    wing_pt_idxs = [i for i in eachindex(sys.points)
+                    if point(i, :is_wing_node) && point(i, :wing_idx) == wing_idx]
+    @test body_dynamics_type(sam, body_idx) == RIGID_DYNAMICS
+    @test !isnothing(run_value(sam, :wings, wing_idx, :origin))
+    @test !isnothing(run_value(sam, :wings, wing_idx, :wing_frame))
 
-    # wing.R_p_to_w uses Q_p_to_w (same as runtime)
-    R_p_to_w_from_q = wing.R_p_to_w
+    # R_p_to_w uses Q_p_to_w (same as runtime)
+    R_p_to_w_from_q = body(:R_p_to_w)
 
     # ---- Test 1: R_p_b is consistent ---- #
     @testset "R_p_b consistency" begin
         # Constant rotation from body to principal
-        R_p_b_const = wing.R_b_to_p
+        R_p_b_const = body(:R_b_to_p)
         # Same thing from world-frame rotations
-        R_p_b_world = R_p_to_w_from_q' * wing.R_b_to_w
+        R_p_b_world = R_p_to_w_from_q' * body(:R_b_to_w)
         @test R_p_b_const ≈ R_p_b_world atol=1e-10
         # Verify R_p_b is not identity (body != principal)
         # This ensures the test is meaningful
@@ -74,65 +80,57 @@ using LinearAlgebra
 
     # ---- Test 2: Rigid body constraint ---- #
     @testset "pos_w = com_w + R_b_to_w * pos_b" begin
-        wing_pts = [p for p in state.points
-            if p.is_wing_node &&
-               p.wing_idx == wing.idx]
-        @test !isempty(wing_pts)
+        @test !isempty(wing_pt_idxs)
 
-        for pt in wing_pts
-            pos_reconstructed = wing.com_w .+
-                wing.R_b_to_w * pt.pos_undeformed_b
-            err = norm(pt.pos_w - pos_reconstructed)
+        for i in wing_pt_idxs
+            pos_reconstructed = body(:com_w) .+
+                body(:R_b_to_w) * point(i, :pos_undeformed_b)
+            err = norm(point(i, :pos_w) - pos_reconstructed)
             @test err < 1e-10
             if err > 1e-10
-                println("  FAIL point $(pt.name): " *
+                println("  FAIL point $(sys.points[i].name): " *
                     "err = $err")
             end
         end
-        println("  All $(length(wing_pts)) WING " *
+        println("  All $(length(wing_pt_idxs)) WING " *
             "points satisfy rigid body constraint")
     end
 
     # ---- Test 3: Station geometry in principal frame ---- #
     @testset "Station geometry frame" begin
-        wing_pts = [p for p in state.points
-            if p.is_wing_node &&
-               p.wing_idx == wing.idx]
-
-        for station in state.spanwise_stations
+        for (station_idx, station_row) in enumerate(sys.spanwise_stations)
             # Find LE and TE points in this station
             le_pt = nothing
             te_pt = nothing
-            for pt_idx in station.points
-                pt = state.points[pt_idx]
-                name_str = string(pt.name)
+            for pt_idx in station_row.points
+                name_str = string(sys.points[pt_idx].name)
                 if occursin("le", name_str)
-                    le_pt = pt
+                    le_pt = pt_idx
                 elseif occursin("te", name_str)
-                    te_pt = pt
+                    te_pt = pt_idx
                 end
             end
             isnothing(le_pt) && continue
             isnothing(te_pt) && continue
+            le_pos = station(station_idx, :le_pos)
 
             # chord_b = pos_undeformed_b - le_pos (from point_eqs)
-            chord_from_pos = te_pt.pos_undeformed_b -
-                station.le_pos
+            chord_from_pos = point(te_pt, :pos_undeformed_b) - le_pos
             # chord_from_pos should be parallel to
-            # station.chord (same direction, maybe
+            # the station chord (same direction, maybe
             # different magnitude)
-            chord_dir = normalize(station.chord)
+            chord_dir = normalize(station(station_idx, :chord))
             pos_dir = normalize(chord_from_pos)
             dot_val = abs(dot(chord_dir, pos_dir))
             @test dot_val > 0.99
             if dot_val < 0.99
-                println("  FAIL station $(station.idx): " *
+                println("  FAIL station $station_idx: " *
                     "chord misaligned, dot=$dot_val")
             end
 
             # le_pos should be close to the LE point's
             # pos_undeformed_b (since LE is at the leading edge)
-            le_err = norm(le_pt.pos_undeformed_b - station.le_pos)
+            le_err = norm(point(le_pt, :pos_undeformed_b) - le_pos)
             # LE point may not exactly match le_pos
             # (le_pos comes from panel center, pos_undeformed_b
             # from point mass position) but should be
@@ -144,19 +142,19 @@ using LinearAlgebra
     end
 
     # ---- Test 4: com_w from body origin ---- #
-    @testset "com_w = pos_w + R_b_to_w * com_offset_b" begin
-        com_reconstructed = wing.pos_w .+
-            wing.R_b_to_w * wing.com_offset_b
-        @test wing.com_w ≈ com_reconstructed atol=1e-10
+    @testset "com_w = pos_w + R_b_to_w * total_com_offset_b" begin
+        com_reconstructed = body(:pos_w) .+
+            body(:R_b_to_w) * body(:total_com_offset_b)
+        @test body(:com_w) ≈ com_reconstructed atol=1e-10
     end
 
     # ---- Test 5: Body ≠ principal origin ---- #
     @testset "COM offset is nonzero" begin
         # For the 2plate_kite with kcu at origin and
         # COM at wing centroid, offset should be nonzero
-        @test norm(wing.com_offset_b) > 0.1
-        println("  com_offset_b = ",
-            round.(wing.com_offset_b; digits=3))
+        @test norm(body(:total_com_offset_b)) > 0.1
+        println("  total_com_offset_b = ",
+            round.(body(:total_com_offset_b); digits=3))
     end
 
     rm(tmpdir; recursive=true)

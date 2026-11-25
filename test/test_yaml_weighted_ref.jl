@@ -111,10 +111,12 @@ transforms:
     sys, transforms = load_authoring(yaml_path;
         name="weighted_ref_test", set)
 
-    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+    frame = run_value(sam, :wings, 1, :wing_frame)
+    origin = run_value(sam, :wings, 1, :origin)
 
     # z_ref_points[1] should be a single point (idx 7, kcu)
-    z_p1, z_p2 = wing.wing_frame.z_ref_points
+    z_p1, z_p2 = frame.z_ref_points
     @test first.(z_p1) == [7]
     @test last.(z_p1) == [1.0]
 
@@ -124,17 +126,17 @@ transforms:
     @test last.(z_p2) ≈ [0.7, 0.3]
 
     # y_ref_points should be simple single-point refs
-    y_p1, y_p2 = wing.wing_frame.y_ref_points
+    y_p1, y_p2 = frame.y_ref_points
     @test first.(y_p1) == [1]
     @test first.(y_p2) == [5]
 
     # Weighted origin_idx: point 7 @ 0.7, point 9 @ 0.3
-    @test wing.origin == wing.wing_frame.origin
-    @test first.(wing.origin) == [7, 9]
-    @test last.(wing.origin) ≈ [0.7, 0.3]
+    @test origin == frame.origin
+    @test first.(origin) == [7, 9]
+    @test last.(origin) ≈ [0.7, 0.3]
 
     # The wing origin is the weighted centroid of points 7 and 9
-    @test SymbolicAWEModels.origin_ENU(wing) ≈
+    @test SymbolicAWEModels.origin_ENU(sam, SymbolicAWEModels.wing_body(sam, 1)) ≈
           0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
 
     # N-point (4-point) weighted origin should also parse
@@ -146,26 +148,24 @@ transforms:
     write(yaml_path_4pt, yaml_4pt)
     sys_4pt, _ = load_authoring(yaml_path_4pt;
         name="weighted_ref_4pt_test", set)
-    wing_4pt = SymbolicAWEModels.SystemState(sys_4pt; set, vsm_set).wings[1]
-    @test first.(wing_4pt.origin) == [1, 3, 5, 9]
-    @test last.(wing_4pt.origin) ≈ [0.1, 0.2, 0.3, 0.4]
+    origin_4pt = run_value(SymbolicAWEModel(set, sys_4pt; vsm_set), :wings, 1, :origin)
+    @test first.(origin_4pt) == [1, 3, 5, 9]
+    @test last.(origin_4pt) ≈ [0.1, 0.2, 0.3, 0.4]
 
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
-    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     integ = init!(sam; prn=false)
     @test integ !== nothing
 
     # The fitted pose read back after a step must use the
     # weights, not just the first point of each reference.
     next_step!(sam)
-    points = sam.state.points
-    wing = sam.state.bodies[1]
-    blend(ref) = sum(w * points[i].pos_w for (i, w) in ref)
-    @test wing.pos_w ≈ blend(wing.origin)
-    @test wing.vel_w ≈ sum(w * points[i].vel_w for (i, w) in wing.origin)
-    z_axis = normalize(blend(wing.wing_frame.z_ref_points[2]) -
-                       blend(wing.wing_frame.z_ref_points[1]))
-    @test wing.R_b_to_w[:, 3] ≈ z_axis
+    point(i, quantity) = run_value(sam, :points, i, quantity)
+    blend(ref) = sum(w * point(i, :pos_w) for (i, w) in ref)
+    @test run_value(sam, :wings, 1, :pos_w) ≈ blend(origin)
+    @test run_value(sam, :wings, 1, :vel_w) ≈
+          sum(w * point(i, :vel_w) for (i, w) in origin)
+    z_axis = normalize(blend(frame.z_ref_points[2]) - blend(frame.z_ref_points[1]))
+    @test run_value(sam, :wings, 1, :R_b_to_w)[:, 3] ≈ z_axis
 end
 nothing

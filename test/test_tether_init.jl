@@ -250,6 +250,10 @@ environment:
     profile_law: 0
 """
 
+"""The origin of body `body` (a name or an index) of `sys` in its initial pose."""
+body_origin(sys, body) = SymbolicAWEModels.origin_ENU(SymbolicAWEModel(nothing, sys),
+    body isa Symbol ? KiteGeometry.row_index(sys.bodies, body) : body)
+
 @testset "Tether init_stretched_length Tests" begin
     tmpdir = mktempdir()
     write(joinpath(tmpdir, "settings.yaml"), INIT_LEN_SETTINGS)
@@ -273,10 +277,11 @@ environment:
         mid = sys.points[:main_tether_point_1]
         @test mid.pos_ENU ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
-        @test SystemState(sys).tethers[:main_tether].len ≈ 200.0
+        sam = SymbolicAWEModel(set, sys)
+        @test run_value(sam, :tethers, :main_tether, :len) ≈ 200.0
         # The stretched placement is the initial pose.
-        @test SystemState(sys).points[:main_tether_point_1].pos_w == mid.pos_ENU
-        @test SystemState(sys).points[:top].pos_w == sys.points[:top].pos_ENU
+        @test run_value(sam, :points, :main_tether_point_1, :pos_w) == mid.pos_ENU
+        @test run_value(sam, :points, :top, :pos_w) == sys.points[:top].pos_ENU
     end
 
     # ================================================================
@@ -294,7 +299,8 @@ environment:
         @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
         @test sys.segments[:s1].rest_length ≈ 100.0
         @test sys.segments[:s2].rest_length ≈ 100.0
-        @test SystemState(sys).points[:top].pos_w == sys.points[:top].pos_ENU
+        @test run_value(SymbolicAWEModel(set, sys), :points, :top, :pos_w) ==
+              sys.points[:top].pos_ENU
     end
 
     # ================================================================
@@ -456,10 +462,10 @@ winches:
             name="init_stretched_length_r2_force", set=set)
         place!(sys)
 
-        state = SystemState(sys)
-        segment_idxs = state.tethers[:main_tether].segments
-        stretched = sum(state.segments[si].len for si in segment_idxs)
-        k = state.segments[first(segment_idxs)].unit_stiffness
+        sam = SymbolicAWEModel(set, sys)
+        segment_idxs = sys.tethers[:main_tether].segments
+        stretched = sum(run_value(sam, :segments, si, :len) for si in segment_idxs)
+        k = run_value(sam, :segments, first(segment_idxs), :unit_stiffness)
         tether = sys.tethers[:main_tether]
         unstretched() =
             (place!(sys); sum(sys.segments[si].rest_length for si in segment_idxs))
@@ -531,15 +537,15 @@ winches:
         place!(sys)
 
         tip = sys.bodies[:tip]
-        @test SymbolicAWEModels.origin_ENU(tip)[3] > 0.5
+        @test body_origin(sys, :tip)[3] > 0.5
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_KA2ENU)
-        anchor_w = SymbolicAWEModels.origin_ENU(tip) .+
+        anchor_w = body_origin(sys, :tip) .+
             R_b_to_w * sys.points[:tip_anchor].anchor_b
         @test sys.points[:tip_anchor].pos_ENU ≈ anchor_w
         @test norm(sys.points[:tip_anchor].pos_ENU -
                    sys.points[:ground].pos_ENU) ≈ 6.0
         # The clamped root body must not move.
-        @test SymbolicAWEModels.origin_ENU(sys.bodies[:root]) ≈ KVec3(0.5seg_len, 0, 0)
+        @test body_origin(sys, :root) ≈ KVec3(0.5seg_len, 0, 0)
     end
 
     # ================================================================
@@ -598,7 +604,6 @@ winches:
         sys, _ = load_authoring(yaml_path;
             name="init_stretched_length_wing", set=set)
 
-        wing = sys.bodies[:main_wing]
         # Free end le_center at [-0.5, 0, 2.5]; standoff = 2× its distance to
         # ground, so the whole wing translates by delta = [-0.5, 0, 2.5]. The wing
         # origin is the mean of its six equal-mass points as authored.
@@ -613,9 +618,9 @@ winches:
         @test norm(le_center - ground) ≈ 5.0990195135927845
         # The wing body translated with its points (the regression: the body
         # stayed where it was authored while the points moved).
-        @test SymbolicAWEModels.origin_ENU(wing) ≈ authored_origin .+ delta
+        @test body_origin(sys, :main_wing) ≈ authored_origin .+ delta
         # Body and its WING points stay rigid: point→origin offset preserved.
-        @test le_center .- SymbolicAWEModels.origin_ENU(wing) ≈
+        @test le_center .- body_origin(sys, :main_wing) ≈
               KVec3(-0.5, 0.0, 2.5) .- authored_origin
     end
 
@@ -670,8 +675,8 @@ winches:
                    sys.points[:ground].pos_ENU) ≈ 6.0
         # Every beam body translates, including node4, which no point rides and
         # which is reachable only through the joint graph.
-        for (i, body) in enumerate(sys.bodies)
-            @test SymbolicAWEModels.origin_ENU(body) ≈
+        for i in eachindex(sys.bodies)
+            @test body_origin(sys, i) ≈
                   KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
         end
         # tail hangs off the far end of the beam, reachable from the tether's
@@ -689,8 +694,7 @@ winches:
     @testset "YAML, Julia and re-placement agree (tube riders)" begin
         same_pose(a, b) = all(
             [all(p.pos_ENU ≈ q.pos_ENU for (p, q) in zip(a.points, b.points)),
-             all(SymbolicAWEModels.origin_ENU(p) ≈ SymbolicAWEModels.origin_ENU(q)
-                 for (p, q) in zip(a.bodies, b.bodies)),
+             all(body_origin(a, i) ≈ body_origin(b, i) for i in eachindex(a.bodies)),
              all(p.Q_KA2ENU ≈ q.Q_KA2ENU for (p, q) in zip(a.bodies, b.bodies)),
              all(p.rest_length ≈ q.rest_length
                  for (p, q) in zip(a.segments, b.segments))])
@@ -723,29 +727,31 @@ winches:
             yaml_path; name="init_stretched_length_r1_yaml", set=set)
         place!(sys)
 
-        state = SystemState(sys)
-        tether = state.tethers[:main_tether]
-        @test tether.len ≈ 200.0
-        placed_w = [copy(point.pos_w) for point in state.points]
+        sam = SymbolicAWEModel(set, sys)
+        tether_len() = run_value(sam, :tethers, :main_tether, :len)
+        point_pos_w() = [run_value(sam, :points, i, :pos_w) for i in eachindex(sys.points)]
+        @test tether_len() ≈ 200.0
+        placed_w = point_pos_w()
         placed_initial = [copy(point.pos_ENU) for point in sys.points]
 
-        set_unstretched_length!(state, tether, 150.0)
+        set_unstretched_length!(sam, :main_tether, 150.0)
 
-        @test tether.len ≈ 150.0
-        @test state.segments[:s1].rest_length ≈ 75.0
-        @test state.segments[:s2].rest_length ≈ 75.0
-        @test all(point.pos_w ≈ was for (point, was) in zip(state.points, placed_w))
+        @test tether_len() ≈ 150.0
+        @test run_value(sam, :segments, :s1, :rest_length) ≈ 75.0
+        @test run_value(sam, :segments, :s2, :rest_length) ≈ 75.0
+        @test all(pos ≈ was for (pos, was) in zip(point_pos_w(), placed_w))
         @test all(point.pos_ENU ≈ was
                   for (point, was) in zip(sys.points, placed_initial))
         # The stretched geometry is untouched, so the rope is now taut.
-        @test sum(state.segments[idx].len for idx in tether.segments) ≈ 200.0
+        @test sum(run_value(sam, :segments, idx, :len)
+                  for idx in sys.tethers[:main_tether].segments) ≈ 200.0
 
         # `reinit!` re-places the structure, so it derives `len` afresh.
         place!(sys)
-        @test SystemState(sys).tethers[:main_tether].len ≈ 200.0
+        @test run_value(SymbolicAWEModel(set, sys), :tethers, :main_tether, :len) ≈ 200.0
 
-        @test_throws ErrorException set_unstretched_length!(state, tether, 0.0)
-        @test_throws ErrorException set_unstretched_length!(state, tether, -1.0)
+        @test_throws ErrorException set_unstretched_length!(sam, :main_tether, 0.0)
+        @test_throws ErrorException set_unstretched_length!(sam, :main_tether, -1.0)
     end
 
     @testset "a tether without a winch builds on the kernel backend" begin
@@ -764,8 +770,8 @@ winches:
         sam = SymbolicAWEModel(set, sys; backend=KernelBackend())
         init!(sam; prn=false)
         next_step!(sam; dt=0.01, vsm_interval=0)
-        @test sam.state.segments[:s1].rest_length ≈ 5.0
-        @test sam.state.tethers[:line].len ≈ 10.0
+        @test run_value(sam, :segments, :s1, :rest_length) ≈ 5.0
+        @test run_value(sam, :tethers, :line, :len) ≈ 10.0
     end
 
 end

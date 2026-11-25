@@ -99,15 +99,17 @@ function pretensioned_tether(set; winches=Winch[])
                              materials, tethers, winches)
 end
 
-"""World position of `body`'s centre of mass."""
-com_w(body) = SymbolicAWEModels.origin_ENU(body) .+
-    SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
+"""World position of the centre of mass of body `body_idx` of `sam`, in its initial pose."""
+com_w(sam, body_idx) = SymbolicAWEModels.origin_ENU(sam, body_idx) .+
+    SymbolicAWEModels.initial_rotation(sam.definition.bodies[body_idx]) *
+    run_value(sam, :bodies, body_idx, :total_com_offset_b)
 
-"""World position of `tube`'s end on body B in `sys`."""
-function tube_end(sys, tube)
-    body = sys.bodies[tube.bodies[2]]
-    return SymbolicAWEModels.origin_ENU(body) .+
-        SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
+"""World position of the end of tube `tube_idx` of `sam` on its body B."""
+function tube_end(sam, tube_idx)
+    body_idx = sam.definition.tubes[tube_idx].bodies[2]
+    return SymbolicAWEModels.origin_ENU(sam, body_idx) .+
+        SymbolicAWEModels.initial_rotation(sam.definition.bodies[body_idx]) *
+        run_value(sam, :tubes, tube_idx, :anchor_b_b)
 end
 
 """The `header` cells of the rows of `block` in `document`, by row name."""
@@ -165,11 +167,12 @@ end
 
     @testset "a document holds the initial pose, not where a run moved the system" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        state = SystemState(sys)
-        state.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
+        sam = SymbolicAWEModel(nothing, sys)
+        set_run_value!(sam, :points, :kcu, :pos_w,
+                       run_value(sam, :points, :kcu, :pos_w) + [1.0, 0.0, 0.0])
         kcu = cells(structure_document(sys), "points", "pos_ENU")["kcu"]
         @test kcu ≈ sys.points[:kcu].pos_ENU
-        @test !(kcu ≈ state.points[:kcu].pos_w)
+        @test !(kcu ≈ run_value(sam, :points, :kcu, :pos_w))
     end
 
     @testset "a point names its body, and carries its own mass and drag" begin
@@ -182,9 +185,9 @@ end
     @testset "a model builds its own VSM engine" begin
         sys, _ = two_plate_kite(set, vsm_set)
         @test isnothing(reachable_vsm_object(sys))
-        first_state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
-        second_state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
-        @test first_state.bodies[1].vsm_wing !== second_state.bodies[1].vsm_wing
+        first_sam = SymbolicAWEModel(set, sys; vsm_set)
+        second_sam = SymbolicAWEModel(set, sys; vsm_set)
+        @test first_sam.aero[1].vsm_wing !== second_sam.aero[1].vsm_wing
         @test isnothing(reachable_vsm_object(sys))
     end
 
@@ -221,8 +224,10 @@ end
         reread = SystemDefinition(structure_document(sys))
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
-        @test SymbolicAWEModels.origin_ENU(reread.bodies[:main_wing]) ≈
-              SymbolicAWEModels.origin_ENU(sys.bodies[:main_wing])
+        wing_origin(definition) = SymbolicAWEModels.origin_ENU(
+            SymbolicAWEModel(nothing, definition),
+            KiteGeometry.row_index(definition.bodies, :main_wing))
+        @test wing_origin(reread) ≈ wing_origin(sys)
         @test reread.bodies[:main_wing].Q_KA2ENU ≈ sys.bodies[:main_wing].Q_KA2ENU
     end
 
@@ -238,21 +243,22 @@ end
         reread = json ? from_json(text) : from_yaml(text)
         @test structure_document(reread) == document
         @test reread.bodies[:root].fixed
-        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].bodies[1] ==
-              KiteGeometry.row_index(reread.bodies, :root)
+        @test reread.tubes[:beam].bodies[1] == KiteGeometry.row_index(reread.bodies, :root)
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
         @test reread.points[:hub_anchor].body == KiteGeometry.row_index(reread.bodies, :hub)
-        state, reread_state = SystemState(sys), SystemState(reread)
+        sam, reread_sam = SymbolicAWEModel(nothing, sys), SymbolicAWEModel(nothing, reread)
         for name in (:tip, :hub)
-            body, reread_body = state.bodies[name], reread_state.bodies[name]
-            @test reread_body.total_mass ≈ body.total_mass
-            @test reread_body.inertia_principal ≈ body.inertia_principal
-            @test com_w(reread_body) ≈ com_w(body)
+            body_idx = KiteGeometry.row_index(sys.bodies, name)
+            reread_idx = KiteGeometry.row_index(reread.bodies, name)
+            for quantity in (:total_mass, :inertia_principal)
+                @test run_value(reread_sam, :bodies, reread_idx, quantity) ≈
+                      run_value(sam, :bodies, body_idx, quantity)
+            end
+            @test com_w(reread_sam, reread_idx) ≈ com_w(sam, body_idx)
         end
-        spring = SymbolicAWEModels.SystemState(sys).tubes[:spring]
-        reread_spring = SymbolicAWEModels.SystemState(reread).tubes[:spring]
-        @test tube_end(reread, reread_spring) ≈ tube_end(sys, spring)
+        @test tube_end(reread_sam, KiteGeometry.row_index(reread.tubes, :spring)) ≈
+              tube_end(sam, KiteGeometry.row_index(sys.tubes, :spring))
     end
 
     @testset "a document is read in its initial pose, its tethers' rest lengths kept" begin
@@ -261,8 +267,9 @@ end
         document = structure_document(sys)
         reread = SystemDefinition(document)
         @test structure_document(reread) == document
-        @test [point.pos_w for point in SystemState(reread).points] ==
-              [point.pos_ENU for point in sys.points]
+        reread_sam = SymbolicAWEModel(nothing, reread)
+        @test [run_value(reread_sam, :points, i, :pos_w)
+               for i in eachindex(reread.points)] == [point.pos_ENU for point in sys.points]
     end
 
     @testset "a run's log carries the structure document of the system that ran" begin

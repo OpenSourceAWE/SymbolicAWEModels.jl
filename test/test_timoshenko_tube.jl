@@ -68,7 +68,8 @@ environment:
 function settle!(sam, body; dt=0.01, max_steps=6000, vtol=1e-8)
     for _ in 1:max_steps
         next_step!(sam; dt, vsm_interval=0)
-        (norm(body.vel_w) < vtol && norm(body.ω_b) < vtol) && break
+        (norm(run_value(sam, :bodies, body, :vel_w)) < vtol &&
+         norm(run_value(sam, :bodies, body, :ω_b)) < vtol) && break
     end
 end
 
@@ -103,54 +104,56 @@ end
     @testset "Model setup" begin
         @info "Structure wiring: one tube resolved, rest length from geometry."
         @test length(sys.tubes) == 1
-        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].bodies[1] == 1
-        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].bodies[2] == 2
-        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].model.rest_length ≈
+        @test sys.tubes[:tube].bodies[1] == 1
+        @test sys.tubes[:tube].bodies[2] == 2
+        @test run_value(SymbolicAWEModel(set, sys), :tubes, :tube, :model).rest_length ≈
               beam_length
     end
 
     sam = SymbolicAWEModel(set, sys)
-    rb = sam.state.bodies[:nodeB]
-    ra = sam.state.bodies[:nodeA]
+    tip(quantity) = run_value(sam, :bodies, :nodeB, quantity)
+    load_tip!(quantity, value) = set_run_value!(sam, :bodies, :nodeB, quantity, value)
 
     @testset "Transverse tip load (Timoshenko vs Euler)" begin
         load = 5.0
         test_init!(sam; prn=false)
-        rb.ext_force_w = [0.0, 0.0, load]
-        rb.ext_moment_b = zeros(3)
-        settle!(sam, rb)
+        load_tip!(:ext_force_w, [0.0, 0.0, load])
+        load_tip!(:ext_moment_b, zeros(3))
+        settle!(sam, :nodeB)
         timoshenko = load * beam_length^3 / (3 * EI) +
                      load * beam_length / (kshear * GA)
         euler = load * beam_length^3 / (3 * EI)
-        @info "Cantilever transverse: δ = PL³/3EI + PL/(kGA), shear term active." measured=rb.pos_w[3] expected=timoshenko
-        @test rb.pos_w[3] ≈ timoshenko rtol=0.002  # floor: corotational nonlinearity
-        @test rb.pos_w[3] > euler + 0.5 * (timoshenko - euler)  # shear active
-        @test norm(ra.pos_w) < 1e-9                              # clamped end fixed
+        @info("Cantilever transverse: δ = PL³/3EI + PL/(kGA), shear term active.",
+              measured=tip(:pos_w)[3], expected=timoshenko)
+        @test tip(:pos_w)[3] ≈ timoshenko rtol=0.002  # floor: corotational nonlinearity
+        @test tip(:pos_w)[3] > euler + 0.5 * (timoshenko - euler)  # shear active
+        @test norm(run_value(sam, :bodies, :nodeA, :pos_w)) < 1e-9  # clamped end fixed
     end
 
     @testset "Axial load" begin
         load = 20.0
         test_init!(sam; prn=false)
-        rb.ext_force_w = [load, 0.0, 0.0]
-        rb.ext_moment_b = zeros(3)
-        settle!(sam, rb)
+        load_tip!(:ext_force_w, [load, 0.0, 0.0])
+        load_tip!(:ext_moment_b, zeros(3))
+        settle!(sam, :nodeB)
         expected = load * beam_length / EA
-        @info "Axial stretch: δ = PL/EA." measured=(rb.pos_w[1] - beam_length) expected=expected
-        @test rb.pos_w[1] - beam_length ≈ expected rtol=1e-4
-        @test abs(rb.pos_w[3]) < 1e-6
+        @info("Axial stretch: δ = PL/EA.",
+              measured=(tip(:pos_w)[1] - beam_length), expected=expected)
+        @test tip(:pos_w)[1] - beam_length ≈ expected rtol=1e-4
+        @test abs(tip(:pos_w)[3]) < 1e-6
     end
 
     @testset "Torsion moment" begin
         torque = 1.0
         test_init!(sam; prn=false)
-        rb.ext_force_w = zeros(3)
-        rb.ext_moment_b = [torque, 0.0, 0.0]
-        settle!(sam, rb)
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        load_tip!(:ext_force_w, zeros(3))
+        load_tip!(:ext_moment_b, [torque, 0.0, 0.0])
+        settle!(sam, :nodeB)
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip(:Q_b_to_w))
         twist = asin(clamp(R_b_to_w[3, 2], -1.0, 1.0))
         @info "Torsion: φ = TL/GJ." measured=twist expected=(torque * beam_length / GJ)
         @test twist ≈ torque * beam_length / GJ rtol=5e-4
-        rb.ext_moment_b = zeros(3)
+        load_tip!(:ext_moment_b, zeros(3))
     end
 
     # Nonlinear rigidities: each callable returns the effective rigidity at the
@@ -177,38 +180,42 @@ end
     sys_nl = system_definition("timoshenko_test", set; materials,
         bodies=[nodeA2, nodeB2], tubes=[tube_nl])
     sam_nl = SymbolicAWEModel(set, sys_nl)
-    rb_nl = sam_nl.state.bodies[:nodeB]
+    tip_nl(quantity) = run_value(sam_nl, :bodies, :nodeB, quantity)
+    load_tip_nl!(quantity, value) =
+        set_run_value!(sam_nl, :bodies, :nodeB, quantity, value)
 
     @testset "Nonlinear axial (callable rigidity)" begin
-        @test !(SymbolicAWEModels.SystemState(sys_nl).tubes[:tube].model.EA isa Real)
+        @test !(run_value(sam_nl, :tubes, :tube, :model).EA isa Real)
         load = 20.0
         test_init!(sam_nl; prn=false)
-        rb_nl.ext_force_w = [load, 0.0, 0.0]
-        rb_nl.ext_moment_b = zeros(3)
-        settle!(sam_nl, rb_nl)
+        load_tip_nl!(:ext_force_w, [load, 0.0, 0.0])
+        load_tip_nl!(:ext_moment_b, zeros(3))
+        settle!(sam_nl, :nodeB)
         # P = EA_eff·ε with EA_eff = EA0 - axial_slope·ε ⇒ quadratic, larger root.
         EA_eff = (EA0 + sqrt(EA0^2 - 4 * axial_slope * load)) / 2
         expected = load / EA_eff
-        @info "Softening axial: P=EA(ε)·ε self-consistent." measured=(rb_nl.pos_w[1] - beam_length) expected=expected
-        @test rb_nl.pos_w[1] - beam_length ≈ expected rtol=1e-3
+        @info("Softening axial: P=EA(ε)·ε self-consistent.",
+              measured=(tip_nl(:pos_w)[1] - beam_length), expected=expected)
+        @test tip_nl(:pos_w)[1] - beam_length ≈ expected rtol=1e-3
         @test expected > load / EA0                              # softer than linear
     end
 
     @testset "Nonlinear bending (callable rigidity)" begin
         load = 5.0
         test_init!(sam_nl; prn=false)
-        rb_nl.ext_force_w = [0.0, 0.0, load]
-        rb_nl.ext_moment_b = zeros(3)
-        settle!(sam_nl, rb_nl)
+        load_tip_nl!(:ext_force_w, [0.0, 0.0, load])
+        load_tip_nl!(:ext_moment_b, zeros(3))
+        settle!(sam_nl, :nodeB)
         # κ = PL/(2·EI_eff), EI_eff = EI0 - bend_slope·κ ⇒ quadratic, larger root.
         EI_eff = (EI0 + sqrt(EI0^2 - 2 * bend_slope * load * beam_length)) / 2
         expected = load * beam_length^3 / (3 * EI_eff) +
                    load * beam_length / (kshear * GA)
         linear = load * beam_length^3 / (3 * EI0) +
                  load * beam_length / (kshear * GA)
-        @info "Softening bending: κ=PL/2EI(κ) self-consistent." measured=rb_nl.pos_w[3] expected=expected
-        @test rb_nl.pos_w[3] ≈ expected rtol=5e-3
-        @test rb_nl.pos_w[3] > linear                            # softer than linear
+        @info("Softening bending: κ=PL/2EI(κ) self-consistent.",
+              measured=tip_nl(:pos_w)[3], expected=expected)
+        @test tip_nl(:pos_w)[3] ≈ expected rtol=5e-3
+        @test tip_nl(:pos_w)[3] > linear                            # softer than linear
     end
 
     rm(tmpdir; recursive=true)

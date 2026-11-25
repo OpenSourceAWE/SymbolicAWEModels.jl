@@ -60,7 +60,7 @@ environment:
 function settle!(sam, point; dt=0.01, max_steps=8000, vtol=1e-8)
     for _ in 1:max_steps
         next_step!(sam; dt, vsm_interval=0)
-        norm(point.vel_w) < vtol && break
+        norm(run_value(sam, :points, point, :vel_w)) < vtol && break
     end
 end
 
@@ -100,23 +100,25 @@ end
     @testset "Model setup" begin
         @info "Wiring: one segment with a callable (nonlinear) unit_stiffness."
         @test length(sys.segments) == 1
-        run_spring = SymbolicAWEModels.SystemState(sys; set).segments[:spring]
-        @test !(run_spring.unit_stiffness isa Real)
+        unit_stiffness = run_value(SymbolicAWEModel(set, sys), :segments, :spring,
+                                   :unit_stiffness)
+        @test !(unit_stiffness isa Real)
         @test sys.points[:hang].extra_mass == mass
     end
 
     sam = SymbolicAWEModel(set, sys)
-    node = sam.state.points[:hang]
 
     @testset "Hanging-mass equilibrium" begin
         test_init!(sam; prn=false)
-        settle!(sam, node)
+        settle!(sam, :hang)
         # Tension balances gravity: c1·ε = m·g ⇒ ε = mg/c1, len = l0·(1+ε).
         strain = weight / c1
         expected_z = -rest_length * (1 + strain)
-        @info "F(ε)=c1·ε balances mg ⇒ len=l0(1+mg/c1)." measured=node.pos_w[3] expected=expected_z
-        @test node.pos_w[3] ≈ expected_z rtol=1e-4
-        @test abs(node.pos_w[1]) < 1e-6 && abs(node.pos_w[2]) < 1e-6
+        node_pos = run_value(sam, :points, :hang, :pos_w)
+        @info("F(ε)=c1·ε balances mg ⇒ len=l0(1+mg/c1).", measured=node_pos[3],
+              expected=expected_z)
+        @test node_pos[3] ≈ expected_z rtol=1e-4
+        @test abs(node_pos[1]) < 1e-6 && abs(node_pos[2]) < 1e-6
     end
 
     @testset "Route 2 tether propagation" begin
@@ -140,20 +142,22 @@ end
 
         @info "Route 2 tether: callable unit_stiffness fanned out to every segment."
         @test length(sys_t.segments) == 3
-        segments_t = SymbolicAWEModels.SystemState(sys_t; set).segments
-        @test all(!(s.unit_stiffness isa Real) for s in segments_t)
-        @test all(s.unit_stiffness === force_law for s in segments_t)
-
         sam_t = SymbolicAWEModel(set, sys_t)
-        node_t = sam_t.state.points[:mass]
+        stiffnesses = [run_value(sam_t, :segments, k, :unit_stiffness)
+                       for k in eachindex(sys_t.segments)]
+        @test all(!(stiffness isa Real) for stiffness in stiffnesses)
+        @test all(stiffness === force_law for stiffness in stiffnesses)
+
         test_init!(sam_t; prn=false)
-        settle!(sam_t, node_t)
+        settle!(sam_t, :mass)
         # Uniform tension ≈ end weight: each segment strains ε = mg/c1, so the
         # whole line stretches to total_l0·(1+ε) (tiny segment mass perturbs it).
         strain = end_mass * set.g_earth / c1
         expected_z = -tether_len * (1 + strain)
-        @info "Hanging tether: total length = l0(1+mg/c1)." measured=node_t.pos_w[3] expected=expected_z
-        @test node_t.pos_w[3] ≈ expected_z rtol=5e-3
+        node_z = run_value(sam_t, :points, :mass, :pos_w)[3]
+        @info("Hanging tether: total length = l0(1+mg/c1).", measured=node_z,
+              expected=expected_z)
+        @test node_z ≈ expected_z rtol=5e-3
     end
 
     rm(tmpdir; recursive=true)

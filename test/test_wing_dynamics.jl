@@ -222,35 +222,38 @@ end
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
-        wing = SystemState(sys; aero).bodies[:main_wing]
-        @test body_dynamics_type(wing) == SymbolicAWEModels.RIGID_DYNAMICS
-        @test wing.aero isa AeroNone
-        @test wing.extra_mass == 0
-        @test wing.total_mass ≈ 3.0  # 6 points * 0.5 kg
+        setup_sam = SymbolicAWEModel(nothing, sys; aero)
+        body_idx = KiteGeometry.row_index(sys.bodies, :main_wing)
+        setup_wing(quantity) = run_value(setup_sam, :bodies, body_idx, quantity)
+        @test body_dynamics_type(setup_sam, body_idx) == SymbolicAWEModels.RIGID_DYNAMICS
+        @test setup_sam.aero[SymbolicAWEModels.body_wing(setup_sam, body_idx)] isa AeroNone
+        @test setup_wing(:extra_mass) == 0
+        @test setup_wing(:total_mass) ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
         # No ref points: body frame = world orientation, not principal.
-        @test SymbolicAWEModels.initial_rotation(wing) ≈ I(3) atol=1e-12
+        @test SymbolicAWEModels.initial_rotation(sys.bodies[body_idx]) ≈ I(3) atol=1e-12
         # This wing has a nonzero xz inertia product, so body ≠ principal.
-        @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
+        @test !isapprox(setup_wing(:R_b_to_p), I(3); atol=0.01)
     end
 
     sam = SymbolicAWEModel(set, sys; transforms, vsm_set, aero)
     test_init!(sam)
+    wing(quantity) = run_value(sam, :bodies, :main_wing, quantity)
+    set_wing!(quantity, value) = set_run_value!(sam, :bodies, :main_wing, quantity, value)
 
     # ================ Free fall ================ #
 
     @testset "Free fall acceleration = g" begin
-        wing = sam.state.bodies[:main_wing]
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
         end
-        vel_before = copy(wing.vel_w)
+        vel_before = wing(:vel_w)
         t_before = sam.integrator.t
         for _ in 1:10
             next_step!(sam; dt, vsm_interval=0)
         end
-        vel_after = copy(wing.vel_w)
+        vel_after = wing(:vel_w)
         elapsed = sam.integrator.t - t_before
         acc = (vel_after - vel_before) / elapsed
 
@@ -267,25 +270,24 @@ end
     # analytically as Q0 * q_rot(omega*t).
 
     @testset "Constant spin about principal axis" begin
-        wing = sam.state.bodies[:main_wing]
-        I_b = collect(wing.inertia_principal)
+        I_b = collect(wing(:inertia_principal))
         k = argmax(I_b)  # max I axis: always stable
 
         omega0 = 3.0  # rad/s
         omega_principal = zeros(3)
         omega_principal[k] = omega0
         # Body frame ≠ principal: express the principal-axis spin in body coords.
-        omega_init = collect(wing.R_b_to_p' * omega_principal)
-        wing.ω_b .= omega_init
-        wing.vel_w .= 0.0
+        omega_init = collect(wing(:R_b_to_p)' * omega_principal)
+        set_wing!(:ω_b, omega_init)
+        set_wing!(:vel_w, zeros(3))
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
-        Q0 = copy(wing.Q_b_to_w)
+        Q0 = wing(:Q_b_to_w)
         println("  I_b = $(round.(I_b; digits=4))")
         println("  Spin axis = $k, omega0 = $omega0")
         println("  Q0 = $(round.(Q0; digits=4))")
-        println("  ω_b after init = $(wing.ω_b)")
+        println("  ω_b after init = $(wing(:ω_b))")
 
         dt = 0.005
         T_rot = 2pi / omega0
@@ -299,19 +301,19 @@ end
             t = sam.integrator.t
 
             # omega should stay constant
-            omega_err = norm(wing.ω_b - omega_init)
+            omega_err = norm(wing(:ω_b) - omega_init)
             max_omega_err = max(max_omega_err, omega_err)
 
             # Q should match analytical solution
             Q_exp = analytical_quat_spin(Q0, omega_init, t)
             # Q and -Q represent the same rotation
             q_err = min(
-                norm(wing.Q_b_to_w - Q_exp),
-                norm(wing.Q_b_to_w + Q_exp))
+                norm(wing(:Q_b_to_w) - Q_exp),
+                norm(wing(:Q_b_to_w) + Q_exp))
             max_q_err = max(max_q_err, q_err)
 
             # Quaternion norm should be preserved
-            norm_err = abs(norm(wing.Q_b_to_w) - 1.0)
+            norm_err = abs(norm(wing(:Q_b_to_w)) - 1.0)
             max_norm_err = max(max_norm_err, norm_err)
         end
 
@@ -327,26 +329,25 @@ end
     # ========== init! takes the structure as placed ========== #
 
     @testset "init! keeps set velocities, place! zeros them" begin
-        wing = sam.state.bodies[:main_wing]
         vel_set = [1.5, -0.7, 2.3]
-        omega_set = collect(wing.R_b_to_p' * [0.0, 0.0, 4.0])
+        omega_set = collect(wing(:R_b_to_p)' * [0.0, 0.0, 4.0])
 
-        wing.vel_w .= vel_set
-        wing.ω_b .= omega_set
+        set_wing!(:vel_w, vel_set)
+        set_wing!(:ω_b, omega_set)
         test_init!(sam; prn=false)
-        @test wing.vel_w ≈ vel_set atol=1e-10
-        @test wing.ω_b ≈ omega_set atol=1e-10
-        @test norm(wing.com_vel) > 1e-6
-        @test norm(wing.ω_p) > 1e-6
+        @test wing(:vel_w) ≈ vel_set atol=1e-10
+        @test wing(:ω_b) ≈ omega_set atol=1e-10
+        @test norm(wing(:com_vel)) > 1e-6
+        @test norm(wing(:ω_p)) > 1e-6
 
-        wing.vel_w .= vel_set
-        wing.ω_b .= omega_set
+        set_wing!(:vel_w, vel_set)
+        set_wing!(:ω_b, omega_set)
         place!(sam)
         test_init!(sam; prn=false)
-        @test norm(wing.vel_w) < 1e-10
-        @test norm(wing.ω_b) < 1e-10
-        @test norm(wing.com_vel) < 1e-10
-        @test norm(wing.ω_p) < 1e-10
+        @test norm(wing(:vel_w)) < 1e-10
+        @test norm(wing(:ω_b)) < 1e-10
+        @test norm(wing(:com_vel)) < 1e-10
+        @test norm(wing(:ω_p)) < 1e-10
     end
 
     # ========== Torque-free precession ========== #
@@ -357,8 +358,7 @@ end
     #                         / (I_a * I_b))
 
     @testset "Torque-free precession" begin
-        wing = sam.state.bodies[:main_wing]
-        I_b = collect(wing.inertia_principal)
+        I_b = collect(wing(:inertia_principal))
         k = argmax(I_b)  # stable spin axis
 
         omega0 = 5.0
@@ -370,8 +370,8 @@ end
         omega_init[pc.p] = eps
 
         # omega_init is a principal-frame vector; ω_b is body frame.
-        wing.ω_b .= wing.R_b_to_p' * omega_init
-        wing.vel_w .= 0.0
+        set_wing!(:ω_b, wing(:R_b_to_p)' * omega_init)
+        set_wing!(:vel_w, zeros(3))
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
@@ -398,13 +398,13 @@ end
 
         for _ in 1:n_steps
             next_step!(sam; dt, vsm_interval=0)
-            omega_principal = wing.R_b_to_p * wing.ω_b
+            omega_principal = wing(:R_b_to_p) * wing(:ω_b)
             push!(times, sam.integrator.t)
             push!(omega_p_vals, omega_principal[pc.p])
             push!(omega_q_vals, omega_principal[pc.q])
             push!(omega_k_vals, omega_principal[k])
             max_qp_norm_dev = max(max_qp_norm_dev,
-                abs(norm(wing.Q_p_to_w) - 1.0))
+                abs(norm(wing(:Q_p_to_w)) - 1.0))
         end
 
         # Spin-axis omega stays constant
@@ -433,7 +433,7 @@ end
         # Rotational kinetic energy conservation:
         # E = 0.5 * sum(I_i * omega_i^2) (principal frame)
         E_initial = 0.5 * sum(I_b .* omega_init .^ 2)
-        omega_final = collect(wing.R_b_to_p * wing.ω_b)
+        omega_final = collect(wing(:R_b_to_p) * wing(:ω_b))
         E_final = 0.5 * sum(I_b .* omega_final .^ 2)
         println("  E_initial = $(round(E_initial; digits=4))" *
             ", E_final = $(round(E_final; digits=4))")
@@ -443,7 +443,7 @@ end
         # unit); Q_p_to_w is the integrated state that would drift without the
         # Baumgarte normalisation term in rigid_body_eqs.
         println("  Max ||Q_p| - 1|: $max_qp_norm_dev")
-        @test norm(wing.Q_b_to_w) ≈ 1.0 atol=1e-4
+        @test norm(wing(:Q_b_to_w)) ≈ 1.0 atol=1e-4
         @test max_qp_norm_dev < 1e-4
     end
 
@@ -457,23 +457,21 @@ end
         hanging, hanging_transforms = load_authoring(hanging_path;
             name="wing_hanging", set)
         hanging_aero = Dict(wing.name => AeroNone() for wing in hanging.wings)
-        hanging_state = SymbolicAWEModels.SystemState(hanging; set, vsm_set,
-            aero=hanging_aero)
-        wing = hanging_state.bodies[:main_wing]
-        line = hanging_state.segments[:line]
-        half_line = SymbolicAWEModels.segment_half_mass(
-            line.rest_length, line.diameter, line.density)
-        @test wing.extra_mass == 2.0
-        @test wing.total_mass ≈ 2.0 + half_line
-
         hanging_sam = SymbolicAWEModel(set, hanging; transforms=hanging_transforms,
             vsm_set, aero=hanging_aero)
+        hanging_wing(quantity) = run_value(hanging_sam, :bodies, :main_wing, quantity)
+        line(quantity) = run_value(hanging_sam, :segments, :line, quantity)
+        half_line = SymbolicAWEModels.segment_half_mass(
+            line(:rest_length), line(:diameter), line(:density))
+        @test hanging_wing(:extra_mass) == 2.0
+        @test hanging_wing(:total_mass) ≈ 2.0 + half_line
+
         test_init!(hanging_sam)
         for _ in 1:100
             next_step!(hanging_sam; dt=0.01, vsm_interval=0)
         end
-        @test norm(hanging_sam.state.bodies[:main_wing].com_vel) < 1e-3
-        @test hanging_sam.state.segments[:line].force ≈
+        @test norm(hanging_wing(:com_vel)) < 1e-3
+        @test line(:force) ≈
             set.g_earth * (2.0 + half_line) rtol=1e-3
     end
 

@@ -30,9 +30,9 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, wing_points, unsteady_aero,
-    panel_apparent_mass, panel_chord_width, wagner_enabled, get_sys_struct_hash,
-    update_sys_struct!, aero_scatter_entries, apparent_mass_carriers,
-    wagner_reference_frame
+    panel_apparent_mass, panel_chord_width, wagner_enabled, structure_hash,
+    update_run_state!, aero_scatter_entries, apparent_mass_carriers,
+    wagner_reference_frame, air_density
 using KiteUtils
 using LinearAlgebra
 
@@ -75,38 +75,44 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     root = mktempdir()
 
     @testset "apparent mass" begin
-        set, sys, _, vsm_set, aero = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
-        state = SystemState(sys; set, vsm_set, aero)
-        wing = state.wings[1]
-        points = wing_points(state, wing)
+        set, sys, transforms, vsm_set, aero = build_unsteady_case(root, "am_on";
+                                                                  apparent_mass=1.0)
+        sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
+                               aero)
+        # The air goes on the parameters of a running model's integrator.
+        test_init!(sam; remake=true)
+        mode = sam.aero[1]
+        points = wing_points(sam, 1)
+        point(i, quantity) = run_value(sam, :points, i, quantity)
 
-        rho = 1.225
-        chord, width = panel_chord_width(wing)
-        mass = panel_apparent_mass(wing, rho)
+        rho = air_density(sam.am, run_value(sam, :wings, 1, :pos_w)[3])
+        chord, width = panel_chord_width(mode)
+        mass = panel_apparent_mass(mode, rho)
         @test all(mass .> 0)
         @test mass ≈ @. rho * π * chord^2 * width / 4
 
         # The force weights sum to one per panel, so the nodes get the whole panel.
         weights = zeros(length(mass))
-        for (panel, _, force_weight, _) in aero_scatter_entries(wing.aero, wing, points)
+        for (panel, _, force_weight, _) in aero_scatter_entries(mode, sam, 1)
             weights[panel] += force_weight
         end
         @test all(w -> isapprox(w, 1.0; atol=1e-9), weights)
 
-        apply_apparent_mass!(state, wing, rho)
-        @test sum(p.apparent_mass for p in points) ≈ sum(mass) rtol=1e-9
-        @test all(p -> p.apparent_mass ≥ 0, points)
+        apply_apparent_mass!(sam)
+        @test sum(point(i, :apparent_mass) for i in points) ≈ sum(mass) rtol=1e-9
+        @test all(i -> point(i, :apparent_mass) ≥ 0, points)
 
         # It is inertia, not weight: extra_mass is untouched.
-        @test all(p -> p.extra_mass == 0 || p.apparent_mass != p.extra_mass, points)
+        @test all(i -> point(i, :extra_mass) == 0 ||
+                       point(i, :apparent_mass) != point(i, :extra_mass), points)
 
         # Half the scale is half the air, and zero clears what a previous scale left.
-        wing.unsteady.apparent_mass = 0.5
-        apply_apparent_mass!(state, wing, rho)
-        @test sum(p.apparent_mass for p in points) ≈ 0.5 * sum(mass) rtol=1e-9
-        wing.unsteady.apparent_mass = 0.0
-        apply_apparent_mass!(state, wing, rho)
-        @test all(p -> p.apparent_mass == 0, points)
+        unsteady_aero(mode).apparent_mass = 0.5
+        apply_apparent_mass!(sam)
+        @test sum(point(i, :apparent_mass) for i in points) ≈ 0.5 * sum(mass) rtol=1e-9
+        unsteady_aero(mode).apparent_mass = 0.0
+        apply_apparent_mass!(sam)
+        @test all(i -> point(i, :apparent_mass) == 0, points)
     end
 
     @testset "apparent mass slows the nodes" begin
@@ -117,11 +123,12 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
             sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
                                    aero)
             test_init!(sam; remake=true)
-            points = wing_points(sam.state, sam.state.wings[1])
-            before = [copy(p.vel_w) for p in points]
+            points = wing_points(sam, 1)
+            before = [run_value(sam, :points, i, :vel_w) for i in points]
             next_step!(sam)
-            update_sys_struct!(sam.prob, sam.integrator, sam.state)
-            maximum(norm(p.vel_w .- v0) for (p, v0) in zip(points, before))
+            update_run_state!(sam.prob, sam.integrator, sam)
+            maximum(norm(run_value(sam, :points, i, :vel_w) .- v0)
+                    for (i, v0) in zip(points, before))
         end
         @test accels[2] < accels[1]
     end
@@ -148,38 +155,39 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
             points=[rider, anchored, free], bodies=[node_a, node_b],
             tubes=[tube], materials)
 
-        beam_state = SystemState(beam)
+        beam_sam = SymbolicAWEModel(nothing, beam)
+        point_idx(name) = KiteGeometry.row_index(beam.points, name)
+        body_idx(name) = KiteGeometry.row_index(beam.bodies, name)
         # A tube rider is placed by both bodies, split by where it sits.
-        carriers = apparent_mass_carriers(beam_state, beam_state.points[:rider])
+        carriers = apparent_mass_carriers(beam_sam, point_idx(:rider))
         @test length(carriers) == 2
         @test sum(share for (_, share) in carriers) ≈ 1.0
-        frac = beam_state.points[:rider].beam_frac
-        @test carriers[1][1].row === beam.bodies[tube.bodies[1]]
+        frac = run_value(beam_sam, :points, :rider, :beam_frac)
+        @test carriers[1][1] == (:bodies, body_idx(tube.bodies[1]))
         @test carriers[1][2] ≈ 1 - frac
         @test carriers[2][2] ≈ frac
 
         # An anchored node hands everything to its body, a free node keeps it.
-        anchored_carriers = apparent_mass_carriers(beam_state,
-                                                   beam_state.points[:anchored])
-        @test anchored_carriers[1][1].row === beam.bodies[:node_b]
+        anchored_carriers = apparent_mass_carriers(beam_sam, point_idx(:anchored))
+        @test anchored_carriers[1][1] == (:bodies, body_idx(:node_b))
         @test anchored_carriers[1][2] == 1.0
-        free_carriers = apparent_mass_carriers(beam_state, beam_state.points[:free])
-        @test free_carriers == [(beam_state.points[:free], 1.0)]
+        free_carriers = apparent_mass_carriers(beam_sam, point_idx(:free))
+        @test free_carriers == [((:points, point_idx(:free)), 1.0)]
     end
 
     @testset "Wagner: off by default" begin
         set, sys, _, vsm_set, aero = build_unsteady_case(root, "wag_default")
-        wing = SystemState(sys; set, vsm_set, aero).wings[1]
-        @test !wagner_enabled(wing)
-        @test unsteady_aero(wing).apparent_mass == 0.0
+        mode = SymbolicAWEModel(set, sys; vsm_set, aero).aero[1]
+        @test !wagner_enabled(mode)
+        @test unsteady_aero(mode).apparent_mass == 0.0
     end
 
     @testset "Wagner: the reference frame is the panels' own" begin
         # The lag shifts every panel's α, so its own α is read in their frame.
         set, sys, _, vsm_set, aero = build_unsteady_case(root, "wag_frame")
-        wing = SystemState(sys; set, vsm_set, aero).wings[1]
-        panels = wing.vsm_aero.panels
-        x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
+        sam = SymbolicAWEModel(set, sys; vsm_set, aero)
+        panels = sam.aero[1].vsm_aero.panels
+        x_ref, z_ref, chord_ref = wagner_reference_frame(sam, 1)
         @test x_ref ≈ normalize(sum(Vector(panel.x_airf) for panel in panels))
         @test z_ref ≈ normalize(sum(Vector(panel.z_airf) for panel in panels))
         @test chord_ref ≈ sum(panel.chord for panel in panels) / length(panels)
@@ -190,16 +198,16 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         # structure, because it is what adds or removes the two states.
         set, slow, _, vsm_set, aero = build_unsteady_case(root, "wag_tune"; wagner=true,
                                            rates=(0.02, 0.15))
-        slow_state = SystemState(slow; set, vsm_set, aero)
-        slow_hash = get_sys_struct_hash(slow_state)
-        slow_state.wings[1].unsteady.wagner_rates = [0.0455, 0.3]
-        slow_state.wings[1].unsteady.wagner_gains = [0.2, 0.4]
-        @test get_sys_struct_hash(slow_state) == slow_hash
+        slow_sam = SymbolicAWEModel(set, slow; vsm_set, aero)
+        slow_hash = structure_hash(slow_sam)
+        unsteady_aero(slow_sam.aero[1]).wagner_rates = [0.0455, 0.3]
+        unsteady_aero(slow_sam.aero[1]).wagner_gains = [0.2, 0.4]
+        @test structure_hash(slow_sam) == slow_hash
 
         off_set, off, _, vsm_set, off_aero = build_unsteady_case(root, "wag_tune";
                                                                  wagner=false)
-        @test get_sys_struct_hash(SystemState(off; set=off_set, vsm_set,
-                                                    aero=off_aero)) != slow_hash
+        @test structure_hash(SymbolicAWEModel(off_set, off; vsm_set,
+                                              aero=off_aero)) != slow_hash
     end
 
     @testset "Wagner: two states for the whole wing" begin
@@ -210,7 +218,7 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
             sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend(), vsm_set,
                                    aero)
             test_init!(sam; remake=true)
-            (length(sam.integrator.u), Int(sam.state.wings[1].vsm_wing.n_panels))
+            (length(sam.integrator.u), Int(sam.aero[1].vsm_wing.n_panels))
         end
         @test counts[2][1] - counts[1][1] == 2
         @test counts[1][2] > 2

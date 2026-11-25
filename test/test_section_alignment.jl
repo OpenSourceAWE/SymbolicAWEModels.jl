@@ -13,7 +13,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
-    RIGID_DYNAMICS
+    RIGID_DYNAMICS, initial_rotation, origin_ENU, wing_body, wing_station_idxs
 using KiteUtils
 using LinearAlgebra
 
@@ -34,21 +34,22 @@ sys, _ = load_authoring(
     struc_yaml; name="2plate_kite",
     set=set)
 
-state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
-wing = state.wings[1]
+sam = SymbolicAWEModel(set, sys; vsm_set)
+wing_idx = 1
+body_idx = wing_body(sam, wing_idx)
+wing = sam.aero[wing_idx]
 vsm_wing = wing.vsm_wing
-points = state.points
 
 # Collect this wing's LE/TE section points: the WING-type points
 # that belong to a station. The structural attachment point (KCU) is
 # not in any station, so it is excluded.
 station_point_ids = reduce(vcat,
-    [sys.spanwise_stations[g].points for g in wing.station_idxs];
+    [sys.spanwise_stations[g].points for g in wing_station_idxs(sam, wing_idx)];
     init=Int[])
-wing_pts = filter(
-    p -> p.is_wing_node && p.wing_idx == wing.idx &&
-         p.idx in station_point_ids,
-    points)
+wing_pts = [point for (i, point) in enumerate(sys.points)
+            if run_value(sam, :points, i, :is_wing_node) &&
+               run_value(sam, :points, i, :wing_idx) == wing_idx &&
+               i in station_point_ids]
 sort!(wing_pts; by=p -> p.pos_ENU[2], rev=true)
 
 # Identify LE/TE pairs (LE has smaller x in CAD frame)
@@ -64,8 +65,8 @@ for i in 1:2:length(wing_pts)
     end
 end
 
-com = wing.origin_ENU
-R = SymbolicAWEModels.initial_rotation(wing)
+com = origin_ENU(sam, body_idx)
+R = initial_rotation(sys.bodies[body_idx])
 
 println("== Wing info ==")
 println("  COM = ", round.(com; digits=4))
@@ -109,13 +110,13 @@ end
 println("\n== Applying transforms ==")
 place!(sys)
 
-println("  R_b_to_w = ", round.(SymbolicAWEModels.initial_rotation(wing); digits=4))
-println("  pos_w = ", round.(wing.origin_ENU; digits=4))
+println("  R_b_to_w = ", round.(initial_rotation(sys.bodies[body_idx]); digits=4))
+println("  pos_w = ", round.(origin_ENU(sam, body_idx); digits=4))
 println()
 
 @testset "World-frame panel alignment" begin
-    R_bw = SymbolicAWEModels.initial_rotation(wing)
-    T_bw = wing.origin_ENU
+    R_bw = initial_rotation(sys.bodies[body_idx])
+    T_bw = origin_ENU(sam, body_idx)
     panels = wing.vsm_aero.panels
 
     for i in 1:length(pairs)
@@ -199,8 +200,8 @@ end
 
 # Also check unrefined sections → world directly
 @testset "World-frame unrefined section alignment" begin
-    R_bw = SymbolicAWEModels.initial_rotation(wing)
-    T_bw = wing.origin_ENU
+    R_bw = initial_rotation(sys.bodies[body_idx])
+    T_bw = origin_ENU(sam, body_idx)
     n = vsm_wing.n_unrefined_sections
 
     for i in 1:n
