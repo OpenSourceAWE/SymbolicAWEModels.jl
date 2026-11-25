@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{SimFloat}, D::Matrix{SimFloat}}
-const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
     ScatterGroup{Fns, Views}

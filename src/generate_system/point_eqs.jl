@@ -64,21 +64,23 @@ function beam_hermite_ride_eqs(sam, i, force_on_point, params;
                                pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                                body_com_vel, body_ω_b, body_force, body_moment)
     tube_idx = sam.definition.points[i].tube
-    a, b = sam.definition.tubes[tube_idx].bodies
-    R_a = collect(body_R_b_to_w[:, :, a])
-    R_b = collect(body_R_b_to_w[:, :, b])
+    body_a, body_b = sam.definition.tubes[tube_idx].bodies
+    R_a = collect(body_R_b_to_w[:, :, body_a])
+    R_b = collect(body_R_b_to_w[:, :, body_b])
     ex = beam_hermite_ride_expressions(tube_idx, params, i;
-        pos_a = collect(body_pos_w[:, a]), R_a, com_a = collect(body_com_w[:, a]),
-        com_vel_a = collect(body_com_vel[:, a]), omega_a_w = R_a * collect(body_ω_b[:, a]),
-        pos_b = collect(body_pos_w[:, b]), R_b, com_b = collect(body_com_w[:, b]),
-        com_vel_b = collect(body_com_vel[:, b]), omega_b_w = R_b * collect(body_ω_b[:, b]))
+        pos_a = collect(body_pos_w[:, body_a]), R_a, com_a = collect(body_com_w[:, body_a]),
+        com_vel_a = collect(body_com_vel[:, body_a]),
+        omega_a_w = R_a * collect(body_ω_b[:, body_a]),
+        pos_b = collect(body_pos_w[:, body_b]), R_b, com_b = collect(body_com_w[:, body_b]),
+        com_vel_b = collect(body_com_vel[:, body_b]),
+        omega_b_w = R_b * collect(body_ω_b[:, body_b]))
     pos_point = ex.pos_point
     force_a = (1 - ex.sfrac) .* force_on_point
     force_b = ex.sfrac .* force_on_point
-    body_force[:, a] .+= force_a
-    body_force[:, b] .+= force_b
-    body_moment[:, a] .+= (pos_point .- collect(body_com_w[:, a])) × force_a
-    body_moment[:, b] .+= (pos_point .- collect(body_com_w[:, b])) × force_b
+    body_force[:, body_a] .+= force_a
+    body_force[:, body_b] .+= force_b
+    body_moment[:, body_a] .+= (pos_point .- collect(body_com_w[:, body_a])) × force_a
+    body_moment[:, body_b] .+= (pos_point .- collect(body_com_w[:, body_b])) × force_b
     return [
         pos[:, i] ~ pos_point
         vel[:, i] ~ ex.vel_point

@@ -171,8 +171,7 @@ function aero_component(mode::AeroPressure, ::ParticleDynamics, sam, wing_idx;
     sec_va, sec_rho, sec_dva = reconstruct_inflow_sym(mode, connectors, column)
 
     spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
-    scale = 1.0 + (isfinite(mode.aero_scale_chord) ?
-        mode.aero_scale_chord : AERO_SCALE_CHORD)
+    scale = 1.0 + mode.aero_scale_chord
 
     delta = has_flap_coupling ? collect(connectors.delta) : nothing
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
@@ -274,7 +273,7 @@ end
 Live flap deflection δ [rad] of each station of the run `sam`, by station index (`0`
 for a station without a flap), from the current positions of its flap points
 ([`point_flap_delta`](@ref)) or orientations of its flap bodies
-([`flap_delta`](@ref)). The Julia ground truth mirroring the symbolic
+([`flap_delta_expression`](@ref)). The Julia ground truth mirroring the symbolic
 `station_delta_eqs!`, used to drive `panel.delta` at refresh and by tests.
 """
 function station_deltas(sam)
@@ -287,9 +286,9 @@ function station_deltas(sam)
                                          body_rotation(sam, wing_body(sam, station.wing)))
             continue
         end
-        deltas[station_idx] = flap_delta(sam, station_idx,
-                                         body_rotation(sam, station.flap_bodies[1]),
-                                         body_rotation(sam, station.flap_bodies[2]))
+        deltas[station_idx] = flap_delta_expression(sam, station_idx,
+            body_rotation(sam, station.flap_bodies[1]),
+            body_rotation(sam, station.flap_bodies[2]))
     end
     return deltas
 end

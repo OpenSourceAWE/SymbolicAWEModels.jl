@@ -118,7 +118,6 @@ SymbolicAWEModels.station_delta_eqs!
 SymbolicAWEModels.has_flap
 SymbolicAWEModels.has_body_flap
 SymbolicAWEModels.has_point_flap
-SymbolicAWEModels.flap_delta
 SymbolicAWEModels.point_flap_delta
 SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
@@ -204,7 +203,6 @@ SymbolicAWEModels.carrier_body_idx
 SymbolicAWEModels.carried_position_b
 SymbolicAWEModels.initial_rotation
 SymbolicAWEModels.initial_body_position
-SymbolicAWEModels.initial_chord_position
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.principal_frame
@@ -216,7 +214,6 @@ SymbolicAWEModels.WingDynamics
 SymbolicAWEModels.RigidDynamics
 SymbolicAWEModels.ParticleDynamics
 SymbolicAWEModels.rotate_vsm_sections!
-SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
 ```
 

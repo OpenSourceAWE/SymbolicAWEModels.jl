@@ -183,8 +183,7 @@ function aero_component(mode::ContinuousAero, ::ParticleDynamics, sam, wing_idx;
         "ContinuousAero: mesh maps not built for wing " *
         "$(sam.definition.wings[wing_idx].name).")
     spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
-    scale = 1.0 + (isfinite(mode.aero_scale_chord) ?
-        mode.aero_scale_chord : AERO_SCALE_CHORD)
+    scale = 1.0 + mode.aero_scale_chord
 
     sec_le, sec_te = reconstruct_sections_sym(mode, connectors, column)
     sec_va, sec_rho, sec_dva = reconstruct_inflow_sym(mode, connectors, column)

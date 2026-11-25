@@ -49,8 +49,7 @@ const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
 const PLOT_BODY_PREV_WING_POS = Ref{Union{Nothing, Vec3f}}(nothing)
 # Wing orientation at the previous body-frame frame; with PLOT_BODY_PREV_WING_POS
-# it re-anchors the user's camera onto the moving wing so mouse pan/zoom/orbit
-# survives playback (issue #256).
+# it re-anchors the user's camera onto the moving wing.
 const PLOT_BODY_PREV_R = Ref{Union{Nothing, SMatrix{3, 3, Float32, 9}}}(nothing)
 
 """World position of point `i` of the run `sam` [m]."""
@@ -497,7 +496,7 @@ end
 Instance attributes for drawing every beam element as one instanced
 `meshscatter` of a unit cylinder (local +z, radius 1, length 1): base anchor as
 `positions`, `tube_rotation` of the axis as `rotations`, and `Vec3f(r, r, length)`
-as `sizes`. Reproduces the old per-element `Cylinder(a, b, r)` geometry exactly.
+as `sizes`.
 """
 function beam_tube_instances(elements)
     n = length(elements)
@@ -641,8 +640,8 @@ end
 
 Depth-tapered line width for the VSM panel borders and airfoil ribs of wing `wing_idx` of
 the run `sam`, sized by the whole wing's camera distance so the panels thin with the rest
-of the scene. Returns the constant `base` when `strength == 0`, an observable that re-tapers each
-frame when `geometry_obs` is set, else a scalar.
+of the scene. Returns the constant `base` when `strength == 0`, an observable that
+re-tapers each frame when `geometry_obs` is set, else a scalar.
 """
 function wing_border_linewidth(ax, sam, wing_idx, geometry_obs, base, strength)
     iszero(strength) && return base
@@ -824,9 +823,9 @@ function Makie.plot!(ax, sam::SymbolicAWEModel;
     # === Plot Points ===
     if show_points
         if isnothing(geometry_obs)
-            point_pos = point_positions(sam)
+            positions = point_positions(sam)
         else
-            point_pos = @lift begin
+            positions = @lift begin
                 $geometry_obs  # Trigger dependency
                 point_positions(PLOT_MODEL[])
             end
@@ -835,7 +834,7 @@ function Makie.plot!(ax, sam::SymbolicAWEModel;
             markersize = point_size
         elseif isnothing(geometry_obs)
             eye = plot_eye(ax)
-            markersize = taper_sizes(point_pos, eye, taper_reference(ax, sam, eye),
+            markersize = taper_sizes(positions, eye, taper_reference(ax, sam, eye),
                 point_size, taper)
         else
             markersize = @lift begin
@@ -847,7 +846,7 @@ function Makie.plot!(ax, sam::SymbolicAWEModel;
                     taper_reference(ax, live, eye), point_size, taper)
             end
         end
-        plots[:points] = scatter!(ax, point_pos; color=point_color,
+        plots[:points] = scatter!(ax, positions; color=point_color,
                                   markersize=markersize, alpha=point_opacity,
                                   label="Points", transparency)
     end
@@ -1101,7 +1100,8 @@ function SymbolicAWEModels.update_plot_observables!(sam::SymbolicAWEModel)
         end
     end
 
-    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_MODEL[])
+    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) &&
+            !isnothing(PLOT_MODEL[])
         scene = PLOT_SCENE[]
         relevant_plots = PLOT_RELEVANT_PLOTS[]
         live = PLOT_MODEL[]
@@ -2395,11 +2395,6 @@ function tilt_body_view(cam_dir, up, right, tilt)
     return normalize(cam_dir), normalize(up)
 end
 
-function get_cam_eyepos(cam)
-    inv_view = inv(cam.view[])
-    return Vec3f(inv_view[1, 4], inv_view[2, 4], inv_view[3, 4])
-end
-
 """
     zoom_in_body!(scene, cam, sam, body_idx, distance=nothing)
 
@@ -2449,8 +2444,7 @@ function apply_zoom_mode!(scene, relevant_plots, sam; mode_changed::Bool)
             PLOT_BODY_DISTANCE[] = dist
         else
             # Re-anchor the live camera (with any mouse pan/zoom/orbit) from the
-            # previous wing pose onto the current one, so body tracking follows
-            # the wing without discarding user input (issue #256).
+            # previous wing pose onto the current one.
             cc = Makie.cameracontrols(scene)
             prev_pos = PLOT_BODY_PREV_WING_POS[]
             R_prev = PLOT_BODY_PREV_R[]
@@ -2694,8 +2688,7 @@ function setup_segment_hover_events!(scene, sams::Vector{<:SymbolicAWEModel},
 end
 
 """
-    setup_body_zoom_events!(scene, sam; relmargin=0.2,
-                            spoke_colors_obs=nothing, highlight_color=:red)
+    setup_body_zoom_events!(scene, sam; spoke_colors_obs=nothing, highlight_color=:red)
 
 Hover labels and click-to-zoom for standalone rigid bodies, picking on the grey
 tube spokes (origin→anchor segments) of the run `sam`. Hovering a body shows its name
@@ -2706,8 +2699,8 @@ clicking empty space restores the prior view. No-op when the system has no rigid
 bodies. Mirrors `setup_segment_hover_events!`; the two don't clash because
 segment-less models (e.g. a beam) never install the segment one.
 """
-function setup_body_zoom_events!(scene, sam; relmargin=0.2,
-                                 spoke_colors_obs=nothing, highlight_color=:red)
+function setup_body_zoom_events!(scene, sam; spoke_colors_obs=nothing,
+                                 highlight_color=:red)
     bodies = sam.definition.bodies
     isempty(bodies) && return nothing
     last_body = Ref(-1)
@@ -2848,7 +2841,7 @@ function plot_with_panes(sam::SymbolicAWEModel;
         end
     end
 
-    # --- Event Handling for Segments (using extracted reusable function) ---
+    # --- Event Handling for Segments ---
     if haskey(plots, :segments)
         setup_segment_hover_events!(scene, [sam], [plots[:segment_colors_obs]],
                                     relevant_plots;
@@ -2856,7 +2849,7 @@ function plot_with_panes(sam::SymbolicAWEModel;
                                     highlight_color, relmargin)
     end
     # Hover labels + highlight + click-to-zoom for standalone rigid bodies.
-    setup_body_zoom_events!(scene, sam; relmargin, highlight_color,
+    setup_body_zoom_events!(scene, sam; highlight_color,
                             spoke_colors_obs=get(plots, :body_chain_colors_obs, nothing))
 
     # Set initial camera position
@@ -2970,7 +2963,7 @@ Build geometry observables for the run `sam` that update when trigger is notifie
 Used for multi-system plotting where each system needs its own observable.
 
 # Returns
-- Dict with keys :segment_points, :point_positions, :wing_data
+- Dict with keys :segment_points, :point_positions
 """
 function build_geometry_observables(sam::SymbolicAWEModel, trigger::Observable)
     obs = Dict{Symbol, Any}()
@@ -2981,10 +2974,6 @@ function build_geometry_observables(sam::SymbolicAWEModel, trigger::Observable)
     obs[:point_positions] = @lift begin
         $trigger
         point_positions(sam)
-    end
-    obs[:wing_data] = @lift begin
-        $trigger
-        body_frame_arrows(wing_frames(sam), 1.0)
     end
     return obs
 end
@@ -3150,7 +3139,7 @@ determined by the file extension (`.mp4`, `.gif`, `.mkv`, `.webm`).
 
 # Keyword Arguments
 - `framerate::Int=30`: Framerate (frames per second)
-- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
+- `vector_scale::Real=0.2`: Scale factor for wing orientation arrows
 - All other keyword arguments are passed through to the system plot function
 
 # Returns
@@ -3188,8 +3177,7 @@ function SymbolicAWEModels.record(lg::SysLog, sam::SymbolicAWEModel, filename::S
         # Update plot observables (mutating, following standard Makie pattern)
         plot!(sam; vector_scale)
 
-        # Critical: Yield to GLMakie's render thread to process observable updates
-        # Without this, the record function captures the same (first) frame repeatedly
+        # Without yielding to GLMakie's render thread, record repeats the first frame.
         sleep(0.001)
 
         # Print progress every 10% or at the end
@@ -3341,18 +3329,16 @@ function replay_toggles(; show_wing_frame, show_body_frame, show_beam, show_pane
 end
 
 """
-    setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+    setup_replay_controls!(scene, n_frames, update_frame!, get_time;
                            replay_speed=1.0, autoplay=false, loop=false)
 
 Create replay UI controls (slider, buttons, animation loop) for a scene.
-This is a reusable function that can be used by both single and multi-system replay.
 
 # Arguments
 - `scene`: Parent scene to overlay UI on
 - `n_frames`: Total number of frames
 - `update_frame!(idx)`: Callback to update geometry for frame idx
 - `get_time(idx)`: Callback to get simulation time for frame idx
-- `get_dt(idx)`: Callback to get time delta between frames (for playback timing)
 
 # Keyword Arguments
 - `replay_speed::Real=1.0`: Replay speed factor
@@ -3362,7 +3348,7 @@ This is a reusable function that can be used by both single and multi-system rep
 # Returns
 - `(ui_scene, frame_idx, is_playing)`: UI scene and observables for external control
 """
-function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+function setup_replay_controls!(scene, n_frames, update_frame!, get_time;
                                  replay_speed=1.0, autoplay=false, loop=false,
                                  toggles=[])
     # Create pixel-space subscene for UI controls overlay
@@ -3549,7 +3535,8 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                         PLOT_ZOOMED_IN[] = false
                         PLOT_ZOOM_SEGMENT_IDX[] = -1
                     end
-                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_MODEL[])
+                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) &&
+                            !isnothing(PLOT_MODEL[])
                         apply_zoom_mode!(PLOT_SCENE[], PLOT_RELEVANT_PLOTS[],
                                          PLOT_MODEL[]; mode_changed=true)
                     end
@@ -3714,14 +3701,13 @@ function SymbolicAWEModels.replay(lg::SysLog, sam::SymbolicAWEModel;
     end
 
     get_time(idx) = lg.syslog[idx].time
-    get_dt(idx) = idx > 1 ? lg.syslog[idx].time - lg.syslog[idx - 1].time : 0.05
 
     toggles = replay_toggles(; show_wing_frame, show_body_frame, show_beam,
                              show_panels, show_airfoils, show_aero_mapping,
                              force_color)
 
     # Setup replay controls using shared function
-    setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+    setup_replay_controls!(scene, n_frames, update_frame!, get_time;
                            replay_speed, autoplay, loop, toggles)
 
     return scene
@@ -3805,15 +3791,12 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, sams::Vector{<:Symboli
                           refresh_multi_frame!(sams[1]; vector_scale))
 
     get_time(idx) = primary_log.syslog[min(idx, length(primary_log.syslog))].time
-    get_dt(idx) = idx > 1 ?
-        get_time(idx) - primary_log.syslog[min(idx - 1, length(primary_log.syslog))].time :
-        0.05
 
     toggles = replay_toggles(; show_wing_frame, show_body_frame, show_beam,
                              show_panels, show_airfoils, show_aero_mapping,
                              force_color)
 
-    setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
+    setup_replay_controls!(scene, n_frames, update_frame!, get_time;
                            replay_speed, autoplay, loop, toggles)
 
     return scene
@@ -3917,7 +3900,7 @@ function wing_node_position_b(sam, i)
 end
 
 """
-    plot_body_frame(sam::SymbolicAWEModel; extra_points=nothing, dir=:side)
+    plot_body_frame(sam::SymbolicAWEModel; extra_points=nothing, dir=:front)
     plot_body_frame(sys::SystemDefinition; kwargs...)
 
 Plot wing points in 2D body frame coordinates: all wing-node points, a particle wing's
@@ -3927,7 +3910,7 @@ where they are now in its frame.
 - `sam::SymbolicAWEModel`: The run to plot; or a structure `sys`, drawn as a run of it
   starts
 - `extra_points`: Optional vector of (x,y,z) tuples to overlay
-- `dir::Symbol`: Viewing direction (:side, :front, or :top, default :side)
+- `dir::Symbol`: Viewing direction (:side, :front, or :top, default :front)
 
 # Returns
 - Figure with 2D scatter plot of wing points in body frame

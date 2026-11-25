@@ -94,9 +94,6 @@ function station_eqs!(sam, eqs, defaults, params, initial;
     max_npoints = maximum(length(ts.points) for ts in stations)
 
     @variables begin
-        trailing_edge_angle(t)[eachindex(stations)]
-        trailing_edge_ω(t)[eachindex(stations)]
-        trailing_edge_α(t)[eachindex(stations)]
         free_twist_angle(t)[eachindex(stations)]
         twist_α(t)[eachindex(stations)]
         station_tether_force(t)[eachindex(stations)]

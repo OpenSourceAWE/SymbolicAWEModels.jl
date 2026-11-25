@@ -38,7 +38,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, PARTICLE_DYNAMICS,
-    RIGID_DYNAMICS, AERO_SCALE_CHORD, refresh_aero!
+    RIGID_DYNAMICS, refresh_aero!
 using KiteUtils
 using LinearAlgebra
 
@@ -46,14 +46,13 @@ using LinearAlgebra
     particle_force_scale(sam, wing)
 
 Multiplier applied to distributed `PARTICLE_DYNAMICS` point forces of wing `wing` of
-`sam` relative to the raw VSM solution (`1 + aero_scale_chord`, falling back to the
-package default). `RIGID_DYNAMICS` uses the body force directly, so its scale is 1.
+`sam` relative to the raw VSM solution (`1 + aero_scale_chord`). `RIGID_DYNAMICS` uses
+the body force directly, so its scale is 1.
 """
 function particle_force_scale(sam, wing)
     run_value(sam, :wings, wing, :dynamics_type) == PARTICLE_DYNAMICS || return 1.0
     mode = sam.aero[wing]
-    return 1.0 + (isfinite(mode.aero_scale_chord) ?
-        mode.aero_scale_chord : AERO_SCALE_CHORD)
+    return 1.0 + mode.aero_scale_chord
 end
 
 """

@@ -436,9 +436,7 @@ end
                 # the ODE (Jacobian-extrapolated)
                 if expected_dynamics_type ==
                         SymbolicAWEModels.PARTICLE_DYNAMICS
-                    scale = 1.0 + (
-                        isfinite(sam.aero[1].aero_scale_chord) ?
-                        sam.aero[1].aero_scale_chord : 0.0)
+                    scale = 1.0 + sam.aero[1].aero_scale_chord
                     sol_force .*= scale
                     total_force = zeros(3)
                     for i in wing_nodes(sam, 1)

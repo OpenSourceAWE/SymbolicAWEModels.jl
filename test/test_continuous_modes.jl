@@ -29,8 +29,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points,
-    AERO_SCALE_CHORD
+using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points
 using KiteUtils
 using LinearAlgebra
 
@@ -174,8 +173,7 @@ group_means(groups, values) =
                 VortexStepMethod.solve!(solver, mode.vsm_aero)
                 panels = mode.vsm_aero.panels
                 spanwise = collect(Float64, mode.vsm_wing.spanwise_direction)
-                scale = 1.0 + (isfinite(mode.aero_scale_chord) ?
-                    mode.aero_scale_chord : AERO_SCALE_CHORD)
+                scale = 1.0 + mode.aero_scale_chord
                 @test scale == 1.0
                 force_scale = maximum(norm(Vector(solver.sol.f_body_3D[:, i]))
                                       for i in eachindex(panels))

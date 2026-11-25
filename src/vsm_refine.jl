@@ -2,26 +2,18 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    const AERO_SCALE_CHORD = 0.0
-
-Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings; effective
-multiplier is `1 + aero_scale_chord`, the engine's or else this default.
-"""
-const AERO_SCALE_CHORD = 0.0
-
-"""
     identify_wing_segments(sam, wing_idx) -> Vector{Tuple{Int64, Int64}}
 
 The `(le_point_idx, te_point_idx)` pair of each section of wing `wing_idx` of `sam`:
 of each of its stations' points, the one with the smallest and the one with the largest
-body-frame x in the wing's initial pose ([`initial_chord_position`](@ref)). A wing
+body-frame x in the wing's initial pose ([`initial_body_position`](@ref)). A wing
 without stations pairs its nodes ([`wing_points`](@ref)) two by two in point order, the
 LE again the one with the smaller x.
 """
 function identify_wing_segments(sam, wing_idx)
     body_idx = wing_body(sam, wing_idx)
     points = sam.definition.points
-    chord_position(i) = initial_chord_position(sam, body_idx, points[i].pos_ENU)
+    chord_position(i) = initial_body_position(sam, body_idx, points[i].pos_ENU)[1]
     station_idxs = wing_station_idxs(sam, wing_idx)
     if !isempty(station_idxs)
         segments = Tuple{Int64, Int64}[]
@@ -92,13 +84,6 @@ function match_aero_sections_to_structure!(mode, sam, wing_idx)
         n_struct_sections = n_points ÷ 2
     else
         n_struct_sections = length(station_idxs)
-        for station_idx in station_idxs
-            station = sam.definition.spanwise_stations[station_idx]
-            length(station.points) >= 2 || error(
-                "PARTICLE_DYNAMICS wing $wing_idx: station $(station.name) needs at " *
-                "least 2 points (LE = point_idxs[1], TE = point_idxs[end]), got " *
-                "$(length(station.points))")
-        end
     end
 
     vsm_wing = mode.vsm_wing
@@ -116,8 +101,6 @@ function match_aero_sections_to_structure!(mode, sam, wing_idx)
 
     wing_segments = identify_wing_segments(sam, wing_idx)
     mode.wing_segments = wing_segments
-    length(wing_segments) == n_struct_sections || error(
-        "Wing $wing_idx: failed to identify structural LE/TE pairs.")
 
     original_sections = vsm_wing.unrefined_sections
     n_original = length(original_sections)
@@ -270,8 +253,7 @@ function distribute_panel_forces_to_points!(mode, sam, wing_idx)
     panel_to_section = mode.vsm_wing.refined_panel_mapping
     to_struct = vsm_point_to_struct(mode, wing_idx)
     R_b_to_w = body_rotation(sam, body_idx)
-    scale = 1.0 + (isfinite(mode.aero_scale_chord) ? mode.aero_scale_chord :
-                   AERO_SCALE_CHORD)
+    scale = 1.0 + mode.aero_scale_chord
 
     forces = Dict(i => zero(SVec3) for i in wing_points(sam, wing_idx))
     for (panel_idx, panel) in enumerate(panels)

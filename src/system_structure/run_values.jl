@@ -796,11 +796,6 @@ function segment_diameter(sam, i)
     return segment.diameter
 end
 
-"""The stiffness per unit length [N] of segment `i` of `sam` whose stiffness is a number,
-typed `Float64`."""
-numeric_unit_stiffness(sam, i) =
-    to_float64(run_value(sam, Val(:segments), i, Val(:unit_stiffness)))
-
 """The rest length of segment `i` of `sam` [m]: its tether's unstretched length shared
 over its segments, its side of the rope over its pulley, else its row's."""
 function segment_rest_length(sam, i)
@@ -818,11 +813,8 @@ function segment_rest_length(sam, i)
 end
 
 """The length of segment `i` of `sam` between its points in its run [m]."""
-function segment_world_length(sam, i)
-    first_point, second_point = sam.definition.segments[i].points
-    return norm(run_value(sam, Val(:points), first_point, Val(:pos_w)) -
-                run_value(sam, Val(:points), second_point, Val(:pos_w)))
-end
+segment_world_length(sam, i) =
+    KiteGeometry.segment_length(sam.definition.segments[i], run_positions(sam))
 
 """The length of the rope over pulley `i` of `sam` [m]: its two segments' rest lengths in
 the definition."""
@@ -1142,28 +1134,28 @@ end
 function set_state_vars!(sam, vars)
     sys = sam.definition
     values = Iterators.Stateful(vec(vars))
-    put!(collection, i, quantity, n) =
+    write_next!(collection, i, quantity, n) =
         set_run_value!(sam, Val(collection), i, Val(quantity),
                        n == 1 ? popfirst!(values) : collect(Iterators.take(values, n)))
     for i in eachindex(sys.points)
-        put!(:points, i, :pos_w, 3)
-        put!(:points, i, :vel_w, 3)
+        write_next!(:points, i, :pos_w, 3)
+        write_next!(:points, i, :vel_w, 3)
     end
     for body_idx in eachindex(sys.bodies)
-        put!(:bodies, body_idx, :pos_w, 3)
-        put!(:bodies, body_idx, :vel_w, 3)
-        put!(:bodies, body_idx, :Q_b_to_w, 4)
-        put!(:bodies, body_idx, :ω_b, 3)
+        write_next!(:bodies, body_idx, :pos_w, 3)
+        write_next!(:bodies, body_idx, :vel_w, 3)
+        write_next!(:bodies, body_idx, :Q_b_to_w, 4)
+        write_next!(:bodies, body_idx, :ω_b, 3)
     end
     for station_idx in eachindex(sys.spanwise_stations)
-        put!(:spanwise_stations, station_idx, :twist, 1)
-        put!(:spanwise_stations, station_idx, :twist_ω, 1)
+        write_next!(:spanwise_stations, station_idx, :twist, 1)
+        write_next!(:spanwise_stations, station_idx, :twist_ω, 1)
     end
     for i in eachindex(sys.pulleys)
-        put!(:pulleys, i, :len, 1)
-        put!(:pulleys, i, :vel, 1)
+        write_next!(:pulleys, i, :len, 1)
+        write_next!(:pulleys, i, :vel, 1)
     end
-    foreach(i -> put!(:tethers, i, :len, 1), eachindex(sys.tethers))
-    foreach(i -> put!(:winches, i, :vel, 1), eachindex(sys.winches))
+    foreach(i -> write_next!(:tethers, i, :len, 1), eachindex(sys.tethers))
+    foreach(i -> write_next!(:winches, i, :vel, 1), eachindex(sys.winches))
     return sam
 end

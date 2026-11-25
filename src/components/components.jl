@@ -2167,8 +2167,7 @@ function AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
     delta = with_flap ? scalar_input(:flap_delta) : nothing
     lag = wagner_enabled(mode) ? scalar_input(:wagner_deficiency) : nothing
     spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
-    scale = 1.0 + (isfinite(mode.aero_scale_chord) ?
-        mode.aero_scale_chord : AERO_SCALE_CHORD)
+    scale = 1.0 + mode.aero_scale_chord
     slots = panel_force_slots(1)
     sections = (collect(io[1]) .+ collect(panel.le_offset_a),
                 collect(io[2]) .+ collect(panel.te_offset_a),

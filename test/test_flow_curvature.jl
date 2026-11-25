@@ -140,9 +140,7 @@ end
 The chord-error compensation every panel force and couple carries, so a couple read
 out of the model can be turned back into the moment coefficient it came from.
 """
-panel_force_scale(mode) =
-    1.0 + (isfinite(mode.aero_scale_chord) ? mode.aero_scale_chord :
-           SymbolicAWEModels.AERO_SCALE_CHORD)
+panel_force_scale(mode) = 1.0 + mode.aero_scale_chord
 
 """
     vsm_panels(mode)

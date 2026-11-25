@@ -59,7 +59,6 @@ SymbolicAWEModels.copy_run_columns!
 SymbolicAWEModels.model_aero
 SymbolicAWEModels.model_vsm_set
 SymbolicAWEModels.copy_unsteady
-SymbolicAWEModels.numeric_unit_stiffness
 SymbolicAWEModels.point_apparent_wind
 SymbolicAWEModels.point_segments
 SymbolicAWEModels.point_wings

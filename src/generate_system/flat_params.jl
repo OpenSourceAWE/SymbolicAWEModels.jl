@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Flat MTK parameters replacing per-step `@register_symbolic` struct reads.
+# Flat MTK parameters holding the values of a run (`run_value`).
 
 """
     read_path(obj, path)
@@ -384,7 +384,6 @@ refreshed_path(path) = length(path) >= 3 && path[1] === :points && path[3] === :
 """The `(collection, field)` pairs whose parameters read a column of a run's `SysState`,
 or what follows from them."""
 const LIVE_FIELDS = Set([(:points, :pos_w), (:points, :wind_vec), (:points, :total_mass),
-    (:wings, :wind_vec),
     (:bodies, :wind_vec), (:wings, :aero_force_b), (:wings, :aero_moment_b),
     (:bodies, :pos_w), (:bodies, :Q_b_to_w), (:bodies, :com_w),
     (:spanwise_stations, :twist), (:tethers, :len)])

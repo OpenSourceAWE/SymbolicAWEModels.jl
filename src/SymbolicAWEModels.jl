@@ -25,7 +25,6 @@ using ControlSystemsBase
 using RecipesBase
 using StaticArrays
 using SymbolicIndexingInterface
-using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
 using ADTypes: AutoFiniteDiff, AutoForwardDiff
@@ -156,7 +155,6 @@ Basic 3-dimensional vector, stack allocated, mutable.
 """
 const KVec3    = MVector{3, SimFloat}
 const KVec2    = MVector{2, SimFloat}
-const KVec4    = MVector{4, SimFloat}
 const MVec3    = MVector{3, Float64}  # Used by VortexStepMethod functions
 
 """

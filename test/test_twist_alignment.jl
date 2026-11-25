@@ -63,7 +63,7 @@ function twist_chord_diffs(sam)
     origin = run_value(sam, :wings, wing_idx, :pos_w)
     pos_b(i) = R' * (run_value(sam, :points, i, :pos_w) - origin)
     chord_position(i) =
-        SymbolicAWEModels.initial_chord_position(sam, body_idx, points[i].pos_ENU)
+        SymbolicAWEModels.initial_body_position(sam, body_idx, points[i].pos_ENU)[1]
 
     n_unref = vsm.n_unrefined_sections
     theta = zeros(Float64, n_unref)

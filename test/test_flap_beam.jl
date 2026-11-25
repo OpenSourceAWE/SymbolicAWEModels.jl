@@ -131,7 +131,7 @@ end
             @test S.flap_chord_refs(sam, 1) == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
             R_main = S.initial_rotation(sam.definition.bodies[:main])
             R_flap = S.quaternion_to_rotation_matrix(quat_y(phi))
-            @test S.flap_delta(sam, 1, R_main, R_flap) ≈ phi atol=1e-10
+            @test S.flap_delta_expression(sam, 1, R_main, R_flap) ≈ phi atol=1e-10
         end
         # Nonzero rest: capture at φ0, deflect to φ0+Δ → δ = Δ.
         phi0, delta = 0.2, 0.15
@@ -139,7 +139,7 @@ end
         @test S.flap_rest_delta(sam, 1) ≈ phi0 atol=1e-10
         R_main = S.initial_rotation(sam.definition.bodies[:main])
         R_flap = S.quaternion_to_rotation_matrix(quat_y(phi0 + delta))
-        @test S.flap_delta(sam, 1, R_main, R_flap) ≈ delta atol=1e-10
+        @test S.flap_delta_expression(sam, 1, R_main, R_flap) ≈ delta atol=1e-10
     end
 
     beam_length = 1.0

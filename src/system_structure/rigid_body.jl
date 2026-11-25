@@ -144,14 +144,6 @@ The body→world rotation matrix of `body`'s initial pose `Q_KA2ENU`.
 initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA2ENU)
 
 """
-    initial_chord_position(sam, b, pos_ENU) -> SimFloat
-
-Body-frame x of the position `pos_ENU` on body `b` of `sam` in the initial pose:
-smaller towards the leading edge.
-"""
-initial_chord_position(sam, b, pos_ENU) = initial_body_position(sam, b, pos_ENU)[1]
-
-"""
     timoshenko_element_frame(x_a, x_b, R_a) -> (e1, e2, e3, len)
 
 Orthonormal corotational element frame: `e1` along the chord from node A to node
@@ -188,19 +180,11 @@ has_point_flap(station) = length(something(station.flap_points, ())) == 3
     has_flap(station) -> Bool
 
 `true` if the station carries a flap hinge either way, so it drives a live
-deflection δ ([`flap_delta`](@ref) / [`point_flap_delta`](@ref) /
+deflection δ ([`flap_delta_expression`](@ref) / [`point_flap_delta`](@ref) /
 `station_delta_eqs!`). A station given both reads the points.
 """
 has_flap(station) =
     has_point_flap(station) || has_body_flap(station)
-
-"""
-    flap_delta(sam, s, R_main, R_flap) -> SimFloat
-
-Signed flap deflection δ [rad] of station `s` of `sam` from the two flap bodies'
-world orientations `R_main`, `R_flap` ([`flap_delta_expression`](@ref)).
-"""
-flap_delta(sam, s, R_main, R_flap) = flap_delta_expression(sam, s, R_main, R_flap)
 
 """
     point_flap_delta(sam, s, R_wing) -> SimFloat

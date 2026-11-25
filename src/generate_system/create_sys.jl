@@ -229,8 +229,6 @@ function create_sys!(s::SymbolicAWEModel; prn=true, tunable_params::Bool=false)
     # 6. Tether equations (stretched length, average force)
     eqs = tether_eqs!(eqs, tethers; len, spring_force)
 
-    # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
-
     # Live flap deflection δ per station (derived from body orientations).
     if length(stations) > 0
         eqs = station_delta_eqs!(s, eqs; station_delta, body_R_b_to_w, pos)
@@ -309,16 +307,6 @@ function create_sys!(s::SymbolicAWEModel; prn=true, tunable_params::Bool=false)
         end
     end
     prn && println("\tCreated System in $time seconds.")
-
-    # set_values is seeded from the struct at init and set every step; no default.
-
-    # Debug: Check defaults for slice references
-    for (i, d) in enumerate(defaults)
-        d_str = string(d)
-        if occursin("Colon()", d_str)
-            @warn "Default $i contains Colon(): $d"
-        end
-    end
 
     s.defaults = defaults
     s.full_sys = sys
