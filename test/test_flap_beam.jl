@@ -147,7 +147,7 @@ end
     inertia = [0.01, 0.01, 0.01]
 
     # Fresh components per call: `SystemDefinition` resolves indices in place.
-    function build_beam_sys(name; with_flap=true)
+    function build_beam_sys(name; with_flap=true, wing_body_last=false)
         # The wing owning the flap: a rigid wing with no aero, held where it is.
         wing = KiteGeometry.Wing(; name=:nodeA, pos_ENU=zeros(3), body=:nodeA,
             model=WingModel(; aero_mode="AeroNone",
@@ -170,7 +170,8 @@ end
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
         bridle = Point(; name=:bridle, pos_ENU=[0.5, 0.0, 0.1], tube=:tube)
         return system_definition(name, set;
-            points=[bridle], wings=[wing], bodies=[nodeA, nodeB], tubes=[tube],
+            points=[bridle], wings=[wing],
+            bodies=wing_body_last ? [nodeB, nodeA] : [nodeA, nodeB], tubes=[tube],
             materials, spanwise_stations=with_flap ? [flap] : SpanwiseStation[])
     end
 
@@ -184,6 +185,19 @@ end
         @test sys.points[:bridle].tube == 1
         @test run_value(sam, :points, :bridle, :beam_frac) ≈ 0.5 atol=1e-6
         @test run_value(sam, :points, :bridle, :beam_offset_b)[3] ≈ 0.1 atol=1e-6
+    end
+
+    @testset "a wing's body need not lead the bodies" begin
+        last_sam = SymbolicAWEModel(set, build_beam_sys("flap_beam_test";
+                                                        wing_body_last=true))
+        @test SymbolicAWEModels.wing_body(last_sam, 1) == 2
+        for (collection, item, quantity) in ((:bodies, :nodeA, :total_mass),
+                (:bodies, :nodeA, :inertia_principal), (:bodies, :nodeB, :total_mass),
+                (:points, :bridle, :beam_frac), (:points, :bridle, :beam_offset_b),
+                (:spanwise_stations, :flap, :flap_rest_delta))
+            @test run_value(last_sam, collection, item, quantity) ≈
+                  run_value(sam, collection, item, quantity)
+        end
     end
 
     test_init!(sam; prn=false)

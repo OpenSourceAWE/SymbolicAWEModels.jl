@@ -105,8 +105,7 @@ its design pose and given `set.mass` where it carries none (KiteGeometry's
 `complete_wings!`), and the whole is placed by KiteGeometry's `place!`, with every
 segment's `rest_length` set to its placed length where `ignore_l0`. `materials` holds the
 `Material` rows the segments and tubes name, as a vector or as the `MaterialTable`
-KiteGeometry's `line_segment` and `expand_tether!` fill. A wing's body is one of `bodies`,
-which the wings' bodies lead.
+KiteGeometry's `line_segment` and `expand_tether!` fill. A wing's body is one of `bodies`.
 
 `name` is also the `system_name` that keys the compiled-model cache, so systems of the
 same structural shape should share one.
@@ -126,18 +125,7 @@ function system_definition(name::AbstractString, set;
     definition = SystemDefinition(;
         metadata=Metadata(; name, n_points=length(points)), materials, points, segments,
         spanwise_stations, pulleys, tethers, winches, wings,
-        bodies=wings_first(wings, bodies), tubes)
+        bodies, tubes)
     complete_wings!(definition, set)
     return place!(definition; ignore_l0)
-end
-
-"""`bodies` with the body of each of `wings` first, in the wings' order."""
-function wings_first(wings, bodies)
-    leading = map(wings) do wing
-        index = findfirst(body -> body.name == wing.body, bodies)
-        isnothing(index) && error("Wing $(wing.name): its body $(wing.body) is none of " *
-                                  "`bodies`")
-        index
-    end
-    return [bodies[leading]; bodies[setdiff(eachindex(bodies), leading)]]
 end
