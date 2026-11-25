@@ -667,7 +667,7 @@ The mass of body `body_idx` of `sam` with the points it carries ([`carrier_body_
 as point masses of their `total_mass` at their anchors: `(; total_mass, com_offset_b,
 inertia_principal, R_b_to_p)`, its centre of mass from its origin and its principal inertia
 about it. The body of a particle wing has the mass of the wing's free points and of the
-bodies sharing a tube with its structure ([`particle_wing_parts`](@ref)).
+bodies sharing a tube with its structure (KiteGeometry's `particle_wing_parts`).
 """
 function body_mass_properties(sam, body_idx)
     if body_type(sam, body_idx) == KINEMATIC
@@ -700,53 +700,12 @@ end
 """The mass of particle wing `wing_idx` of `sam` [kg]: its member points no body carries and
 the bodies sharing a tube with its structure."""
 function particle_wing_mass(sam, wing_idx)
-    point_idxs, body_idxs = particle_wing_parts(sam, wing_idx)
+    point_idxs, body_idxs = KiteGeometry.particle_wing_parts(sam.definition, wing_idx)
     return sum(point_total_mass(sam, i) for i in point_idxs
                if carrier_body_idx(sam, i) == 0; init=0.0) +
         sum(body_mass_properties(sam, body_idx).total_mass for body_idx in body_idxs;
             init=0.0)
 end
-
-"""
-    particle_wing_parts(sam, wing_idx) -> (point_idxs, body_idxs)
-
-The member points of particle wing `wing_idx` of `sam` and the bodies of no wing sharing a
-tube (KiteGeometry's `connected_body_groups`) with its structure, which carry its mass. The
-groups are seeded from its stations' member and flap bodies and the bodies its member points
-ride. Members are its stations' points, else the points of its frame
-([`wing_frame_member`](@ref)).
-"""
-function particle_wing_parts(sam, wing_idx)
-    sys = sam.definition
-    root = KiteGeometry.connected_body_groups(length(sys.bodies), sys.tubes)
-    own_body = wing_body(sam, wing_idx)
-    seed_roots, point_idxs = Set{Int}(), Set{Int}()
-    for station_idx in wing_station_idxs(sam, wing_idx)
-        station = sys.spanwise_stations[station_idx]
-        union!(point_idxs, station.points)
-        for body_idx in Iterators.flatten((something(station.bodies, ()),
-                                    something(station.flap_bodies, ())))
-            body_idx != 0 && body_idx != own_body && push!(seed_roots, root[body_idx])
-        end
-    end
-    if isempty(point_idxs)
-        for i in eachindex(sys.points)
-            wing_frame_member(sam, i, wing_idx) && push!(point_idxs, i)
-        end
-    end
-    for i in point_idxs
-        body_idx = sys.points[i].body
-        !isnothing(body_idx) && body_idx != own_body && push!(seed_roots, root[body_idx])
-    end
-    body_idxs = [body_idx for body_idx in eachindex(sys.bodies)
-                 if body_wing(sam, body_idx) == 0 && root[body_idx] in seed_roots]
-    return point_idxs, body_idxs
-end
-
-"""Whether point `i` of `sam` belongs to the frame of wing `wing_idx`: a node of its surface
-or a `BODY_STATIC` point of the wing."""
-wing_frame_member(sam, i, wing_idx) = (wing_node(sam.definition, i) ||
-    point_type(sam.definition.points[i]) == BODY_STATIC) && point_wing(sam, i) == wing_idx
 
 # ==================== POINTS ==================== #
 

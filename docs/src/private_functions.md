@@ -192,7 +192,6 @@ SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.rigidity_fields
 SymbolicAWEModels.timoshenko_element_frame
-SymbolicAWEModels.particle_wing_parts
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
@@ -219,7 +218,6 @@ SymbolicAWEModels.ParticleDynamics
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
-SymbolicAWEModels.wing_frame_member
 ```
 
 ## Equation builders
