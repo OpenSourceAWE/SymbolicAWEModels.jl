@@ -56,8 +56,6 @@ end
 
 @testset verbose = true "Benchmarks" begin
     sam = setup_bench_sam()
-    sys = sam.sys_struct
-    idx = Int64(1)
 
     @testset "ODE RHS" begin
         f = sam.integrator.f

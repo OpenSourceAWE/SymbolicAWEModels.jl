@@ -22,7 +22,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, aero_scatter_entries,
-    aero_section_columns, wing_points
+    aero_section_columns
 using KiteUtils
 using LinearAlgebra
 
@@ -59,21 +59,19 @@ end
 
     @testset "BILLOWING is required" begin
         sys, vsm_set, aero = load_continuous_sys(data_path, set; billowing=false)
-        @test_throws ErrorException SymbolicAWEModels.SystemState(sys; set, vsm_set, aero)
+        @test_throws ErrorException SymbolicAWEModel(set, sys; vsm_set, aero)
     end
 
     sys, vsm_set, aero = load_continuous_sys(data_path, set; billowing=true)
-    state = SymbolicAWEModels.SystemState(sys; set, vsm_set, aero)
-    wing = state.wings[1]
-    mode = wing.aero
-    n_panels = length(wing.vsm_aero.panels)
+    sam = SymbolicAWEModel(set, sys; vsm_set, aero)
+    mode = sam.aero[1]
+    n_panels = length(mode.vsm_aero.panels)
 
     @testset "quarter-chord strut couple" begin
-        nodes = wing_points(state, wing)
-        column = aero_section_columns(wing, nodes)
+        column = aero_section_columns(sam, 1)
         leading = Set(k for ((_, station), k) in column if station === :LE)
         trailing = Set(k for ((_, station), k) in column if station === :TE)
-        entries = aero_scatter_entries(mode, wing, nodes)
+        entries = aero_scatter_entries(mode, sam, 1)
         @test !isempty(entries)
         for panel in 1:n_panels
             reached = [e for e in entries if e[1] == panel]

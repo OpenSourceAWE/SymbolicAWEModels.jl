@@ -53,7 +53,7 @@ finally
     set_data_path(prev_data_path)
 end
 
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam.definition)
 if isinteractive()
     display(scene)
 end

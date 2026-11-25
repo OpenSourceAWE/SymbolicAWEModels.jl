@@ -3,9 +3,8 @@
 
 # test_deserialization.jl - Deserialization and settings sync tests
 #
-# Verifies that after loading a cached .bin model:
-# 1. sam.set === sam.state.set (reference identity)
-# 2. Modified settings propagate through deserialized models
+# Verifies that after loading a cached .bin model modified settings propagate
+# through deserialized models.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -82,27 +81,6 @@ system:
 
     set_data_path(tmpdir)
 
-    @testset "sam.set delegates to state.set" begin
-        set = Settings("system.yaml")
-        sys, transforms = load_authoring(
-            yaml_path; name="deser_test_1", set)
-
-        sam = SymbolicAWEModel(set, sys; transforms)
-        init!(sam; remake=true, prn=false)
-
-        # sam.set must be the exact same object as
-        # sam.state.set
-        @test sam.set === sam.state.set
-
-        # Mutating via sam.set should be visible via
-        # state.set
-        sam.set.g_earth = 3.14
-        @test sam.state.set.g_earth == 3.14
-
-        # Assigning sam.set = ... should error
-        @test_throws ErrorException (sam.set = set)
-    end
-
     @testset "two models on one structure keep their own run settings" begin
         set_a, set_b = Settings("system.yaml"), Settings("system.yaml")
         set_a.g_earth, set_a.v_wind = 0.0, 0.0
@@ -121,7 +99,7 @@ system:
             for _ in 1:10
                 next_step!(sam; dt=0.01, vsm_interval=0)
             end
-            sam.state.points[:test_point].vel_w[3]
+            run_value(sam, :points, :test_point, :vel_w)[3]
         end
         @test abs(fall_velocity[1]) < 1e-6
         @test fall_velocity[2] < -0.5
@@ -141,8 +119,7 @@ system:
         for _ in 1:10
             next_step!(sam1; dt=0.01, vsm_interval=0)
         end
-        vel_no_grav = copy(
-            sam1.state.points[:test_point].vel_w)
+        vel_no_grav = run_value(sam1, :points, :test_point, :vel_w)
         @test norm(vel_no_grav) < 1e-6
 
         # Now create a new SAM with gravity enabled,
@@ -156,15 +133,14 @@ system:
         # remake=false → loads from cache
         init!(sam2; remake=false, prn=false)
 
-        @test sam2.set === sam2.state.set
+        @test sam2.set === set2
         @test sam2.set.g_earth == 9.81
 
         # Simulate - with gravity, point should accelerate
         for _ in 1:10
             next_step!(sam2; dt=0.01, vsm_interval=0)
         end
-        vel_with_grav = copy(
-            sam2.state.points[:test_point].vel_w)
+        vel_with_grav = run_value(sam2, :points, :test_point, :vel_w)
         # Z velocity should be negative (falling in NED)
         @test vel_with_grav[3] < -0.5
     end
@@ -196,42 +172,40 @@ system:
         sam_fresh = build_refine(; remake=true)    # builds + caches
         sam_cached = build_refine(; remake=false)  # loads from .bin
 
-        wpts(sam) = [p for p in sam.state.points if p.is_wing_node]
-        fresh, cached = wpts(sam_fresh), wpts(sam_cached)
+        nodes = [i for i in eachindex(sam_fresh.definition.points)
+                 if run_value(sam_fresh, :points, i, :is_wing_node)]
+        node_values(sam, quantity) = [run_value(sam, :points, i, quantity) for i in nodes]
 
         # wind is on → aero is non-trivial (test is meaningful)
-        @test sum(norm(p.aero_force_b) for p in cached) > 1.0
+        @test sum(norm, node_values(sam_cached, :aero_force_b)) > 1.0
         # cache load must apply the same aero as a fresh build
-        @test maximum(norm(pf.force - pc.force)
-                      for (pf, pc) in zip(fresh, cached)) < 1e-2
-        @test maximum(norm(pf.pos_w - pc.pos_w)
-                      for (pf, pc) in zip(fresh, cached)) < 1e-4
+        node_gap(quantity) = maximum(norm.(node_values(sam_fresh, quantity) .-
+                                           node_values(sam_cached, quantity)))
+        @test node_gap(:force) < 1e-2
+        @test node_gap(:pos_w) < 1e-4
 
         @testset "a frozen point force stays fixed in its wing's frame" begin
-            frozen_b = [collect(point.aero_force_b) for point in wpts(sam_cached)]
-            frozen_w = [collect(point.aero_force) for point in wpts(sam_cached)]
+            frozen_b = node_values(sam_cached, :aero_force_b)
+            frozen_w = node_values(sam_cached, :aero_force)
             for _ in 1:5
                 next_step!(sam_cached; dt=0.05, vsm_interval=0)
             end
-            @test maximum(norm(point.aero_force_b - force)
-                          for (point, force) in zip(wpts(sam_cached), frozen_b)) < 1e-4
-            @test maximum(norm(point.aero_force - force)
-                          for (point, force) in zip(wpts(sam_cached), frozen_w)) > 1e-3
+            @test maximum(norm.(node_values(sam_cached, :aero_force_b) .- frozen_b)) < 1e-4
+            @test maximum(norm.(node_values(sam_cached, :aero_force) .- frozen_w)) > 1e-3
         end
 
         @testset "init! keeps the model's one VSM engine" begin
-            vsm_wing = sam_cached.state.wings[1].vsm_wing
+            vsm_wing = sam_cached.aero[1].vsm_wing
             init!(sam_cached; remake=false, prn=false)
-            @test sam_cached.state.wings[1].vsm_wing === vsm_wing
+            @test sam_cached.aero[1].vsm_wing === vsm_wing
         end
 
         @testset "a logged point force reaches a run that does not solve the aero" begin
             restored = build_refine(; remake=false)
-            update_from_sysstate!(restored.state, sam_fresh.state.sysstate)
+            update_from_sysstate!(restored, SysState(sam_fresh; precision=Float64))
             init!(restored; remake=false, remake_vsm=false, lin_vsm=false, prn=false)
-            pairs = zip(wpts(restored), wpts(sam_fresh))
-            @test maximum(norm(point.aero_force - logged.aero_force)
-                          for (point, logged) in pairs) < 1e-4
+            @test maximum(norm.(node_values(restored, :aero_force) .-
+                                node_values(sam_fresh, :aero_force))) < 1e-4
         end
     end
 end

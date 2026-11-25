@@ -79,34 +79,35 @@ environment:
 """
 
 """
-    set_rigid_motion!(sys, omega, vel, ref)
+    set_rigid_motion!(sam, omega, vel, ref)
 
-Put every body of `sys` on one rigid-body motion: velocity `vel` at `ref`, spinning
+Put every body of `sam` on one rigid-body motion: velocity `vel` at `ref`, spinning
 at `omega`. Body frames start axis-aligned, so `ω_b == omega`.
 """
-function set_rigid_motion!(sys, omega, vel, ref)
-    for body in sys.bodies
-        body.vel_w .= vel .+ omega × (Vector(body.com_w) .- ref)
-        body.ω_b .= omega
+function set_rigid_motion!(sam, omega, vel, ref)
+    for body_idx in eachindex(sam.definition.bodies)
+        com_w = run_value(sam, :bodies, body_idx, :com_w)
+        set_run_value!(sam, :bodies, body_idx, :vel_w, vel .+ omega × (com_w .- ref))
+        set_run_value!(sam, :bodies, body_idx, :ω_b, omega)
     end
     return nothing
 end
 
 """
-    pair_momenta(sys, ref) -> (; linear, angular)
+    pair_momenta(sam, ref) -> (; linear, angular)
 
-Linear momentum and angular momentum about `ref` of every body in `sys`.
+Linear momentum and angular momentum about `ref` of every body of `sam`.
 """
-function pair_momenta(sys, ref)
+function pair_momenta(sam, ref)
     linear = zeros(3)
     angular = zeros(3)
-    for body in sys.bodies
-        vel = Vector(body.vel_w)
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
-        linear .+= body.total_mass .* vel
-        angular .+= body.total_mass .* ((Vector(body.com_w) .- ref) × vel) .+
-                    R_b_to_w * (Vector(body.inertia_principal) .*
-                                Vector(body.ω_b))
+    for body_idx in eachindex(sam.definition.bodies)
+        body(quantity) = run_value(sam, :bodies, body_idx, quantity)
+        vel = body(:vel_w)
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(body(:Q_b_to_w))
+        linear .+= body(:total_mass) .* vel
+        angular .+= body(:total_mass) .* ((body(:com_w) .- ref) × vel) .+
+                    R_b_to_w * (body(:inertia_principal) .* body(:ω_b))
     end
     return (; linear, angular)
 end
@@ -184,22 +185,21 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
     for (label, build) in joint_cases
         @testset "$label: rigid motion produces no wrench" begin
             sam = SymbolicAWEModel(set, build())
-            sys = sam.state
             ref = [beam_length / 2, 0.0, 0.0]
             # Off-axis spin so every damping direction is exercised at once.
             omega = 0.7 .* normalize([1.0, 2.0, -3.0])
             vel = [0.3, -0.2, 0.5]
-            set_rigid_motion!(sys, omega, vel, ref)
+            set_rigid_motion!(sam, omega, vel, ref)
             place!(sam; reset_vel=false)
             test_init!(sam; prn=false)
-            before = pair_momenta(sys, ref)
-            spin_before = norm(Vector(sys.bodies[:nodeB].ω_b))
+            before = pair_momenta(sam, ref)
+            spin_before = norm(run_value(sam, :bodies, :nodeB, :ω_b))
             elapsed = 1.0
             for _ in 1:200
                 next_step!(sam; dt=elapsed / 200, vsm_interval=0)
             end
-            after = pair_momenta(sys, ref .+ vel .* elapsed)
-            spin_after = norm(Vector(sys.bodies[:nodeB].ω_b))
+            after = pair_momenta(sam, ref .+ vel .* elapsed)
+            spin_after = norm(run_value(sam, :bodies, :nodeB, :ω_b))
             @info "$label: rigid spin must not be damped." spin_before spin_after
             @test after.linear ≈ before.linear rtol=1e-4
             @test after.angular ≈ before.angular rtol=1e-4
@@ -215,10 +215,10 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         zeta = 0.05
         sam = SymbolicAWEModel(set,
             timoshenko_pair(; damping=2 * zeta / omega_n, type_a=STATIC))
-        node_b = sam.state.bodies[:nodeB]
+        node_b(quantity) = run_value(sam, :bodies, :nodeB, quantity)
         speed = 0.2
-        node_b.vel_w .= [speed, 0.0, 0.0]
-        node_b.ω_b .= 0.0
+        set_run_value!(sam, :bodies, :nodeB, :vel_w, [speed, 0.0, 0.0])
+        set_run_value!(sam, :bodies, :nodeB, :ω_b, zeros(3))
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
@@ -226,8 +226,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             next_step!(sam; dt=period / 2000, vsm_interval=0)
         end
         expected = speed * log_decrement(zeta)
-        @info "Axial: ζ = βω/2, δ = 2πζ/√(1−ζ²)." measured=node_b.vel_w[1] expected
-        @test node_b.vel_w[1] ≈ expected rtol=5e-3
+        @info "Axial: ζ = βω/2, δ = 2πζ/√(1−ζ²)." measured=node_b(:vel_w)[1] expected
+        @test node_b(:vel_w)[1] ≈ expected rtol=5e-3
     end
 
     @testset "Timoshenko: torsional logarithmic decrement" begin
@@ -235,10 +235,10 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         zeta = 0.05
         sam = SymbolicAWEModel(set,
             timoshenko_pair(; damping=2 * zeta / omega_n, type_a=STATIC))
-        node_b = sam.state.bodies[:nodeB]
+        node_b(quantity) = run_value(sam, :bodies, :nodeB, quantity)
         spin = 0.2
-        node_b.vel_w .= 0.0
-        node_b.ω_b .= [spin, 0.0, 0.0]
+        set_run_value!(sam, :bodies, :nodeB, :vel_w, zeros(3))
+        set_run_value!(sam, :bodies, :nodeB, :ω_b, [spin, 0.0, 0.0])
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
@@ -246,8 +246,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             next_step!(sam; dt=period / 2000, vsm_interval=0)
         end
         expected = spin * log_decrement(zeta)
-        @info "Torsion: ζ = βω/2 on GJ." measured=node_b.ω_b[1] expected
-        @test node_b.ω_b[1] ≈ expected rtol=5e-3
+        @info "Torsion: ζ = βω/2 on GJ." measured=node_b(:ω_b)[1] expected
+        @test node_b(:ω_b)[1] ≈ expected rtol=5e-3
     end
 
     @testset "ElasticTube: axial logarithmic decrement" begin
@@ -255,10 +255,10 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         zeta = 0.05
         sam = SymbolicAWEModel(set,
             elastic_pair(; damping=2 * zeta / omega_n, type_a=STATIC))
-        node_b = sam.state.bodies[:nodeB]
+        node_b(quantity) = run_value(sam, :bodies, :nodeB, quantity)
         speed = 0.2
-        node_b.vel_w .= [speed, 0.0, 0.0]
-        node_b.ω_b .= 0.0
+        set_run_value!(sam, :bodies, :nodeB, :vel_w, [speed, 0.0, 0.0])
+        set_run_value!(sam, :bodies, :nodeB, :ω_b, zeros(3))
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
@@ -266,8 +266,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             next_step!(sam; dt=period / 2000, vsm_interval=0)
         end
         expected = speed * log_decrement(zeta)
-        @info "ElasticTube axial: ζ = βω/2." measured=node_b.vel_w[1] expected
-        @test node_b.vel_w[1] ≈ expected rtol=1e-2
+        @info "ElasticTube axial: ζ = βω/2." measured=node_b(:vel_w)[1] expected
+        @test node_b(:vel_w)[1] ≈ expected rtol=1e-2
     end
 
     @testset "$label: analytic Jacobian matches forward mode" for (label, build) in

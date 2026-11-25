@@ -112,29 +112,36 @@ function build_plate_kite(data_root)
 end
 
 """
-    tip_twist!(sys, base, delta)
+    tip_twist!(sam, base, delta)
 
-Antisymmetric tip twist about the wing's nominal `base` angle: `+delta` on the
-left tip, `-delta` on the right. Passing `-delta` gives the mirrored wing.
+Antisymmetric tip twist of the run `sam` about the wing's nominal `base` angle:
+`+delta` on the left tip, `-delta` on the right. Passing `-delta` gives the mirrored
+wing.
 """
-function tip_twist!(sys, base, delta)
-    sys.spanwise_stations[:left_tip].twist = base + delta
-    sys.spanwise_stations[:right_tip].twist = base - delta
+function tip_twist!(sam, base, delta)
+    set_run_value!(sam, :spanwise_stations, :left_tip, :twist, base + delta)
+    set_run_value!(sam, :spanwise_stations, :right_tip, :twist, base - delta)
     return nothing
 end
 
 """
-    plate_force_moment(sam, wing, sys, base, delta)
+    plate_force_moment(sam, base, delta)
 
-Re-init with the given tip twist and read the wing's total body-frame aero force
-and moment.
+Re-init with the given tip twist and read the total body-frame aero force and moment
+of wing 1 of `sam`.
 """
-function plate_force_moment(sam, wing, sys, base, delta)
-    tip_twist!(sys, base, delta)
+function plate_force_moment(sam, base, delta)
+    tip_twist!(sam, base, delta)
     init!(sam; prn=false)
     next_step!(sam; dt=1e-5)
-    return Vector(wing.aero_force_b), Vector(wing.aero_moment_b)
+    return Vector(wing_force(sam)), Vector(wing_moment(sam))
 end
+
+"""The total body-frame aero force on wing 1 of `sam`."""
+wing_force(sam) = run_value(sam, :wings, 1, :aero_force_b)
+
+"""The total body-frame aero moment on wing 1 of `sam`."""
+wing_moment(sam) = run_value(sam, :wings, 1, :aero_moment_b)
 
 @testset "AeroPlate" begin
     root = mktempdir()
@@ -142,19 +149,18 @@ end
     base = deg2rad(set.alpha_ztip)
 
     sam = SymbolicAWEModel(set, sys; transforms)
-    wing = sam.state.wings[1]
     test_init!(sam)
 
     @testset "steps and stays bounded" begin
-        force0 = Vector(wing.aero_force_b)
+        force0 = Vector(wing_force(sam))
         @test all(isfinite, force0)
         @test norm(force0) > 1.0
         bound = 50.0 * norm(force0)
         for _ in 1:20
             next_step!(sam; dt=0.05)
-            @test all(isfinite, wing.aero_force_b)
-            @test all(isfinite, wing.aero_moment_b)
-            @test norm(wing.aero_force_b) < bound
+            @test all(isfinite, wing_force(sam))
+            @test all(isfinite, wing_moment(sam))
+            @test norm(wing_force(sam)) < bound
         end
     end
 
@@ -164,9 +170,9 @@ end
     # a swapped tip is invisible without it.
     @testset "yaw antisymmetry" begin
         delta = deg2rad(4.0)
-        force_pos, moment_pos = plate_force_moment(sam, wing, sam.state, base, delta)
-        _, moment_neg = plate_force_moment(sam, wing, sam.state, base, -delta)
-        _, moment_flat = plate_force_moment(sam, wing, sam.state, base, 0.0)
+        force_pos, moment_pos = plate_force_moment(sam, base, delta)
+        _, moment_neg = plate_force_moment(sam, base, -delta)
+        _, moment_flat = plate_force_moment(sam, base, 0.0)
 
         @test all(isfinite, moment_pos)
         # The twist must actually excite yaw, else the rest is vacuous.
