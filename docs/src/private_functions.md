@@ -357,7 +357,6 @@ SymbolicAWEModels.refit_live_polars!
 SymbolicAWEModels.refresh_live_pressure!
 SymbolicAWEModels.surface_pattern
 SymbolicAWEModels.panel_reynolds
-SymbolicAWEModels.live_polar_alpha
 SymbolicAWEModels.solve_with_live_polars!
 SymbolicAWEModels.contour_winding
 SymbolicAWEModels.accumulate_point_offset!

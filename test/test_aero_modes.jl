@@ -367,6 +367,8 @@ aero_poses = [
                 @test any(!iszero, gamma)
                 refresh_aero!(sam)
                 refreshed = copy(sam.sysstate.gamma_distribution)
+                @test SymbolicAWEModels.circulation_alpha(sam, wing) ≈
+                      sam.aero[wing].vsm_solver.sol.alpha_dist rtol=1e-6
                 copyto!(sam.sysstate.gamma_distribution, gamma)
                 fill!(sam.aero[wing].vsm_solver.sol.gamma_distribution, 1.0)
                 refresh_aero!(sam)

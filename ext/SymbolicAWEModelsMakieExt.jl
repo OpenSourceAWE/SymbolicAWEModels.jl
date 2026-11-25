@@ -4151,8 +4151,7 @@ Plot the angle of attack distribution along the wing span.
 function SymbolicAWEModels.plot_aoa(sam::SymbolicAWEModel;
                                     wing_idx::Int=1,
                                     figsize=(800, 400))
-    # Get alpha distribution (in radians)
-    alpha_dist = sam.aero[wing_idx].vsm_solver.sol.alpha_dist
+    alpha_dist = SymbolicAWEModels.circulation_alpha(sam, wing_idx)
 
     # Use panel indices for x-axis
     panel_indices = 1:length(alpha_dist)

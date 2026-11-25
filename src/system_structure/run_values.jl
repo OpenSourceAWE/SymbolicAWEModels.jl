@@ -223,8 +223,7 @@ const WING_QUANTITIES = (
     aero_y = Derived((sam, wing_idx) -> sam.aero[wing_idx].aero_y),
     aero_jac = Derived((sam, wing_idx) -> sam.aero[wing_idx].aero_jac),
     unsteady = Derived((sam, wing_idx) -> sam.aero[wing_idx].unsteady),
-    vsm_aoa = Derived((sam, wing_idx) ->
-        mean(sam.aero[wing_idx].vsm_solver.sol.alpha_dist)),
+    vsm_aoa = Derived((sam, wing_idx) -> mean(circulation_alpha(sam, wing_idx))),
     aero_force_b = Columns(:aero_force_KA_x, :aero_force_KA_y, :aero_force_KA_z),
     aero_moment_b = Columns(:aero_moment_KA_x, :aero_moment_KA_y, :aero_moment_KA_z),
     turn_acc = Columns(:turn_acc_x, :turn_acc_y, :turn_acc_z),
