@@ -301,13 +301,12 @@ per_axis(values::Vector{Float64}) = values
 per_axis(value::Float64) = SVector(value, value, value)
 per_axis(::Nothing) = zero(SVector{3, Float64})
 
-"""The [`DynamicsType`](@ref) the `type` column of `row` names, refusing one it leaves
-unset."""
+"""The [`DynamicsType`](@ref) the `type` column of `row` names, by KiteGeometry's
+`parse_dynamics_type`, refusing one it leaves unset."""
 function row_dynamics_type(row)
     isnothing(row.type) && error("$(row.name) needs its `type`")
-    index = findfirst(type -> string(type) == uppercase(row.type), instances(DynamicsType))
-    isnothing(index) && error("$(row.name): no dynamics type $(row.type)")
-    return instances(DynamicsType)[index]
+    name = KiteGeometry.parse_dynamics_type(row.type)
+    return only(type for type in instances(DynamicsType) if string(type) == name)
 end
 
 """The dynamics type of the twist of `station`, from its `type` column."""

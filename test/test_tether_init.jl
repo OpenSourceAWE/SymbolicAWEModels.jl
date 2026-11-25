@@ -682,8 +682,8 @@ winches:
         # tail hangs off the far end of the beam, reachable from the tether's
         # free end only through the rigid-sibling hop across the beam.
         @test sys.points[:tail].pos_ENU ≈ KVec3(1.5, 0.0, -1.0) .+ delta
-        @test SymbolicAWEModels.segment_initial_length(
-            sys.segments[:tail_seg], sys.points) ≈ 1.0
+        @test KiteGeometry.segment_length(sys.segments[:tail_seg],
+                                          KiteGeometry.Positions(sys.points)) ≈ 1.0
     end
 
     # ================================================================

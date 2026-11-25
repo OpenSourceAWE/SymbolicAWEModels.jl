@@ -55,7 +55,6 @@ SymbolicAWEModels.torque_winch
 ## Segments, tubes and a run's reads
 
 ```@docs
-SymbolicAWEModels.PointPositions
 SymbolicAWEModels.body_apparent_wind
 SymbolicAWEModels.copy_run_columns!
 SymbolicAWEModels.model_aero

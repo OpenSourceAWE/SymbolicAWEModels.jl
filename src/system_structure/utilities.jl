@@ -1,19 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# ==================== SHARED HELPERS ==================== #
-
-"""
-    segment_initial_length(segment, points)
-
-Compute segment length from endpoint `pos_ENU` positions.
-"""
-function segment_initial_length(segment, points)
-    point1 = points[segment.points[1]]
-    point2 = points[segment.points[2]]
-    return norm(point1.pos_ENU - point2.pos_ENU)
-end
-
 # ==================== VALIDATION ==================== #
 
 """

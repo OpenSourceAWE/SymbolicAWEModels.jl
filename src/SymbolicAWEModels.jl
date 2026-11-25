@@ -8,7 +8,6 @@ module SymbolicAWEModels
 # --- Julia Standard Library & General Utilities ---
 using Pkg
 using TOML
-using JSON
 using DocStringExtensions
 using LinearAlgebra
 using SparseArrays
@@ -41,6 +40,7 @@ using SteadyStateDiffEq
 using Reexport
 @reexport using KiteGeometry
 using KiteGeometry: Wing  # VortexStepMethod exports a `Wing` too
+using KiteGeometry: quaternion_to_rotation_matrix, rotation_matrix_to_quaternion
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod

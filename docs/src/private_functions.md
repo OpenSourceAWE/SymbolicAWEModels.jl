@@ -55,8 +55,6 @@ SymbolicAWEModels.seed_per_point_wind!
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_v_to_w
-SymbolicAWEModels.quaternion_to_rotation_matrix
-SymbolicAWEModels.rotation_matrix_to_quaternion
 SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
@@ -190,7 +188,6 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 ## SystemDefinition internals
 
 ```@docs
-SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.rigidity_fields
@@ -211,7 +208,6 @@ SymbolicAWEModels.initial_body_position
 SymbolicAWEModels.initial_chord_position
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
-SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.principal_frame
 SymbolicAWEModels.calc_inertia_y_rotation
 SymbolicAWEModels.point_mass_inertia
@@ -411,7 +407,6 @@ SymbolicAWEModels.ObjAdapter.unit_inertia_vector
 ## Heading and geometry
 
 ```@docs
-SymbolicAWEModels.get_ref_position_from_points
 SymbolicAWEModels.PointColumns
 SymbolicAWEModels.sym_calc_R_t_to_w
 ```

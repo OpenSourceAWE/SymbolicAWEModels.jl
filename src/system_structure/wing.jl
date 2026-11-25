@@ -144,33 +144,3 @@ function apply_aero_z_offset!(vsm_wing, aero_z_offset)
     end
     return nothing
 end
-
-# ==================== BODY FRAMES ==================== #
-
-"""The positions of `points`, each point's `field`, indexed as KiteGeometry reads them."""
-struct PointPositions{P}
-    points::P
-    field::Symbol
-end
-Base.getindex(positions::PointPositions, i) =
-    getproperty(positions.points[i], positions.field)
-
-"""
-    get_ref_position_from_points(points, refs; field=:pos_w)
-
-Weighted position of the reference points `refs`, pairs of point index and weight, from
-each point's `field` (`:pos_w`, `:vel_w` or `:pos_ENU`), by KiteGeometry's `ref_position`.
-"""
-get_ref_position_from_points(points::AbstractVector, refs; field::Symbol=:pos_w) =
-    KiteGeometry.ref_position(PointPositions(points, field), refs)
-
-"""
-    calc_particle_dynamics_wing_frame(points, frame::KiteGeometry.WingFrame; field=:pos_w)
-
-The `R_b_to_w` rotation matrix and origin position the reference points of `frame` give,
-from each point's `field`, by KiteGeometry's `wing_frame`.
-"""
-calc_particle_dynamics_wing_frame(points::AbstractVector, frame::KiteGeometry.WingFrame;
-                                  field::Symbol=:pos_w) =
-    KiteGeometry.wing_frame(PointPositions(points, field), frame)
-
