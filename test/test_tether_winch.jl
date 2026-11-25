@@ -291,7 +291,7 @@ environment:
             place!(sam)
             test_init!(sam; prn=false)
             set_winch!(:coulomb_friction, 0.0)
-            set_winch!(:inertia_total, 0.01  # Small I for fast settling)
+            set_winch!(:inertia_total, 0.01)  # Small I for fast settling
             set_winch!(:viscous_coefficient, viscous_test)
             set_winch!(:brake, false)
             set_seg!(:unit_stiffness, 0.0)

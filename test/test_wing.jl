@@ -281,8 +281,8 @@ end
                         set_run_value!(sam, :points, i, :fix_sphere, true)
                     end
                 end
-                for wing_idx in eachindex(sam.definition.wings)
-                    set_run_value!(sam, :wings, wing_idx, :fix_sphere, true)
+                if expected_dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
+                    set_run_value!(sam, :wings, 1, :fix_sphere, true)
                 end
 
                 # RIGID_DYNAMICS: fix_sphere constrains com_w
@@ -379,7 +379,7 @@ end
                 test_init!(sam; prn=false)
 
                 wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
-                init_pos = copy(wing(:pos_w))
+                init_pos = wing(:pos_w)
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=0)
@@ -396,7 +396,7 @@ end
                 )
                 test_init!(sam; prn=false)
 
-                init_pos .= wing(:pos_w)
+                init_pos = wing(:pos_w)
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=0)

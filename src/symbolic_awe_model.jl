@@ -281,11 +281,14 @@ end
     Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
 
 Set a field of `sam`, else the property `sym` of its `serialized_model`. A new
-`integrator` drops the access to the parameters of the previous one.
+`integrator` drops the access to the parameters of the previous one, and a new
+`serialized_model` or `prob` drops the integrator built from the previous one.
 """
 function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
+    sym in (:integrator, :serialized_model, :prob) &&
+        empty!(getfield(sam, :parameter_access))
+    sym in (:serialized_model, :prob) && setfield!(sam, :integrator, nothing)
     sym in SAM_FIELDS || return setproperty!(getfield(sam, :serialized_model), sym, val)
-    sym === :integrator && empty!(getfield(sam, :parameter_access))
     return setfield!(sam, sym, val)
 end
 

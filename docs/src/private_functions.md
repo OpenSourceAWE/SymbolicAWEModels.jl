@@ -311,7 +311,6 @@ SymbolicAWEModels.n_flap_deflections
 ```@docs
 SymbolicAWEModels.refresh_rigid_aero!
 SymbolicAWEModels.refresh_particle_aero!
-SymbolicAWEModels.count_aero_log_points
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!

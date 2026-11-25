@@ -22,7 +22,6 @@ being `AutoSpecialize`.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
                      prn = true)
-    sam.integrator = nothing
     time = @elapsed model = assemble(sam; verbose = prn)
     if prn
         println("\tAssembled $(length(model.system.kernels)) kernels over " *
@@ -93,9 +92,7 @@ function init_backend!(::KernelBackend, sam, solver;
     model_name = get_model_name(sam; sparse, analytic_jacobian)
     model_path = joinpath(KiteUtils.get_data_path(), model_name)
     prn && @info "Model bin name: $model_name"
-    previous = sam.prob
     loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
-    sam.prob === previous || (sam.integrator = nothing)
     remake_vsm && remake_wing_aero!(sam)
     init_wind!(sam)
     if loaded && !isnothing(sam.prob)

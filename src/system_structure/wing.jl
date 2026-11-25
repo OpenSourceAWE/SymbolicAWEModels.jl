@@ -1,23 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# ==================== VSM ENGINE ==================== #
-
-"""
-    count_aero_log_points(wings) -> Int
-
-Total extra `SysState` log slots contributed by the wings' aero modes
-([`n_aero_log_points`](@ref)): 4 per VSM panel for VSM modes, 4 per section
-quad for flat-plate wings, 0 by default.
-"""
-function count_aero_log_points(wings)
-    total = 0
-    for wing in wings
-        total += n_aero_log_points(wing.aero, wing)
-    end
-    return total
-end
-
 # ==================== CONSTRUCTORS ==================== #
 
 """
