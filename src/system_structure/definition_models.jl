@@ -296,7 +296,7 @@ KiteGeometry.model_references(::Type{WingModel}) = (
 """What frames and weighs the body of a wing whose row carries `model`, for KiteGeometry's
 `complete_wings!`: its dynamics type, reference points and mesh mass properties."""
 KiteGeometry.wing_spec(model::WingModel) = KiteGeometry.WingSpec(;
-    particle=model.dynamics_type == "PARTICLE_DYNAMICS", origin=model.origin_idx,
+    particle=wing_dynamics_type(model) == PARTICLE_DYNAMICS, origin=model.origin_idx,
     z_ref_points=model.z_ref_points, y_ref_points=model.y_ref_points, com=model.com,
     unit_inertia=unit_inertia_tensor(model.unit_inertia))
 

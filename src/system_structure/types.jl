@@ -259,9 +259,11 @@ function wing_aero_spec(wing, aero)
     return wing_dynamics_type(wing) == RIGID_DYNAMICS ? AeroLinearized() : AeroDirect()
 end
 
-"""The [`WingType`](@ref) wing row `wing` names, `RIGID_DYNAMICS` where it names none."""
-wing_dynamics_type(wing) =
-    parse_wing_type(something(wing.model.dynamics_type, "RIGID_DYNAMICS"))
+"""The [`WingType`](@ref) wing row `wing`, or its model, names, `RIGID_DYNAMICS` where it
+names none."""
+wing_dynamics_type(wing) = wing_dynamics_type(wing.model)
+wing_dynamics_type(model::WingModel) =
+    parse_wing_type(something(model.dynamics_type, "RIGID_DYNAMICS"))
 
 function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)
     sym in VSM_ENGINE_FIELDS && return getproperty(getfield(mode, :engine), sym)
