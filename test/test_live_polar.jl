@@ -43,17 +43,17 @@ using LinearAlgebra
     cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
     write_pressure_fixture(data_path)
 
-    set, sys = load_pressure_sys(data_path, AeroPressure(; live_polars=true))
-    wing = sys.bodies[1]
-    mode = wing.aero
-    panels = wing.vsm_aero.panels
+    set, sam = load_pressure_sys(data_path, AeroPressure(; live_polars=true))
+    sys = sam.definition
+    wing_idx = 1
+    mode = sam.aero[wing_idx]
+    panels = mode.vsm_aero.panels
 
     @testset "build" begin
         @test mode.live_polars
         @test mode.live isa LivePolarState
         state = mode.live
-        stations = SymbolicAWEModels.station_control_points(
-            sys.spanwise_stations, sys.points, wing)
+        stations = SymbolicAWEModels.station_control_points(sam, wing_idx)
         # Stations are read off the stations, not inferred from geometry.
         @test length(state.control_point) == length(stations)
         @test all(sort(a) == sort(b) for (a, b) in zip(state.control_point, stations))
@@ -83,14 +83,12 @@ using LinearAlgebra
         @test all(iszero, mode.panel_station)
     end
 
-    set_apparent_wind!(wing, SimFloat[15.0, 0.0, 3.5])
-    wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
-    wing.vsm_solver.density = 1.225
-    va_vals = zeros(SimFloat, 3, length(sys.points))
-    for p in sys.points
-        @views va_vals[:, p.idx] .= wing.va_b
-    end
-    refresh_particle_aero!(mode, wing, sys.points, va_vals)
+    set_apparent_wind!(sam, wing_idx, SimFloat[15.0, 0.0, 3.5])
+    set_run_value!(sam, :wings, wing_idx, :ω_b, SimFloat[0.0, 0.0, 0.0])
+    mode.vsm_solver.density = 1.225
+    va_b = run_value(sam, :wings, wing_idx, :va_b)
+    va_vals = repeat(Vector(va_b), 1, length(sys.points))
+    refresh_particle_aero!(mode, sam, wing_idx, va_vals)
 
     @testset "sampled at the settings the tables were generated with" begin
         airfoil = VortexStepMethod.VSMSettings(
@@ -106,8 +104,11 @@ using LinearAlgebra
         @test settings.model_size != defaults.model_size
         @test settings.n_crit != defaults.n_crit
         # Without settings to read, the defaults are what is left.
-        @test SymbolicAWEModels.live_polar_settings(wing, nothing).model_size ==
+        vsm_set = sam.vsm_set
+        sam.vsm_set = nothing
+        @test SymbolicAWEModels.live_polar_settings(sam, wing_idx).model_size ==
               defaults.model_size
+        sam.vsm_set = vsm_set
     end
 
     @testset "refresh samples every panel" begin
@@ -120,7 +121,7 @@ using LinearAlgebra
         @test norm(mode.traction) > 0.0
         # Every panel converged inside the range its own polar was sampled over.
         @test AirfoilAero.polar_drift(mode.live.source,
-            collect(wing.vsm_solver.lr.alpha_dist)) <= 1.0
+            collect(mode.vsm_solver.lr.alpha_dist)) <= 1.0
         # A sample is the polar: at the reference angle it is the middle sample.
         offsets = mode.live.source.settings.offsets
         middle = (length(offsets) + 1) ÷ 2
@@ -132,7 +133,7 @@ using LinearAlgebra
 
     @testset "chord frame coordinates" begin
         panel = panels[1]
-        weight = SymbolicAWEModels.corner_chord_weights(wing)[1]
+        weight = SymbolicAWEModels.corner_chord_weights(mode)[1]
         le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
         probe = le_mid .+ 0.4 * panel.chord .* Vector(panel.x_airf) .+
                 0.03 * panel.chord .* Vector(panel.z_airf)
@@ -165,10 +166,10 @@ using LinearAlgebra
 
     @testset "a chordwise deformation moves the polar" begin
         state = mode.live
-        alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
+        alpha = collect(SimFloat, mode.vsm_solver.lr.alpha_dist)
         # Sample about the angles the comparison reads, so the two answers differ
         # only in the shape and not in where the grid was centred.
-        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
+        SymbolicAWEModels.refit_live_polars!(mode, wing_idx, alpha)
         flat = [calculate_cl(panels[i], alpha[i]) for i in eachindex(panels)]
 
         # Bend the mean line up by 2% of chord at mid chord, the deformation a chord
@@ -178,14 +179,14 @@ using LinearAlgebra
             state.deflection[i] .= @. 0.08 * state.source.basis.x *
                                       (1 - state.source.basis.x)
         end
-        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
+        SymbolicAWEModels.refit_live_polars!(mode, wing_idx, alpha)
         cambered = [calculate_cl(panels[i], alpha[i]) for i in eachindex(panels)]
         @test all(cambered .> flat)
 
         # And the structure's own (undeformed) shape puts it back.
-        update_live_deflection!(mode, wing, sys.points)
+        update_live_deflection!(mode, sam, wing_idx)
         @test all(d -> maximum(abs, d) < 1e-9, state.deflection)
-        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
+        SymbolicAWEModels.refit_live_polars!(mode, wing_idx, alpha)
         @test [calculate_cl(panels[i], alpha[i]) for i in eachindex(panels)] ≈ flat
     end
 
@@ -201,7 +202,7 @@ using LinearAlgebra
     @testset "an undeformed polar is the network's own answer" begin
         state = mode.live
         settings = state.source.settings
-        solver = wing.vsm_solver
+        solver = mode.vsm_solver
         alpha = collect(SimFloat, solver.lr.alpha_dist)
         offsets = settings.offsets
         for (i, panel) in enumerate(panels)
@@ -236,14 +237,14 @@ using LinearAlgebra
                   eachindex(panels))
 
         flat = copy(mode.traction)
-        alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
+        alpha = collect(SimFloat, mode.vsm_solver.lr.alpha_dist)
         for i in eachindex(panels)
             state.deflection[i] .= @. 0.08 * state.source.basis.x *
                                       (1 - state.source.basis.x)
         end
-        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
-        SymbolicAWEModels.refresh_live_pressure!(mode, wing)
-        SymbolicAWEModels.freeze_traction_pattern!(mode, wing)
+        SymbolicAWEModels.refit_live_polars!(mode, wing_idx, alpha)
+        SymbolicAWEModels.refresh_live_pressure!(mode)
+        SymbolicAWEModels.freeze_traction_pattern!(mode, sam, wing_idx)
         @test all(isfinite, mode.traction)
         @test !(mode.traction ≈ flat)
         # The contour moved with the deformation, so the normals and the segment
@@ -255,10 +256,10 @@ using LinearAlgebra
         scale = norm(mode.traction) / norm(flat)
         @test !(mode.traction ≈ scale .* flat)
 
-        update_live_deflection!(mode, wing, sys.points)
-        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
-        SymbolicAWEModels.refresh_live_pressure!(mode, wing)
-        SymbolicAWEModels.freeze_traction_pattern!(mode, wing)
+        update_live_deflection!(mode, sam, wing_idx)
+        SymbolicAWEModels.refit_live_polars!(mode, wing_idx, alpha)
+        SymbolicAWEModels.refresh_live_pressure!(mode)
+        SymbolicAWEModels.freeze_traction_pattern!(mode, sam, wing_idx)
         @test mode.traction ≈ flat
         @test state.contour_y[1] ≈ state.contour_y_ref[1]
     end
@@ -268,9 +269,8 @@ using LinearAlgebra
     # modes must agree on them exactly; if they ever drift, the live mode has started
     # to be a second scatter rather than a second polar source.
     @testset "against the tabulated mode" begin
-        set_t, sys_t = load_pressure_sys(data_path, AeroPressure())
-        wing_t = sys_t.bodies[1]
-        mode_t = wing_t.aero
+        set_t, sam_t = load_pressure_sys(data_path, AeroPressure())
+        mode_t = sam_t.aero[wing_idx]
         @test mode.station_point == mode_t.station_point
         @test mode.node_residual_share == mode_t.node_residual_share
         @test mode.node_couple_shape == mode_t.node_couple_shape
@@ -280,17 +280,16 @@ using LinearAlgebra
         @test SymbolicAWEModels.aero_hash_id(mode) !=
               SymbolicAWEModels.aero_hash_id(mode_t)
 
-        set_apparent_wind!(wing_t, wing.va_b)
-        wing_t.ω_b .= wing.ω_b
-        wing_t.vsm_solver.density = wing.vsm_solver.density
-        va_t = zeros(SimFloat, 3, length(sys_t.points))
-        for p in sys_t.points
-            @views va_t[:, p.idx] .= wing_t.va_b
-        end
-        refresh_particle_aero!(mode_t, wing_t, sys_t.points, va_t)
+        set_apparent_wind!(sam_t, wing_idx, run_value(sam, :wings, wing_idx, :va_b))
+        set_run_value!(sam_t, :wings, wing_idx, :ω_b,
+                       run_value(sam, :wings, wing_idx, :ω_b))
+        mode_t.vsm_solver.density = mode.vsm_solver.density
+        va_b_t = run_value(sam_t, :wings, wing_idx, :va_b)
+        va_t = repeat(Vector(va_b_t), 1, length(sam_t.definition.points))
+        refresh_particle_aero!(mode_t, sam_t, wing_idx, va_t)
 
-        force = sum(eachcol(wing.vsm_solver.sol.f_body_3D))
-        force_t = sum(eachcol(wing_t.vsm_solver.sol.f_body_3D))
+        force = sum(eachcol(mode.vsm_solver.sol.f_body_3D))
+        force_t = sum(eachcol(mode_t.vsm_solver.sol.f_body_3D))
         # Loose on magnitude on purpose: this fixture's table is not NeuralFoil's,
         # so the two are different data for the same section and only the direction
         # and the order of magnitude are a shared claim.
@@ -300,20 +299,19 @@ using LinearAlgebra
 
     @testset "the replay path rebuilds the live shape from the logged corners" begin
         state = mode.live
-        update_live_deflection!(mode, wing, sys.points)
+        update_live_deflection!(mode, sam, wing_idx)
         expected = [copy(deflection) for deflection in state.deflection]
-        logged = SysState(SymbolicAWEModels.position_slots(sys).total;
-                          precision=Float64)
-        SymbolicAWEModels.write_aero_log_points!(mode, wing, sys, logged,
+        logged = SysState(sam.topology.slots.total; precision=Float64)
+        SymbolicAWEModels.write_aero_log_points!(mode, sam, wing_idx, logged,
                                                  length(sys.points), 1.0)
         corners = [copy(panel.corner_points) for panel in panels]
         for panel in panels
             panel.corner_points .= 0.0
         end
-        SymbolicAWEModels.read_aero_log_points!(mode, wing, sys, logged,
+        SymbolicAWEModels.read_aero_log_points!(mode, sam, wing_idx, logged,
                                                 length(sys.points))
         @test all(panels[i].corner_points ≈ corners[i] for i in eachindex(panels))
-        SymbolicAWEModels.restore_live_shape!(mode, wing, sys.points)
+        SymbolicAWEModels.restore_live_shape!(mode, sam, wing_idx)
         @test all(maximum(abs, state.deflection[i] .- expected[i]) < 1e-9
                   for i in eachindex(panels))
     end
