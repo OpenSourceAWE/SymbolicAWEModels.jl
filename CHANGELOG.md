@@ -7,6 +7,10 @@
 - `run_value(sam, collection, id, name)` reads a value of a run, such as `run_value(sam, :points, :kite, :pos_w)`, and `set_run_value!` writes one: a `SysState` column, or a parameter of the run's integrator.
 - SymbolicAWEModels registers its models of each KiteGeometry block, so an authoring YAML and a structure document carry the columns only it reads; a tube's `model` column picks `timoshenko` (the default) or `elastic`.
 
+### Fixed
+
+- A wing's `dynamics_type` is read without regard to case everywhere: `particle_dynamics` in lower case made a particle wing for the run but a rigid one when its frame and mass were completed.
+
 ### Changed
 
 - BREAKING: A structure is KiteGeometry's `SystemDefinition`, and SymbolicAWEModels' own structure types are gone: `SystemStructure`, `NamedCollection`, `NameRef`, `WeightedRefPoints`, `AbstractWing`, `RigidWing`, `ParticleWing`, `VSMWing`, `PlateWing`, `SegmentType` (`POWER_LINE`, `STEERING_LINE`, `BRIDLE`), `TetherModel`, `AbstractTubeModel`, `TimoshenkoTube` and `ElasticTube`. `Point`, `Segment`, `Pulley`, `Tether`, `Winch`, `Body`, `Tube` and `Wing` are KiteGeometry's rows and `Station` is its `SpanwiseStation`, each with SymbolicAWEModels' model of its columns: `PointModel`, `SegmentSpring`, `StationModel`, `PulleyModel`, `WinchModel`, `WingModel`, `BodyModel`, `TimoshenkoTubeModel` or `ElasticTubeModel`.
