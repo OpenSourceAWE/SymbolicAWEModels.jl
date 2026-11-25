@@ -176,10 +176,10 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
 
     # Add a tube model here and it inherits the rigid-motion invariants.
     joint_cases = [
-        ("TimoshenkoTube, undamped", () -> timoshenko_pair()),
-        ("TimoshenkoTube, Rayleigh", () -> timoshenko_pair(; damping=0.02)),
-        ("ElasticTube, undamped", () -> elastic_pair()),
-        ("ElasticTube, Rayleigh", () -> elastic_pair(; damping=0.02)),
+        ("Timoshenko tube, undamped", () -> timoshenko_pair()),
+        ("Timoshenko tube, Rayleigh", () -> timoshenko_pair(; damping=0.02)),
+        ("Elastic tube, undamped", () -> elastic_pair()),
+        ("Elastic tube, Rayleigh", () -> elastic_pair(; damping=0.02)),
     ]
 
     for (label, build) in joint_cases
@@ -250,7 +250,7 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         @test node_b(:ω_b)[1] ≈ expected rtol=5e-3
     end
 
-    @testset "ElasticTube: axial logarithmic decrement" begin
+    @testset "Elastic tube: axial logarithmic decrement" begin
         omega_n = sqrt(axial_stiffness / body_mass)
         zeta = 0.05
         sam = SymbolicAWEModel(set,
@@ -266,7 +266,7 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             next_step!(sam; dt=period / 2000, vsm_interval=0)
         end
         expected = speed * log_decrement(zeta)
-        @info "ElasticTube axial: ζ = βω/2." measured=node_b(:vel_w)[1] expected
+        @info "Elastic tube axial: ζ = βω/2." measured=node_b(:vel_w)[1] expected
         @test node_b(:vel_w)[1] ≈ expected rtol=1e-2
     end
 

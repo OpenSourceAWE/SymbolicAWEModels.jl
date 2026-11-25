@@ -4,7 +4,7 @@
 # test_flap_beam.jl — the two structure-driven aero-coupling features:
 #   A. KINEMATIC flap station: a live deflection δ = the signed angle between
 #      two bodies about a hinge axis (fed to the (α, δ) polars by AeroPressure).
-#   B. beam-anchored point: a BODY_STATIC point rides a TimoshenkoTube's deformed
+#   B. beam-anchored point: a BODY_STATIC point rides a Timoshenko tube's deformed
 #      corotational-Hermite centerline instead of one rigid body.
 #
 # Covered here (no pressure-aero fixture needed):

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_elastic_tube.jl - Lumped 6-DOF ElasticTube between two RigidBodies.
+# test_elastic_tube.jl - Lumped 6-DOF elastic tube between two rigid bodies.
 #
 # Gravity is disabled (g_earth = 0) to isolate the tube dynamics. One model
 # (two bodies + one tube) is built once; each test varies stiffness and the
@@ -73,7 +73,7 @@ function period_from_crossings(times, signal)
     return 2 * mean(half_periods)
 end
 
-@testset "ElasticTube" begin
+@testset "Elastic tube" begin
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(pkg_root, "data", "2plate_kite")
     tmpdir = mktempdir()

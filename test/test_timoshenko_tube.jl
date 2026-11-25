@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_timoshenko_tube.jl - Validate the corotational TimoshenkoTube (the
+# test_timoshenko_tube.jl - Validate the corotational Timoshenko tube (the
 # element of a 2-node Timoshenko beam) against closed-form beam theory. One tube
 # connects node A (clamped, STATIC) to node B (free, DYNAMIC); a constant external
 # load is applied and the settled equilibrium is compared to the analytic result.

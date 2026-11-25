@@ -7,7 +7,7 @@
 # tube in closed form (parametrised by the slack-arc angle θ₀), from the linear
 # regime through wrinkling onset to collapse. We sample that curve as synthetic
 # "measurements", fit a smooth per-joint bending law to it, and build a
-# Body + ElasticTube chain. It is validated as a cantilever under a ramped
+# Body and elastic-tube chain. It is validated as a cantilever under a ramped
 # downward tip force, reproducing the P-vs-tip-deflection curve up to collapse.
 #
 # Isotropic by choice: Comer-Levy assumes one modulus E. A woven (orthotropic)
