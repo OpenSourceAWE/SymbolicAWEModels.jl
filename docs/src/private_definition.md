@@ -55,7 +55,6 @@ SymbolicAWEModels.torque_winch
 ## Segments, tubes and a run's reads
 
 ```@docs
-SymbolicAWEModels.BuiltSegment
 SymbolicAWEModels.PointPositions
 SymbolicAWEModels.body_apparent_wind
 SymbolicAWEModels.copy_run_columns!
@@ -69,6 +68,8 @@ SymbolicAWEModels.point_wings
 SymbolicAWEModels.segment_tethers
 SymbolicAWEModels.segment_pulleys
 SymbolicAWEModels.segment_rest_length
+SymbolicAWEModels.segment_diameter
+SymbolicAWEModels.segment_unit_damping
 SymbolicAWEModels.station_aero_moment
 SymbolicAWEModels.hold_station_moments!
 SymbolicAWEModels.point_anchor_b
@@ -79,9 +80,6 @@ SymbolicAWEModels.point_beam_anchor
 SymbolicAWEModels.beam_anchor
 SymbolicAWEModels.start_lengths!
 SymbolicAWEModels.point_total_mass
-SymbolicAWEModels.resolve_segment
-SymbolicAWEModels.resolved_unit_damping
-SymbolicAWEModels.segment_spring
 SymbolicAWEModels.station_tether_load
 SymbolicAWEModels.winch_force_vector
 SymbolicAWEModels.wing_rates
@@ -120,7 +118,6 @@ SymbolicAWEModels.body_position_slot
 SymbolicAWEModels.body_rotation
 SymbolicAWEModels.body_slot0
 SymbolicAWEModels.build_parameter_access
-SymbolicAWEModels.built_segment
 SymbolicAWEModels.canonical_path
 SymbolicAWEModels.clear_point_aero_forces!
 SymbolicAWEModels.default_value

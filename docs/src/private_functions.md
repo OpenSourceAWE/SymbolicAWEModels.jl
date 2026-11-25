@@ -293,6 +293,7 @@ SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
 SymbolicAWEModels.circulation
+SymbolicAWEModels.circulation_alpha
 SymbolicAWEModels.n_vsm_panels
 SymbolicAWEModels.circulation_start
 SymbolicAWEModels.solve_circulation!
