@@ -106,14 +106,14 @@ transforms = [Transform(; name=:tf, elevation=deg2rad(-70), azimuth=0.0, heading
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam)
-plot(sam.sys_struct)
+plot(sam)
 
 # Simulate with live visualization
 dt = 0.05
 for _ in 1:500
     t_start = time()
     next_step!(sam; dt)
-    plot!(sam.sys_struct)
+    plot!(sam)
     sleep(max(0, dt - (time() - t_start)))
 end
 ```
@@ -174,14 +174,14 @@ sys.winches[:main_winch].brake = true
 
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false, lin_vsm=false)
-plot(sam.sys_struct)
+plot(sam)
 
 # Simulate with live visualization
 dt = 0.01
 for step in 1:1000
     t_start = time()
     next_step!(sam; dt, vsm_interval=1)
-    plot!(sam.sys_struct)
+    plot!(sam)
     sleep(max(0, dt - (time() - t_start)))
 end
 ```
