@@ -514,9 +514,10 @@ has_custom_component(sam) =
 """
     place!(sam::SymbolicAWEModel; reset_vel=true, kwargs...)
 
-Place the model's structure by its transforms with KiteGeometry's
+Place the model's definition by its transforms with KiteGeometry's
 `place!(sam.definition, sam.transforms; kwargs...)` and start its run there
-([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run holds.
+([`start_run!`](@ref)). This edits the definition, so every model built on it starts
+from the new pose. `reset_vel=false` keeps the velocities the run holds.
 """
 function KiteGeometry.place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
     place!(sam.definition, sam.transforms; kwargs...)
