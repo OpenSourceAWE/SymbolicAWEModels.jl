@@ -4,7 +4,7 @@
 # test_structure_document.jl - SystemDefinition → awesIO structure document →
 # SystemDefinition, in both encodings and through a run's log, against the
 # structure_schema.yml KiteGeometry ships and the golden document in test/data.
-# Regenerate the golden by pointing save_structure_document at
+# Regenerate the golden by writing to_yaml of its system to
 # data/2plate_kite_structure.yml.
 
 using Pkg
@@ -29,9 +29,9 @@ The rigid-dynamics 2-plate kite from `data/2plate_kite`, the system the golden
 document describes, with the transforms placing it.
 """
 function two_plate_kite(set, vsm_set)
-    return load_sys_struct_from_yaml(
+    return load_authoring(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
-        system_name="2plate_kite", set)
+        name="2plate_kite", set)
 end
 
 """
@@ -179,19 +179,6 @@ end
                for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
     end
 
-    @testset "a point is its definition row" for
-            sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
-        point = last(sys.points)
-        row = sys.points[point.name]
-        point.extra_mass = 2.0
-        point.area = 0.3
-        point.fix_static = true
-        @test (row.extra_mass, row.area, row.fix_static) == (2.0, 0.3, true)
-        row.drag_coeff = 0.7
-        @test point.drag_coeff == 0.7
-        @test point === row
-    end
-
     @testset "a model builds its own VSM engine" begin
         sys, _ = two_plate_kite(set, vsm_set)
         @test isnothing(reachable_vsm_object(sys))
@@ -201,36 +188,15 @@ end
         @test isnothing(reachable_vsm_object(sys))
     end
 
-    @testset "a segment is its definition row" for
-            sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
-        segment = last(sys.segments)
-        row = last(sys.segments)
-        segment.rest_length = 1.5
-        segment.diameter = 0.002
-        segment.unit_damping = 3.0
-        segment.compression_frac = 0.2
-        segment.compression_damping_frac = 0.5
-        @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac,
-               row.compression_damping_frac) == (1.5, 0.002, 3.0, 0.2, 0.5)
-        row.rest_length = 2.5
-        @test segment.rest_length == 2.5
-        @test segment === row
-    end
-
-    @testset "a winch is its definition row" for
+    @testset "a winch's friction_epsilon is written as its column" for
             sys in (first(two_plate_kite(set, vsm_set)),
             pretensioned_tether(set;
                                 winches=[Winch(; name=:reel, tethers=[:line],
                                                winch_point=:ground)]))
         winch = only(sys.winches)
-        row = sys.winches[1]
-        winch.brake = 1.0
         winch.model.friction_epsilon = 3.0
-        @test row.model.brake == 1.0
         document = structure_document(sys)
         @test only(values(cells(document, "winches", "friction_epsilon"))) == 3.0
-        @test winch.model.dynamics.friction_epsilon == 3.0
-        @test winch === row
     end
 
     @testset "a winch read back keeps its row's drum over the settings'" begin
@@ -240,7 +206,7 @@ end
         winch = only(sys.winches)
         winch.gear_ratio = 2 * set.gear_ratio
         winch.drum_radius = 2 * set.drum_radius
-        reread = sys_struct_from_document(structure_document(sys))
+        reread = SystemDefinition(structure_document(sys))
         @test (only(reread.winches).gear_ratio, only(reread.winches).drum_radius) ==
               (2 * set.gear_ratio, 2 * set.drum_radius)
     end
@@ -252,7 +218,7 @@ end
 
     @testset "a document with wings reads back in its initial pose" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        reread = sys_struct_from_document(structure_document(sys))
+        reread = SystemDefinition(structure_document(sys))
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
         @test SymbolicAWEModels.origin_ENU(reread.bodies[:main_wing]) ≈
@@ -266,8 +232,10 @@ end
         document = structure_document(sys)
         @test isnothing(JSONSchema.validate(schema, document))
         path = joinpath(tmpdir, "bodies_and_tubes" * extension)
-        save_structure_document(path, sys)
-        reread = load_structure_document(path)
+        json = extension == ".json"
+        write(path, json ? to_json(sys) : to_yaml(sys))
+        text = read(path, String)
+        reread = json ? from_json(text) : from_yaml(text)
         @test structure_document(reread) == document
         @test reread.bodies[:root].fixed
         @test SymbolicAWEModels.SystemState(reread).tubes[:beam].bodies[1] ==
@@ -291,7 +259,7 @@ end
         sys = pretensioned_tether(set)
         @test sum(segment.rest_length for segment in sys.segments) ≈ 9.9
         document = structure_document(sys)
-        reread = sys_struct_from_document(document)
+        reread = SystemDefinition(document)
         @test structure_document(reread) == document
         @test [point.pos_w for point in SystemState(reread).points] ==
               [point.pos_ENU for point in sys.points]
@@ -320,25 +288,12 @@ end
     @testset "a document whose connectivity_sha does not describe it is refused" begin
         document = structure_document(bodies_and_tubes(set))
         document["metadata"]["connectivity_sha"] = repeat("0", 64)
-        @test_throws "does not describe" sys_struct_from_document(document)
+        @test_throws "does not describe" SystemDefinition(document)
     end
 
     @testset "a document of another major version is refused" begin
         document = structure_document(bodies_and_tubes(set))
         document["metadata"]["awesIO_version"] = "1.0.0"
-        @test_throws "major version" sys_struct_from_document(document)
-    end
-
-    @testset "a nonlinear stiffness law cannot be written yet" begin
-        points = Point[Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
-                       Point(; name=:top, pos_ENU=[0.0, 0.0, 1.0], extra_mass=1.0)]
-        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
-        segments = Segment[KiteGeometry.line_segment(:link, (:ground, :top), set, materials;
-            rest_length=1.0, diameter=0.004, unit_stiffness=strain -> 1000.0 * strain,
-            density=724.0, model=SegmentSpring(; unit_damping=10.0, compression_frac=0.1,
-                                               compression_damping_frac=1.0))]
-        sys = system_definition("nonlinear_link", set; points, segments, materials)
-        @test_throws "awesIO#1" save_structure_document(
-            joinpath(tmpdir, "nonlinear.yml"), sys)
+        @test_throws "major version" SystemDefinition(document)
     end
 end

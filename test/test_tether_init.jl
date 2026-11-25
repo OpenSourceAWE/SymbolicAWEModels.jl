@@ -264,8 +264,8 @@ environment:
     @testset "Route 2 YAML init_stretched_length: scale to 2x" begin
         yaml_path = joinpath(tmpdir, "r2_yaml.yaml")
         write(yaml_path, INIT_LEN_YAML_ROUTE2)
-        sys, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_r2_yaml", set=set)
+        sys, _ = load_authoring(
+            yaml_path; name="init_stretched_length_r2_yaml", set=set)
 
         # init_stretched_length=200 already set from YAML; no programmatic change needed
         place!(sys)
@@ -285,8 +285,8 @@ environment:
     @testset "Route 1 YAML init_stretched_length: scale to 2x" begin
         yaml_path = joinpath(tmpdir, "r1_yaml.yaml")
         write(yaml_path, INIT_LEN_YAML_ROUTE1)
-        sys, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
+        sys, _ = load_authoring(
+            yaml_path; name="init_stretched_length_r1_yaml", set=set)
 
         place!(sys)
 
@@ -303,8 +303,8 @@ environment:
     @testset "Route 2 downstream point translation" begin
         yaml_path = joinpath(tmpdir, "r2_downstream.yaml")
         write(yaml_path, INIT_LEN_DOWNSTREAM_ROUTE2)
-        sys, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_r2_downstream", set=set)
+        sys, _ = load_authoring(
+            yaml_path; name="init_stretched_length_r2_downstream", set=set)
 
         place!(sys)
 
@@ -318,8 +318,8 @@ environment:
     @testset "Error on loop to start" begin
         yaml_path = joinpath(tmpdir, "r2_loop.yaml")
         write(yaml_path, INIT_LEN_LOOP_ROUTE2)
-        @test_throws ErrorException load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_r2_loop", set=set)
+        @test_throws ErrorException load_authoring(
+            yaml_path; name="init_stretched_length_r2_loop", set=set)
     end
 
     # ================================================================
@@ -327,8 +327,8 @@ environment:
     # ================================================================
     @testset "Idempotency" begin
         yaml_path = joinpath(tmpdir, "r2_yaml.yaml")
-        sys, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_r2_idem", set=set)
+        sys, _ = load_authoring(
+            yaml_path; name="init_stretched_length_r2_idem", set=set)
 
         place!(sys)
         mid_pos = copy(sys.points[:main_tether_point_1].pos_ENU)
@@ -374,8 +374,8 @@ winches:
 """
         yaml_path = joinpath(tmpdir, "multi.yaml")
         write(yaml_path, multi_yaml)
-        sys, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_multi", set=set)
+        sys, _ = load_authoring(
+            yaml_path; name="init_stretched_length_multi", set=set)
 
         sys.tethers[:tether_static].init_stretched_length = 200.0
         place!(sys)
@@ -442,8 +442,8 @@ winches:
 """
         yaml_path = joinpath(tmpdir, "stacked.yaml")
         write(yaml_path, stacked_yaml)
-        @test_throws ErrorException load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_nonroot", set=set)
+        @test_throws ErrorException load_authoring(
+            yaml_path; name="init_stretched_length_nonroot", set=set)
     end
 
     # ================================================================
@@ -452,8 +452,8 @@ winches:
     @testset "init force and stretch_frac" begin
         yaml_path = joinpath(tmpdir, "r2_force.yaml")
         write(yaml_path, INIT_LEN_YAML_ROUTE2)
-        sys, _ = load_sys_struct_from_yaml(yaml_path;
-            system_name="init_stretched_length_r2_force", set=set)
+        sys, _ = load_authoring(yaml_path;
+            name="init_stretched_length_r2_force", set=set)
         place!(sys)
 
         state = SystemState(sys)
@@ -595,9 +595,8 @@ winches:
 """
         yaml_path = joinpath(tmpdir, "wing.yaml")
         write(yaml_path, wing_yaml)
-        sys, _ = load_sys_struct_from_yaml(yaml_path;
-            system_name="init_stretched_length_wing", set=set,
-            aero_mode=AeroNone())
+        sys, _ = load_authoring(yaml_path;
+            name="init_stretched_length_wing", set=set)
 
         wing = sys.bodies[:main_wing]
         # Free end le_center at [-0.5, 0, 2.5]; standoff = 2× its distance to
@@ -698,8 +697,8 @@ winches:
 
         yaml_path = joinpath(tmpdir, "tube_rider_beam.yaml")
         write(yaml_path, TUBE_RIDER_BEAM_YAML)
-        from_yaml, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="tube_rider_beam_yaml", set=set)
+        from_yaml, _ = load_authoring(
+            yaml_path; name="tube_rider_beam_yaml", set=set)
         from_julia = tube_rider_beam("tube_rider_beam_julia")
         @test same_pose(from_yaml, from_julia)
 
@@ -720,8 +719,8 @@ winches:
     # ================================================================
     @testset "set_unstretched_length! sets len without re-placing" begin
         yaml_path = joinpath(tmpdir, "r1_yaml.yaml")
-        sys, _ = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
+        sys, _ = load_authoring(
+            yaml_path; name="init_stretched_length_r1_yaml", set=set)
         place!(sys)
 
         state = SystemState(sys)

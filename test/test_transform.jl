@@ -49,22 +49,21 @@ using LinearAlgebra
     particle_dynamics_yaml_path = joinpath(data_path, "particle_structural_geometry.yaml")
 
     # Create and initialize SAMs once for each wing type
-    rigid_dynamics_sys, rigid_dynamics_transforms = load_sys_struct_from_yaml(
-        rigid_dynamics_yaml_path; system_name="transform_test_RIGID_DYNAMICS", set=set,
-        aero_mode=AeroNone()
+    rigid_dynamics_sys, rigid_dynamics_transforms = load_authoring(
+        rigid_dynamics_yaml_path; name="transform_test_RIGID_DYNAMICS", set=set
     )
     rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys;
-                                          transforms=rigid_dynamics_transforms, vsm_set)
+        transforms=rigid_dynamics_transforms, vsm_set,
+        aero=Dict(wing.name => AeroNone() for wing in rigid_dynamics_sys.wings))
     test_init!(rigid_dynamics_sam)
 
-    particle_dynamics_sys, particle_dynamics_transforms = load_sys_struct_from_yaml(
+    particle_dynamics_sys, particle_dynamics_transforms = load_authoring(
         particle_dynamics_yaml_path;
-        system_name="transform_test_PARTICLE_DYNAMICS", set=set,
-        aero_mode=AeroNone()
+        name="transform_test_PARTICLE_DYNAMICS", set=set
     )
     particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys;
-                                             transforms=particle_dynamics_transforms,
-                                             vsm_set)
+        transforms=particle_dynamics_transforms, vsm_set,
+        aero=Dict(wing.name => AeroNone() for wing in particle_dynamics_sys.wings))
     test_init!(particle_dynamics_sam)
 
     # Helper to reset transform to default YAML values

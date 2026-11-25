@@ -35,9 +35,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
 @testset "Multi-section station partition" begin
-    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
-        struc_yaml; system_name="multi_section",
-        set, dynamics_type=RIGID_DYNAMICS)
+    sys, _ = load_authoring(
+        struc_yaml; name="multi_section", set)
     state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
     wing, stations = state.wings[1], state.spanwise_stations
     vsm_w = wing.vsm_wing
@@ -129,9 +128,8 @@ function riding_mass(sys, wing)
 end
 
 @testset "Rigid wing total_mass is its extra_mass plus its riders" begin
-    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
-        struc_yaml; system_name="rigid_total_mass",
-        set, dynamics_type=RIGID_DYNAMICS)
+    sys, _ = load_authoring(
+        struc_yaml; name="rigid_total_mass", set)
     wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
 
     # The six wing nodes and the kcu carry 1.6 kg of extra_mass; it stays on them
@@ -145,9 +143,8 @@ end
         "      aero_z_offset: 0.0" => "      aero_z_offset: 0.0\n      extra_mass: 2.0")
     both_yaml = joinpath(data_path, "rigid_both_masses.yaml")
     write(both_yaml, wing_yaml)
-    load_both() = SymbolicAWEModels.load_sys_struct_from_yaml(
-        both_yaml; system_name="rigid_total_mass", set,
-        dynamics_type=RIGID_DYNAMICS)
+    load_both() = load_authoring(
+        both_yaml; name="rigid_total_mass", set)
     both, _ = @test_logs min_level=Base.CoreLogging.Warn load_both()
     both_wing = SymbolicAWEModels.SystemState(both; set, vsm_set).wings[1]
     @test both_wing.extra_mass == 2.0
@@ -155,9 +152,8 @@ end
 end
 
 @testset "n_stations > n_unrefined errors" begin
-    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
-        struc_yaml; system_name="too_many_stations",
-        set, dynamics_type=RIGID_DYNAMICS)
+    sys, _ = load_authoring(
+        struc_yaml; name="too_many_stations", set)
     state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
     wing, stations = state.wings[1], state.spanwise_stations
     vsm_w = wing.vsm_wing

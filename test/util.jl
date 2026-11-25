@@ -229,9 +229,9 @@ function load_2plate_particle_sys(system_name)
     for wing in vsm_set.wings
         wing.geometry_file = SymbolicAWEModels.optional_project_file("aero_geometry")
     end
-    sys, _ = load_sys_struct_from_yaml(
+    sys, _ = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name, set)
+        name=system_name, set)
     set_data_path(data_path_before)
     return sys, set, vsm_set
 end

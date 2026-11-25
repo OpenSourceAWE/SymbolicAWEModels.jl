@@ -166,8 +166,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 
 # Build system structure from YAML
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set)
+sys, transforms = load_authoring(struc_yaml;
+    name="2plate_kite", set)
 sys.segments[:kcu_steering_right].rest_length += 0.1
 sys.segments[:kcu_steering_left].rest_length -= 0.1
 sys.winches[:main_winch].brake = true

@@ -38,10 +38,11 @@ using LinearAlgebra
 """
     build_curvature_case(case, root, flow_curvature)
 
-Fresh data directory, `Settings`, `SystemDefinition` and its placing transforms for
-one mode of the particle-dynamics 2plate kite, with the solver's `flow_curvature`
-flag set as given. Each build gets its own data copy and `system_name`: the flag
-changes the emitted equations, so the two must not share a compiled model.
+Fresh data directory, `Settings`, `SystemDefinition`, its placing transforms, VSM
+settings and its wings' aero modes for one mode of the particle-dynamics 2plate
+kite, with the solver's `flow_curvature` flag set as given. Each build gets its own
+data copy and `system_name`: the flag changes the emitted equations, so the two must
+not share a compiled model.
 """
 function build_curvature_case(case, root, flow_curvature)
     system_name = case.system_name * (flow_curvature ? "_on" : "_off")
@@ -61,10 +62,11 @@ function build_curvature_case(case, root, flow_curvature)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name, set, aero_mode=case.make())
-    return set, sys, transforms, vsm_set
+        name=system_name, set)
+    aero = Dict(wing.name => case.make() for wing in sys.wings)
+    return set, sys, transforms, vsm_set, aero
 end
 
 """
@@ -251,14 +253,14 @@ end
         @testset "$(case.name)" begin
             # Each model is built while its own case is the active data path, so
             # the two compiled models cache separately.
-            set_on, sys_on, transforms_on, vsm_set_on =
+            set_on, sys_on, transforms_on, vsm_set_on, aero_on =
                 build_curvature_case(case, root, true)
             sam_on = SymbolicAWEModel(set_on, sys_on; transforms=transforms_on,
-                                     vsm_set=vsm_set_on)
-            set_off, sys_off, transforms_off, vsm_set_off =
+                                     vsm_set=vsm_set_on, aero=aero_on)
+            set_off, sys_off, transforms_off, vsm_set_off, aero_off =
                 build_curvature_case(case, root, false)
             sam_off = SymbolicAWEModel(set_off, sys_off; transforms=transforms_off,
-                                      vsm_set=vsm_set_off)
+                                      vsm_set=vsm_set_off, aero=aero_off)
             wing_on, wing_off = sam_on.state.wings[1], sam_off.state.wings[1]
 
             @testset "the flag reaches the wing" begin

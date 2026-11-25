@@ -220,10 +220,10 @@ aero_poses = [
     for (idx, case) in enumerate(cases)
         @testset "$(case.name)" begin
             set_data_path(case.data)
-            sys, transforms = load_sys_struct_from_yaml(case.yaml;
-                system_name="aero_modes_$(idx)", set,
-                aero_mode=case.make())
-            sam = SymbolicAWEModel(set, sys; transforms, vsm_set=case.vsm_set)
+            sys, transforms = load_authoring(case.yaml;
+                name="aero_modes_$(idx)", set)
+            aero = Dict(wing.name => case.make() for wing in sys.wings)
+            sam = SymbolicAWEModel(set, sys; transforms, vsm_set=case.vsm_set, aero)
             wing = sam.state.bodies[1]
             @test body_dynamics_type(wing) == case.dynamics
             test_init!(sam)

@@ -47,8 +47,8 @@ RHS_CALLS = 2000
 # `AeroNone` keeps the measurement about what grows with the kite count — points,
 # segments, pulleys and winches. With a VSM mode every copy also brings its own
 # nonlinear aero solve, which is per wing rather than per state and drowns the
-# structural trend. Set this to `AeroDirect()` to put the aero back in.
-AERO_MODE = AeroNone()
+# structural trend. Set this to `AeroDirect` to put the aero back in.
+AERO_MODE = AeroNone
 
 pkg_root = dirname(@__DIR__)
 source_data = joinpath(pkg_root, "data", "2plate_kite")
@@ -159,10 +159,10 @@ function build_model(data_path, geometry_path, count, backend)
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(
         project_file("vsm_settings"); data_prefix = false)
-    sys, transforms = load_sys_struct_from_yaml(geometry_path;
-        system_name = "scaling_$(count)kite", set,
-        aero_mode = AERO_MODE)
-    model = SymbolicAWEModel(set, sys; transforms, backend, vsm_set)
+    sys, transforms = load_authoring(geometry_path;
+        name = "scaling_$(count)kite", set)
+    aero = Dict(wing.name => AERO_MODE() for wing in sys.wings)
+    model = SymbolicAWEModel(set, sys; transforms, backend, vsm_set, aero)
     init!(model; remake = true, prn = false)
     return model
 end

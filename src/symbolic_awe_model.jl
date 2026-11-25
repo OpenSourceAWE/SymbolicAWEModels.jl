@@ -283,7 +283,7 @@ physical layout of the kite system and prepares it for symbolic model generation
 - `set::Settings`: Configuration parameters.
 - `sys_struct::SystemDefinition`: The physical system definition.
 - `transforms`: The KiteGeometry transforms placing `sys_struct`, as
-  [`load_sys_struct_from_yaml`](@ref) returns them; their rates start the run moving.
+  KiteGeometry's `load_authoring` returns them; their rates start the run moving.
 - `vsm_set`: The VSM settings the model's engines are built from; the project's
   `vsm_settings` by default.
 - `aero`: The aero mode of each wing by its name, in place of the one its row names

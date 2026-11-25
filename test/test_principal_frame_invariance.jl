@@ -119,11 +119,11 @@ end
 
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "rigid_structural_geometry.yaml");
-        system_name="frame_invariance", set,
-        aero_mode=AeroLinearized())
-    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        name="frame_invariance", set)
+    aero = Dict(wing.name => AeroLinearized() for wing in sys.wings)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set, aero)
     @test body_dynamics_type(sam.state.wings[1]) == RIGID_DYNAMICS
     ref = run_case(sam)
     @test norm(ref[1].aero_wrench_w) > 1.0

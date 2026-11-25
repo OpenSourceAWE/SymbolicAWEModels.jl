@@ -199,7 +199,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
+    sys, _ = load_authoring(yaml_path; name="pulley_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -269,8 +269,8 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -325,8 +325,8 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -362,8 +362,8 @@ system:
         set.v_wind = 0.0
 
         # Load symmetric configuration (starting at equilibrium)
-        sys, transforms = load_sys_struct_from_yaml(yaml_symmetric_path;
-            system_name="pulley_symmetric", set=set)
+        sys, transforms = load_authoring(yaml_symmetric_path;
+            name="pulley_symmetric", set=set)
 
         # Get positions from YAML
         attach_left_pos = sys.points[:attach_left].pos_ENU
@@ -425,8 +425,8 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_symmetric_path;
-            system_name="pulley_symmetric", set=set)
+        sys, transforms = load_authoring(yaml_symmetric_path;
+            name="pulley_symmetric", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -483,8 +483,8 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
         pulley = sam.state.pulleys[:main_pulley]
@@ -611,8 +611,8 @@ system:
         set.abs_tol = 1e-10
         set.rel_tol = 1e-10
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 

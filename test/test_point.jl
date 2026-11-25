@@ -178,7 +178,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="point_test", set=set)
+    sys, _ = load_authoring(yaml_path; name="point_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -207,8 +207,8 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML for cleaner test
-        sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
-            system_name="point_no_drag_test", set=set)
+        sys, transforms = load_authoring(yaml_no_drag_path;
+            name="point_no_drag_test", set=set)
         @test SystemState(sys).points[:test_point].area == 0.0
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -246,9 +246,9 @@ system:
 
         # Heavy point (50 kg) with large drag area for
         # slow, precisely measurable acceleration
-        sys, transforms = load_sys_struct_from_yaml(
+        sys, transforms = load_authoring(
             yaml_heavy_drag_path;
-            system_name="point_test_drag", set=set)
+            name="point_test_drag", set=set)
 
         @test sys.points[:test_point].area == 0.5
         @test sys.points[:test_point].drag_coeff == 1.0
@@ -307,8 +307,8 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML - just a point with mass, no segments
-        sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
-            system_name="point_no_drag_test", set=set)
+        sys, transforms = load_authoring(yaml_no_drag_path;
+            name="point_no_drag_test", set=set)
 
         @test SystemState(sys).points[:test_point].area == 0.0
         @test SystemState(sys).points[:test_point].world_frame_damping ==
@@ -355,8 +355,8 @@ system:
         yaml_damping_path = joinpath(tmpdir, "world_damping_geometry.yaml")
         write(yaml_damping_path, POINT_WORLD_DAMPING_YAML)
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_damping_path;
-            system_name="damping_test", set=set)
+        sys, transforms = load_authoring(yaml_damping_path;
+            name="damping_test", set=set)
 
         @test SystemState(sys).points[:test_point].world_frame_damping ==
               KVec3(0.7, 0.7, 0.7)
@@ -399,8 +399,8 @@ system:
         yaml_aero_path = joinpath(tmpdir, "aero_drag_geometry.yaml")
         write(yaml_aero_path, POINT_AERO_DRAG_YAML)
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_aero_path;
-            system_name="aero_drag_test", set=set)
+        sys, transforms = load_authoring(yaml_aero_path;
+            name="aero_drag_test", set=set)
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
@@ -467,8 +467,8 @@ system:
         yaml_high_alt_path = joinpath(tmpdir, "high_alt_geometry.yaml")
         write(yaml_high_alt_path, POINT_HIGH_ALTITUDE_YAML)
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
-            system_name="high_alt_point_test", set=set)
+        sys, transforms = load_authoring(yaml_high_alt_path;
+            name="high_alt_point_test", set=set)
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
@@ -549,8 +549,8 @@ end
 
     # The KCU carries no body-frame damping, so its physics is unchanged by this.
     @testset "free point with no wing builds and flies" begin
-        sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "~");
-            system_name="point_no_wing", set)
+        sys, transforms = load_authoring(geometry_with_wing(:kcu, "~");
+            name="point_no_wing", set)
         free = SystemState(sys).points
         @test isnothing(free[:kcu].wing_idx)
         @test !free[:kcu].is_wing_node
@@ -569,15 +569,15 @@ end
     end
 
     @testset "station member without a wing is rejected" begin
-        @test_throws "le_left" load_sys_struct_from_yaml(
+        @test_throws "le_left" load_authoring(
             geometry_with_wing(:le_left, "~");
-            system_name="wing_node_no_wing", set)
+            name="wing_node_no_wing", set)
     end
 
     @testset "wing that does not exist is rejected at load" begin
-        @test_throws "wing 7 does not exist" load_sys_struct_from_yaml(
+        @test_throws "wing 7 does not exist" load_authoring(
             geometry_with_wing(:kcu, "7");
-            system_name="wing_out_of_range", set)
+            name="wing_out_of_range", set)
     end
 
     rm(tmpdir; recursive=true)

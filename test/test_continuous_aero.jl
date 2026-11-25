@@ -29,9 +29,9 @@ using LinearAlgebra
 """
     load_continuous_sys(data_path, set; billowing)
 
-`SystemDefinition` for the particle 2plate kite carrying [`ContinuousAero`](@ref),
-with the VSM spanwise distribution either left at the file's `SPLIT_PROVIDED` or
-switched to `BILLOWING`.
+`SystemDefinition` for the particle 2plate kite, its VSM settings and its wings'
+aero modes, each a [`ContinuousAero`](@ref), with the VSM spanwise distribution
+either left at the file's `SPLIT_PROVIDED` or switched to `BILLOWING`.
 """
 function load_continuous_sys(data_path, set; billowing)
     vsm_set = VortexStepMethod.VSMSettings(
@@ -43,10 +43,11 @@ function load_continuous_sys(data_path, set; billowing)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    sys, _ = load_sys_struct_from_yaml(
+    sys, _ = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, aero_mode=ContinuousAero())
-    return sys, vsm_set
+        name="continuous_test", set)
+    aero = Dict(wing.name => ContinuousAero() for wing in sys.wings)
+    return sys, vsm_set, aero
 end
 
 @testset "ContinuousAero" begin
@@ -57,12 +58,12 @@ end
     set = Settings("system.yaml")
 
     @testset "BILLOWING is required" begin
-        sys, vsm_set = load_continuous_sys(data_path, set; billowing=false)
-        @test_throws ErrorException SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        sys, vsm_set, aero = load_continuous_sys(data_path, set; billowing=false)
+        @test_throws ErrorException SymbolicAWEModels.SystemState(sys; set, vsm_set, aero)
     end
 
-    sys, vsm_set = load_continuous_sys(data_path, set; billowing=true)
-    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+    sys, vsm_set, aero = load_continuous_sys(data_path, set; billowing=true)
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set, aero)
     wing = state.wings[1]
     mode = wing.aero
     n_panels = length(wing.vsm_aero.panels)

@@ -31,8 +31,8 @@ function workload_model(geometry, system_name, backend)
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(project_file("vsm_settings");
                                            data_prefix=false)
-    sys, transforms = load_sys_struct_from_yaml(joinpath(get_data_path(), geometry);
-                                    system_name, set)
+    sys, transforms = load_authoring(joinpath(get_data_path(), geometry);
+                                     name=system_name, set)
     haskey(sys.winches, :main_winch) && (sys.winches[:main_winch].brake = true)
     return SymbolicAWEModel(set, sys; transforms, vsm_set, backend)
 end

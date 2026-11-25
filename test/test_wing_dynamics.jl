@@ -213,16 +213,16 @@ end
     yaml_path = joinpath(data_path, "wing_freefall.yaml")
     write(yaml_path, WING_FREEFALL_YAML)
 
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         yaml_path;
-        system_name="wing_freefall",
-        set,
-        aero_mode=AeroNone()
+        name="wing_freefall",
+        set
     )
+    aero = Dict(wing.name => AeroNone() for wing in sys.wings)
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
-        wing = SystemState(sys).bodies[:main_wing]
+        wing = SystemState(sys; aero).bodies[:main_wing]
         @test body_dynamics_type(wing) == SymbolicAWEModels.RIGID_DYNAMICS
         @test wing.aero isa AeroNone
         @test wing.extra_mass == 0
@@ -234,7 +234,7 @@ end
         @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
     end
 
-    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set, aero)
     test_init!(sam)
 
     # ================ Free fall ================ #
@@ -454,9 +454,11 @@ end
     @testset "Hanging wing weighs its total_mass" begin
         hanging_path = joinpath(data_path, "wing_hanging.yaml")
         write(hanging_path, WING_HANGING_YAML)
-        hanging, hanging_transforms = load_sys_struct_from_yaml(hanging_path;
-            system_name="wing_hanging", set, aero_mode=AeroNone())
-        hanging_state = SymbolicAWEModels.SystemState(hanging; set, vsm_set)
+        hanging, hanging_transforms = load_authoring(hanging_path;
+            name="wing_hanging", set)
+        hanging_aero = Dict(wing.name => AeroNone() for wing in hanging.wings)
+        hanging_state = SymbolicAWEModels.SystemState(hanging; set, vsm_set,
+            aero=hanging_aero)
         wing = hanging_state.bodies[:main_wing]
         line = hanging_state.segments[:line]
         half_line = SymbolicAWEModels.segment_half_mass(
@@ -464,7 +466,8 @@ end
         @test wing.extra_mass == 2.0
         @test wing.total_mass ≈ 2.0 + half_line
 
-        hanging_sam = SymbolicAWEModel(set, hanging; transforms=hanging_transforms, vsm_set)
+        hanging_sam = SymbolicAWEModel(set, hanging; transforms=hanging_transforms,
+            vsm_set, aero=hanging_aero)
         test_init!(hanging_sam)
         for _ in 1:100
             next_step!(hanging_sam; dt=0.01, vsm_interval=0)

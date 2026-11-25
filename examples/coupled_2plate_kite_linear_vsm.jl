@@ -35,8 +35,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings");
     data_prefix=false)
 
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name=MODEL_NAME, set)
+sys, transforms = load_authoring(struc_yaml;
+    name=MODEL_NAME, set)
 sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 l0_left = sam.state.segments[:kcu_steering_left].rest_length

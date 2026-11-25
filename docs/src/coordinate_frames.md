@@ -77,7 +77,7 @@ specified elevation and azimuth. Transforms can chain: use
 `rot_point`/`wing` position of another transform as the base.
 
 An authoring YAML is placed by its transforms when it is loaded
-([`load_sys_struct_from_yaml`](@ref) returns them beside the structure), and the model
+(`load_authoring` returns them beside the structure), and the model
 holds them, `sam.transforms`. After changing a transform, call `place!(sam)` before
 `init!`. Placing again starts from the initial pose, and the steps above land on the
 same pose whatever orientation they start from.

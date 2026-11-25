@@ -45,9 +45,9 @@ vsm_set = VortexStepMethod.VSMSettings(
 @testset "match_aero_sections — PARTICLE_DYNAMICS" begin
 
     @testset "geometry: LE/TE match structural points" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_geom", set)
+            name="refine_geom", set)
         state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
         wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
@@ -91,9 +91,9 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
 
     @testset "use_prior_polar preserves refined polars" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_polar", set)
+            name="refine_polar", set)
         state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
         wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
@@ -183,9 +183,9 @@ vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_5.wings[1].use_prior_polar = true
         vsm_set_5.wings[1].n_panels = 8
 
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_solver_size", set)
+            name="refine_solver_size", set)
         wing = SymbolicAWEModels.SystemState(sys; set, vsm_set=vsm_set_5).wings[1]
         @test length(wing.station_idxs) == 3
         @test wing.vsm_wing.n_unrefined_sections == 3
@@ -196,9 +196,9 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
 
     @testset "errors when use_prior_polar=false" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_err", set)
+            name="refine_err", set)
         state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
         wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
@@ -217,9 +217,9 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
 
     @testset "a wing whose sections run from -y to +y is refused" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_span_order", set)
+            name="refine_span_order", set)
         state = SystemState(sys; set, vsm_set)
         wing = state.wings[1]
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
@@ -242,10 +242,9 @@ end
 @testset "match_aero_sections — RIGID_DYNAMICS" begin
 
     @testset "geometry: LE/TE match structural points" begin
-        sys_q, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys_q, _ = load_authoring(
             struc_yaml;
-            system_name="quat_geom", set,
-            dynamics_type=RIGID_DYNAMICS)
+            name="quat_geom", set)
         state = SymbolicAWEModels.SystemState(sys_q; set, vsm_set)
         wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing
@@ -279,10 +278,9 @@ end
         # (stations) than aero sections, the OBJ/VSM
         # geometry must stay intact — only the Voronoi
         # partition assigns sections to stations.
-        sys_q, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys_q, _ = load_authoring(
             struc_yaml;
-            system_name="quat_preserve", set,
-            dynamics_type=RIGID_DYNAMICS)
+            name="quat_preserve", set)
         state = SymbolicAWEModels.SystemState(sys_q; set, vsm_set)
         wing, points = state.wings[1], state.points
         vsm_w = wing.vsm_wing

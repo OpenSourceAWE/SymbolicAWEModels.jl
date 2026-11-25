@@ -35,26 +35,11 @@ KiteGeometry's `load_authoring` reads and places an authoring YAML, and the stru
 is built from the definition it returns, with the columns SymbolicAWEModels reads held
 by the models it registers with KiteGeometry.
 
-```@docs
-load_sys_struct_from_yaml
-```
-
 ## Structure documents
 
-A `SystemDefinition` is a KiteGeometry `SystemDefinition`, and reads and writes as its
-awesIO *structure document*: one
-`headers`/`units`/`data` table per block, conforming to the `structure_schema.yml`
-KiteGeometry ships. YAML and JSON are two encodings of the one document, and the file
-extension picks between them. Every position is in the ENU world frame, each body at
+A `SystemDefinition` reads and writes as its awesIO *structure document* through KiteGeometry's `to_yaml`, `from_yaml`, `to_json` and `from_json`: one `headers`/`units`/`data` table per block, conforming to the `structure_schema.yml` KiteGeometry ships. Every position is in the ENU world frame, each body at
 the centre of its own mass; the authoring geometry, the transforms and the live state
-do not survive a round trip. `save_log(logger, sys, name)` writes a log that carries
-the document as JSON under the metadata key `topology`.
-
-```@docs
-sys_struct_from_document
-save_structure_document
-load_structure_document
-```
+do not survive a round trip. `save_log(logger, sys, name)` writes a log that carries the document as JSON under the metadata key `topology`.
 
 ## System configuration
 
@@ -67,7 +52,7 @@ calc_steady_torque
 
 ## Placing a SystemDefinition
 
-[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA2ENU`); `system_definition` and `load_sys_struct_from_yaml` run it. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
+[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA2ENU`); `system_definition` and `load_authoring` run it. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
 
 ```julia
 set_unstretched_length!(sam.state, sam.state.tethers[1], 240.0)
@@ -93,7 +78,7 @@ set_unstretched_length!
 Where a model takes its wind from is a [`WindMode`](@ref) it is built with. The default [`ProfileWind`](@ref) scales the ground wind `set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref) instead gives every point its own wind vector, settable between steps.
 
 ```julia
-sys_struct, transforms = load_sys_struct_from_yaml(path; set)
+sys_struct, transforms = load_authoring(path; set)
 sam = SymbolicAWEModel(set, sys_struct; transforms, wind_mode=PerPointWind())
 init!(sam)
 for _ in 1:steps

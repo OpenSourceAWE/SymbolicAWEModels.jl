@@ -132,10 +132,7 @@ export winch_component, is_builtin_winch, validate_winch_component
 export init_module
 export update_plot_observables!
 export animate
-export load_sys_struct_from_yaml
 export project_file
-export sys_struct_from_document
-export save_structure_document, load_structure_document
 export replay
 export record
 export plot_sphere_trajectory

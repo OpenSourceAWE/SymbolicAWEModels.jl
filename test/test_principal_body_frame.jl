@@ -42,9 +42,9 @@ using LinearAlgebra
 
     yaml_path = joinpath(
         data_path, "rigid_structural_geometry.yaml")
-    sys, _ = load_sys_struct_from_yaml(
+    sys, _ = load_authoring(
         yaml_path;
-        system_name="frame_test", set)
+        name="frame_test", set)
 
     state = SystemState(sys; set, vsm_set)
     wing = state.wings[:main_wing]

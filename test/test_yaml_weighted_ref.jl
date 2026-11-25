@@ -108,8 +108,8 @@ transforms:
 
     # This should not throw — the bug causes
     # MethodError: no method matching Int64(::Vector{Real})
-    sys, transforms = load_sys_struct_from_yaml(yaml_path;
-        system_name="weighted_ref_test", set)
+    sys, transforms = load_authoring(yaml_path;
+        name="weighted_ref_test", set)
 
     wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
 
@@ -144,8 +144,8 @@ transforms:
         "origin_idx: [[1, 0.1], [3, 0.2], [5, 0.3], [9, 0.4]]")
     yaml_path_4pt = joinpath(tmpdir, "geometry_4pt.yaml")
     write(yaml_path_4pt, yaml_4pt)
-    sys_4pt, _ = load_sys_struct_from_yaml(yaml_path_4pt;
-        system_name="weighted_ref_4pt_test", set)
+    sys_4pt, _ = load_authoring(yaml_path_4pt;
+        name="weighted_ref_4pt_test", set)
     wing_4pt = SymbolicAWEModels.SystemState(sys_4pt; set, vsm_set).wings[1]
     @test first.(wing_4pt.origin) == [1, 3, 5, 9]
     @test last.(wing_4pt.origin) ≈ [0.1, 0.2, 0.3, 0.4]

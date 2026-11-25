@@ -36,9 +36,9 @@ using LinearAlgebra
         vsm_set_path; data_prefix=false)
 
     # ── PARTICLE_DYNAMICS: 3 explicit stations (LE/TE membership) ──
-    sys_refine, _ = load_sys_struct_from_yaml(
+    sys_refine, _ = load_authoring(
         refine_yaml;
-        system_name="2plate_refine", set)
+        name="2plate_refine", set)
 
     @test length(sys_refine.wings) == 1
     refine_wing = SymbolicAWEModels.SystemState(sys_refine; set, vsm_set).wings[1]
@@ -49,10 +49,9 @@ using LinearAlgebra
     # ── RIGID_DYNAMICS with YAML-defined stations ───────
     # rigid_structural_geometry.yaml has 3 explicit stations
     # and 7 WING points (6 LE/TE + kcu).
-    sys_quat, _ = load_sys_struct_from_yaml(
+    sys_quat, _ = load_authoring(
         struc_yaml;
-        system_name="2plate_quat", set,
-        dynamics_type=RIGID_DYNAMICS)
+        name="2plate_quat", set)
 
     state = SymbolicAWEModels.SystemState(sys_quat; set, vsm_set)
     wing = state.wings[1]

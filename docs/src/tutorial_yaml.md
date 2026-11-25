@@ -14,7 +14,7 @@ The YAML workflow has three steps:
 
 1. **Write a YAML file** — define points, segments, and other components in
    a structured text file
-2. **Load with [`load_sys_struct_from_yaml`](@ref)** — parses the YAML into the
+2. **Load with `load_authoring`** — parses the YAML into the
    same KiteGeometry rows and models built in the [Julia tutorial](tutorial_julia.md)
 3. **Compile and simulate** — same as the Julia path: [`SymbolicAWEModel`](@ref) →
    [`init!`](@ref) → [`next_step!`](@ref)
@@ -101,9 +101,9 @@ using KiteUtils: init!, next_step!, update_sys_state!
 set = Settings("system.yaml")
 set.v_wind = 0.0
 
-sys = load_sys_struct_from_yaml("simple_tether.yaml";
-    system_name="simple_tether", set=set)
-sam = SymbolicAWEModel(set, sys; vsm_set)
+sys, transforms = load_authoring("simple_tether.yaml";
+    name="simple_tether", set=set)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam)
 
 for _ in 1:100
@@ -445,11 +445,11 @@ vsm_set = VortexStepMethod.VSMSettings(
 
 struc_yaml = joinpath(get_data_path(),
     "rigid_structural_geometry.yaml")
-sys = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite",
+sys, transforms = load_authoring(struc_yaml;
+    name="2plate_kite",
     set=set)
 
-sam = SymbolicAWEModel(set, sys; vsm_set)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam)
 ```
 

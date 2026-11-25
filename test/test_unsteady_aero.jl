@@ -58,9 +58,9 @@ function build_unsteady_case(root, tag; apparent_mass=0.0, wagner=false,
         vsm_wing_settings.spanwise_panel_distribution = VortexStepMethod.BILLOWING
         vsm_wing_settings.billowing_percentage = 8.0
     end
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name=tag, set)
+        name=tag, set)
     unsteady = UnsteadyAero(; apparent_mass, wagner, wagner_rates=rates)
     aero = Dict{Symbol, SymbolicAWEModels.AbstractAeroModel}(
         :main_wing => ContinuousAero(; unsteady))

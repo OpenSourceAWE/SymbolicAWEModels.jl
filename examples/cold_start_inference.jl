@@ -50,14 +50,14 @@ function pressure_model()
     settings.g_earth = 0.0
     vsm_settings = VortexStepMethod.VSMSettings(
         project_file("vsm_settings"); data_prefix = false)
-    structure, transforms = load_sys_struct_from_yaml(
+    structure, transforms = load_authoring(
         project_file("structural_geometry");
-        system_name = "cold_start", set = settings,
-        aero_mode = AeroPressure())
+        name = "cold_start", set = settings)
     haskey(structure.winches, :main_winch) &&
         (structure.winches[:main_winch].brake = true)
+    aero = Dict(wing.name => AeroPressure() for wing in structure.wings)
     return SymbolicAWEModel(settings, structure; transforms, backend = KernelBackend(),
-                            vsm_set=vsm_settings)
+                            vsm_set=vsm_settings, aero)
 end
 
 """The signature a frame inferred, in full, or a note that it is unavailable."""

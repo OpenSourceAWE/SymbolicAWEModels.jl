@@ -3,7 +3,7 @@
 
 # test_yaml_bodies.jl - Validate loading rigid bodies, a tube between them and a
 # body-anchored point from a struc_geometry YAML (the `bodies` and `tubes` blocks
-# and the point `body_idx`/`anchor_b` fields of load_sys_struct_from_yaml). A
+# and the point `body_idx`/`anchor_b` fields of load_authoring). A
 # clamped root body and a free tip body joined by one tube must load with
 # references resolved and sag under gravity to where the same beam settled when
 # it was written as a `timoshenko_joints` or `elastic_joints` row.
@@ -108,8 +108,8 @@ function load_beam(model_name)
     write(struc_yaml, replace(STRUC_YAML, "TUBES" => TUBE_ROWS[model_name]))
     set_data_path(data_path)
     set = Settings("system.yaml")
-    sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-        system_name="yaml_bodies_$model_name", set)
+    sys, transforms = load_authoring(struc_yaml;
+        name="yaml_bodies_$model_name", set)
     return set, sys, transforms
 end
 

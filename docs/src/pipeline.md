@@ -46,7 +46,7 @@ segments = [KiteGeometry.line_segment(:spring, (:anchor, :mass), set, materials;
 ```
 
 Alternatively, components can be parsed from a YAML file using
-[`load_sys_struct_from_yaml`](@ref), which builds the same rows.
+`load_authoring`, which builds the same rows.
 
 ## Stage 2: SystemDefinition assembly
 

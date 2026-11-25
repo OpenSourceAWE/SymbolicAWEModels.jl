@@ -239,7 +239,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
+    sys, _ = load_authoring(yaml_path; name="segment_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -329,8 +329,8 @@ system:
         set.g_earth = 0.0
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="segment_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -360,8 +360,8 @@ system:
 
         # Use low damping YAML with 5.0 kg point mass (>> segment mass ~0.14 kg)
         # This ensures clean spring-damper dynamics where point mass dominates
-        sys, transforms = load_sys_struct_from_yaml(yaml_low_damp_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_low_damp_path;
+            name="segment_test", set=set)
 
         # Verify the properties were loaded
         run_segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
@@ -477,8 +477,8 @@ system:
         set.v_wind = 0.0
         set.cd_tether = 0.958  # enable segment aero drag for this test
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_horiz_drag_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_horiz_drag_path;
+            name="segment_test", set=set)
         segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
         L = segment.rest_length  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -552,8 +552,8 @@ system:
         set.profile_law = 0  # Use constant wind profile
 
         # Verify no extra mass on points (segment mass only)
-        sys, transforms = load_sys_struct_from_yaml(yaml_vert_wind_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_vert_wind_path;
+            name="segment_test", set=set)
         @test sys.points[:point_top].extra_mass == 0.0
         @test sys.points[:point_bottom].extra_mass == 0.0
 
@@ -608,8 +608,8 @@ system:
         set.profile_law = 0  # Reset to constant profile
 
         # Get segment properties
-        sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_high_alt_path;
+            name="segment_test", set=set)
         segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
         L = segment.rest_length  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -672,8 +672,8 @@ system:
         set.g_earth = 0.0
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_material_density_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_material_density_path;
+            name="segment_test", set=set)
 
         segments = SymbolicAWEModels.SystemState(sys; set).segments
         seg_dyneema = segments[:seg_dyneema]
@@ -708,8 +708,8 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="segment_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="segment_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
         for _ in 1:5
@@ -723,8 +723,8 @@ system:
         save_log(logger, "segment_force_roundtrip", false; path=tmpdir)
         lg = load_log("segment_force_roundtrip"; path=tmpdir)
 
-        replayed = SystemState(first(load_sys_struct_from_yaml(yaml_path;
-            system_name="segment_test", set=set)))
+        replayed = SystemState(first(load_authoring(yaml_path;
+            name="segment_test", set=set)))
         update_from_sysstate!(replayed, lg.syslog[1])
         @test [segment.force for segment in replayed.segments] ≈ simulated rtol=1e-5
     end

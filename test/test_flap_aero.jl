@@ -157,10 +157,11 @@ function build_flap_model(data_path, tube_block; point_flap=false, kwargs...)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_flap_geometry.yaml");
-        system_name="flap_press_test", set, aero_mode=AeroPressure())
-    return SymbolicAWEModel(set, sys; transforms, kwargs..., vsm_set), sys
+        name="flap_press_test", set)
+    aero = Dict(wing.name => AeroPressure() for wing in sys.wings)
+    return SymbolicAWEModel(set, sys; transforms, aero, kwargs..., vsm_set), sys
 end
 
 flap_angle(sam) = station_deltas(sam.state)[sam.state.spanwise_stations[:flap].idx]

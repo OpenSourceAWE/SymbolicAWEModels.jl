@@ -163,8 +163,8 @@ environment:
     set_data_path(tmpdir)
     set = Settings("system.yaml")
 
-    sys, transforms = load_sys_struct_from_yaml(
-        yaml_path; system_name="winch_test", set=set)
+    sys, transforms = load_authoring(
+        yaml_path; name="winch_test", set=set)
     sam = SymbolicAWEModel(set, sys; transforms)
     test_init!(sam)
 

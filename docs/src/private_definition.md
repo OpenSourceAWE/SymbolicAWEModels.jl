@@ -12,7 +12,6 @@ components as definition rows, and the writer. Not part of the public API.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.document_format
 SymbolicAWEModels.set_wing_column!
 SymbolicAWEModels.wings_first
 SymbolicAWEModels.definition_tube
