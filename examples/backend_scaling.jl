@@ -204,7 +204,7 @@ function measure(count, backend, work_dir)
                                                 "particle_structural_geometry.yaml"),
                                        count, KITE_SPACING))
     build = @elapsed model = build_model(data_path, geometry_path, count, backend)
-    structure = model.sys_struct
+    structure = model.definition
     @assert length(structure.bodies) == count "expected $count bodies, got " *
                                               "$(length(structure.bodies))"
     return (; count, backend = nameof(typeof(backend)), build,

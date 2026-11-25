@@ -47,7 +47,7 @@ CascadedLengthWinch(; v_max, K_pos, K_p, friction_epsilon=6.0) =
     CascadedLengthWinch(v_max, K_pos, K_p, friction_epsilon)
 
 function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
-        sys_struct, winch_idx; name, params)
+        sam, winch_idx; name, params)
     @variables begin
         vel(t)
         len(t)
@@ -107,13 +107,10 @@ winches = [Winch(; name=:winch, tethers=[:main], winch_point=:ground,
                      inertia_total=0.001,  # tiny rotor → near-instant velocity tracking
                      dynamics=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0)))]
 
-sys_struct = system_definition("custom_winch_vel", set;
-                             points, segments, materials, tethers, winches)
-sam = SymbolicAWEModel(set, sys_struct)
+sys = system_definition("custom_winch_vel", set;
+                      points, segments, materials, tethers, winches)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=true, prn=false)
-
-winch  = sam.state.winches[:winch]
-tether = sam.state.tethers[:main]
 
 dt = 0.02
 n_steps = 1500
@@ -131,8 +128,8 @@ for k in 1:n_steps
     next_step!(sam; set_values=[l_target], dt=dt, vsm_interval=0)
     push!(times,    tnow)
     push!(ref_len,  l_target)
-    push!(meas_len, tether.len)
-    push!(meas_vel, winch.vel)
+    push!(meas_len, run_value(sam, :tethers, :main, :len))
+    push!(meas_vel, run_value(sam, :winches, :winch, :vel))
 end
 
 fig = Figure(size=(900, 600))

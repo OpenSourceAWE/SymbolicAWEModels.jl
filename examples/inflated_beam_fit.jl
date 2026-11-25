@@ -428,18 +428,17 @@ at every step. Optionally logs for replay.
 function winch_sweep(sam; force_cap, name = "sweep", log_to = nothing)
     dt = 0.02
     max_steps = 6000
-    tip = sam.state.points[:tip_anchor]
-    tether_seg = sam.state.segments[:tether_seg]
-    z0 = tip.pos_w[3]
-    target = sam.state.tethers[:tether].len - 0.6  # command a long reel-in
+    tip_z() = run_value(sam, :points, :tip_anchor, :pos_w)[3]
+    z0 = tip_z()
+    target = run_value(sam, :tethers, :tether, :len) - 0.6  # command a long reel-in
     logger = isnothing(log_to) ? nothing : Logger(sam, max_steps + 1)
     sys_state = isnothing(log_to) ? nothing : SysState(sam)
     deflection_mm, tension, sim_time = Float64[], Float64[], 0.0
     for _ in 1:max_steps
         next_step!(sam; set_values = [target], dt, vsm_interval = 0)
         sim_time += dt
-        push!(deflection_mm, 1.0e3 * (z0 - tip.pos_w[3]))
-        push!(tension, abs(tether_seg.force))
+        push!(deflection_mm, 1.0e3 * (z0 - tip_z()))
+        push!(tension, abs(run_value(sam, :segments, :tether_seg, :force)))
         if !isnothing(logger)
             update_sys_state!(sys_state, sam)
             sys_state.time = sim_time
@@ -560,7 +559,7 @@ display(fig)
 
 # ----- replay the Comer-Levy high-fi sweep -----
 scene = replay(load_log("inflated_beam_hf_comer"),
-    results[:comer].sam_hf.sys_struct; vector_scale = 0.03)
+    results[:comer].sam_hf; vector_scale = 0.03)
 display(scene)
 
 nothing

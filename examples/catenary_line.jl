@@ -39,13 +39,13 @@ for i in 1:n_segments - 1
 end
 push!(points, Point(; name=:right, pos_ENU=[horizontal_span, 0, 5], fixed=true))
 
-l0_seg = total_length / n_segments
+rest_length_seg = total_length / n_segments
 materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 segments = KiteGeometry.Segment[]
 for i in 1:n_segments
     push!(segments, KiteGeometry.line_segment(
         Symbol("seg$i"), (points[i].name, points[i + 1].name), set, materials;
-        rest_length=l0_seg, diameter=seg_diameter, unit_stiffness=seg_stiffness,
+        rest_length=rest_length_seg, diameter=seg_diameter, unit_stiffness=seg_stiffness,
         model=SegmentSpring(; unit_damping=seg_damping, compression_frac=0.01)))
 end
 
@@ -66,5 +66,5 @@ end
 
 save_log(logger, "catenary_line")
 syslog = load_log("catenary_line")
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam)
 display(scene)

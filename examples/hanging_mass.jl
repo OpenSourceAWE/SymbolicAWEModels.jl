@@ -60,6 +60,6 @@ save_log(logger, "hanging_mass")
 toc()
 
 syslog = load_log("hanging_mass")
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam)
 display(scene)
 toc()

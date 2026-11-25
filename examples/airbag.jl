@@ -101,7 +101,7 @@ for j in 0:N-1, i in 0:N-1
     push!(segments, membrane(seg_id, pname(i + 1, j), pname(i, j + 1)))
     seg_id += 1
 end
-# Rest lengths (l0) are automatically set to initial CAD distances by SystemDefinition.
+# Unset rest lengths are set to the initial CAD distances when the structure is placed.
 
 # ── Build model ─────────────────────────────────────────────────────────
 sys = system_definition("airbag", set; points, segments, materials)
@@ -113,21 +113,18 @@ init!(sam; remake=false)
     apply_pressure!(sam, pressure)
 
 Compute outward-normal pressure forces from the current panel geometry
-and inject them as `disturb` forces on the dynamic interior nodes.
+and apply them as the external forces `ext_force_w` of the dynamic interior nodes.
 
 Each quad cell (i,j) is split into two triangles. The force on each
 triangle is `P × area_triangle`. This force is divided equally among
 the three corners, and only DYNAMIC corners accumulate the contribution.
-The model reads each point's `ext_force_w` at every step, so setting it
+Each point's `ext_force_w` is a parameter of the run's integrator, so setting it
 here takes effect at the next integration step.
 """
 function apply_pressure!(sam, pressure)
-    pts = sam.state.points
-
-    # Reset all external forces to zero
-    for pt in pts
-        pt.ext_force_w = zeros(3)
-    end
+    points = sam.definition.points
+    pos(i) = run_value(sam, :points, i, :pos_w)
+    forces = [zeros(3) for _ in points]
 
     for j in 0:N-1, i in 0:N-1
         ia = pidx(i,     j    )
@@ -135,10 +132,7 @@ function apply_pressure!(sam, pressure)
         ic = pidx(i + 1, j + 1)
         id = pidx(i,     j + 1)
 
-        pa = pts[ia].pos_w
-        pb = pts[ib].pos_w
-        pc = pts[ic].pos_w
-        pd = pts[id].pos_w
+        pa, pb, pc, pd = pos(ia), pos(ib), pos(ic), pos(id)
 
         # Triangle 1: a – b – c  (area-weighted outward normal via cross product)
         n1   = (pb .- pa) × (pc .- pa)
@@ -147,7 +141,7 @@ function apply_pressure!(sam, pressure)
             # P × triangle_area / 3 per corner; triangle_area = |n|/2
             fvec1 = (pressure / 6) .* n1
             for idx in (ia, ib, ic)
-                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w += fvec1)
+                point_type(points[idx]) == DYNAMIC && (forces[idx] .+= fvec1)
             end
         end
 
@@ -157,9 +151,13 @@ function apply_pressure!(sam, pressure)
         if mag2 > 1e-12
             fvec2 = (pressure / 6) .* n2
             for idx in (ia, ic, id)
-                point_type(pts[idx]) == DYNAMIC && (pts[idx].ext_force_w += fvec2)
+                point_type(points[idx]) == DYNAMIC && (forces[idx] .+= fvec2)
             end
         end
+    end
+    for (i, force) in enumerate(forces)
+        point_type(points[i]) == DYNAMIC &&
+            set_run_value!(sam, :points, i, :ext_force_w, force)
     end
     return nothing
 end
@@ -179,5 +177,5 @@ end
 
 save_log(logger, "airbag")
 syslog = load_log("airbag")
-scene  = replay(syslog, sam.sys_struct)
+scene  = replay(syslog, sam)
 display(scene)

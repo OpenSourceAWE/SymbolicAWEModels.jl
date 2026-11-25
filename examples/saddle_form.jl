@@ -89,12 +89,12 @@ function run_saddle(; yaml_file)
 
     save_log(logger, "saddle_form")
     syslog = load_log("saddle_form")
-    scene = replay(syslog, sam.sys_struct)
+    scene = replay(syslog, sam)
     display(scene)
 
     fixed = Set(i for (i, p) in enumerate(points)
                 if p.fixed)
-    disp = [norm(sam.state.points[i].pos_w .-
+    disp = [norm(run_value(sam, :points, i, :pos_w) .-
                  points[i].pos_ENU)
             for i in eachindex(points) if i ∉ fixed]
     avg = sum(disp) / length(disp)

@@ -59,5 +59,5 @@ end
 
 save_log(logger, "pulley")
 syslog = load_log("pulley")
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam)
 display(scene)
