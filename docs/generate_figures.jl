@@ -34,9 +34,9 @@ set_2p.solver = "FBDF"
 vsm_set_2p = VortexStepMethod.VSMSettings(
     project_file("vsm_settings"); data_prefix=false)
 
-sys_2p, _ = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set=set_2p)
-scene = MakieControlPlots.plot(sys_2p)
+sys_2p, transforms_2p = load_authoring(struc_yaml; name="2plate_kite", set=set_2p)
+scene = MakieControlPlots.plot(SymbolicAWEModel(set_2p, sys_2p; transforms=transforms_2p,
+                                                vsm_set=vsm_set_2p))
 GLMakie.save(joinpath(ASSETS, "2plate_kite_structure.png"), scene)
 
 println("All figures generated in $ASSETS")

@@ -61,8 +61,8 @@ docs/src/.$kite_power_tools.drawio.bkp
 /refs
 .JETLSConfig.toml
 
-docs/src/assets/winch_sys_struct.png
+docs/src/assets/winch_structure.png
 docs/src/assets/2plate_kite_structure.png
-docs/src/assets/tether_sys_struct.png
-docs/src/assets/pulley_sys_struct.png 
+docs/src/assets/tether_structure.png
+docs/src/assets/pulley_structure.png
 mwes/mwe_01.jl
