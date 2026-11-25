@@ -12,7 +12,7 @@ Walk `path` (a tuple of `Symbol` fields and `Int` indices) from `obj`, e.g.
 """
 read_path(obj, ::Tuple{}) = obj
 read_path(obj, path::Tuple) = read_path(path_step(obj, first(path)), Base.tail(path))
-function read_path(sam::SymbolicAWEModel, path::Tuple)
+function read_path(sam::SymbolicAWEModel, path::Tuple{Any, Vararg})
     is_item_path(path) || return read_path(path_step(sam, first(path)), Base.tail(path))
     return read_path(run_value(sam, Val(path[1]), path[2], Val(path[3])), path[4:end])
 end
