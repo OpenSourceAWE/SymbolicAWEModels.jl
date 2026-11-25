@@ -12,7 +12,6 @@ components as definition rows, and the writer. Not part of the public API.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.wings_first
 ```
 
 ## KiteGeometry models
@@ -124,7 +123,6 @@ SymbolicAWEModels.extra_com_offset_b
 SymbolicAWEModels.flap_chord_refs
 SymbolicAWEModels.flap_rest_delta
 SymbolicAWEModels.has_quantity
-SymbolicAWEModels.init_rest!
 SymbolicAWEModels.initial_positions
 SymbolicAWEModels.is_collection
 SymbolicAWEModels.is_item_path
