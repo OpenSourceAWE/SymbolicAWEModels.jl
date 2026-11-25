@@ -331,53 +331,22 @@ axis_column(values::AbstractVector) = Vector{Float64}(values)
 # ==================== SEGMENT ==================== #
 
 """
-    BuiltSegment
+    segment_unit_damping(row, material, set)
 
-A segment as a run starts it: its row, the material the row names and the spring its model
-leaves to be resolved ([`resolve_segment`](@ref)).
-
-$(TYPEDFIELDS)
+The damping per unit length [N·s] of segment `row` of `material` in a run with settings
+`set`: its `unit_damping`, else its `damping_per_stiffness` times its stiffness, else
+`set.rel_damping` times its stiffness.
 """
-struct BuiltSegment
-    "The segment's row."
-    row::KiteGeometry.Segment{SegmentSpring}
-    "The segment's material."
-    material::KiteGeometry.Material{KiteGeometry.NoModel}
-    "Damping per unit length [N·s]."
-    unit_damping::SimFloat
-    "Compressive over tensile stiffness (0-1)."
-    compression_frac::SimFloat
-    "Fraction of the damping still acting under compression (0-1)."
-    compression_damping_frac::SimFloat
-end
-
-"""
-    resolve_segment(row, materials, set) -> BuiltSegment
-
-Segment `row` as a run with settings `set` reads it, its material found in `materials`. Its
-damping is the row's `unit_damping`, else its `damping_per_stiffness` times its stiffness,
-else `set.rel_damping` times its stiffness.
-"""
-function resolve_segment(row::KiteGeometry.Segment{SegmentSpring}, materials, set)
-    material = materials[row.material]
+function segment_unit_damping(row::KiteGeometry.Segment{SegmentSpring}, material, set)
+    (; name, unit_damping, damping_per_stiffness) = row
     material.law == "linear" || haskey(material.parameters, "unit_stiffness") ||
-        error("segment $(row.name): material law $(material.law) has no force law here; " *
+        error("segment $name: material law $(material.law) has no force law here; " *
               "give its unit_stiffness in Julia")
-    spring = segment_spring(row)
-    unit_damping = resolved_unit_damping(row.name, spring,
-        material_unit_stiffness(material, row.diameter), set)
-    return BuiltSegment(row, material, unit_damping,
-                        something(spring.compression_frac, 0.1),
-                        something(spring.compression_damping_frac, 1.0))
-end
-
-"""The damping per unit length [N·s] of segment `name` with `spring` and `stiffness`."""
-function resolved_unit_damping(name, spring, stiffness, set)
-    (; unit_damping, damping_per_stiffness) = spring
     isnothing(unit_damping) || isnothing(damping_per_stiffness) ||
         error("segment $name: give either `unit_damping` or `damping_per_stiffness`, " *
               "not both")
     isnothing(unit_damping) || return unit_damping
+    stiffness = material_unit_stiffness(material, row.diameter)
     linear = stiffness isa Real
     if !isnothing(damping_per_stiffness)
         linear || error("segment $name: `damping_per_stiffness` needs a linear " *
@@ -408,8 +377,6 @@ end
 """`value` as a `Float64`."""
 to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
 
-"""The [`SegmentSpring`](@ref) of segment row `row`."""
-@inline segment_spring(row::KiteGeometry.Segment) = row.model
 
 # ==================== WINCH ==================== #
 

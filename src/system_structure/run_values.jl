@@ -117,14 +117,14 @@ const SEGMENT_QUANTITIES = (
     unit_stiffness = Parameter((sam, i) -> material_unit_stiffness(
         segment_material(sam, i), run_value(sam, Val(:segments), i, Val(:diameter)))),
     density = Parameter((sam, i) -> segment_material(sam, i).parameters["density"]),
-    unit_damping = Parameter((sam, i) -> built_segment(sam, i).unit_damping),
-    compression_frac = Parameter((sam, i) -> built_segment(sam, i).compression_frac),
-    compression_damping_frac = Parameter((sam, i) ->
-        built_segment(sam, i).compression_damping_frac),
+    unit_damping = Parameter((sam, i) -> segment_unit_damping(
+        sam.definition.segments[i], segment_material(sam, i), sam.set)),
+    compression_frac = Parameter(Authored(:compression_frac, 0.1)),
+    compression_damping_frac = Parameter(Authored(:compression_damping_frac, 1.0)),
     rest_length = Parameter((sam, i) -> segment_rest_length(sam, i)),
     len = Derived((sam, i) -> segment_world_length(sam, i)),
     force = Columns(:spring_force),
-    diameter = Parameter(Authored(:diameter, 0.0)),
+    diameter = Parameter((sam, i) -> segment_diameter(sam, i)),
 )
 
 """The run's quantities of each pulley, by name."""
@@ -514,7 +514,6 @@ function wing_column(sam, body_idx, column)
     wing_idx = body_wing(sam, body_idx)
     (isnothing(value) && wing_idx != 0) || return value
     return getproperty(sam.definition.wings[wing_idx].model, column)
-    return value
 end
 
 """How the principal frame of body `body_idx` of `sam` is found: its own column, else its
@@ -811,10 +810,12 @@ end
 """The material segment `i` of `sam` names."""
 segment_material(sam, i) = sam.definition.materials[sam.definition.segments[i].material]
 
-"""What a run reads of segment `i` of `sam` where it holds no value of its own
-([`resolve_segment`](@ref))."""
-built_segment(sam, i) =
-    resolve_segment(sam.definition.segments[i], sam.definition.materials, sam.set)
+"""The diameter of segment `i` of `sam` [m], which its row must give."""
+function segment_diameter(sam, i)
+    segment = sam.definition.segments[i]
+    isnothing(segment.diameter) && error("segment $(segment.name) gives no diameter")
+    return segment.diameter
+end
 
 """The stiffness per unit length [N] of segment `i` of `sam` whose stiffness is a number,
 typed `Float64`."""

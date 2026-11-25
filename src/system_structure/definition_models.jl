@@ -35,7 +35,7 @@ KiteGeometry.model_columns(::Type{PointModel}) = fieldnames(PointModel)
 
 The spring of a segment, the model of a `segments` row: its damping and how it carries
 compression as a document authors them, each `nothing` where the row leaves it unset.
-A run resolves them when it is built ([`resolve_segment`](@ref)).
+A run resolves its damping with [`segment_unit_damping`](@ref).
 
 $(TYPEDFIELDS)
 """
