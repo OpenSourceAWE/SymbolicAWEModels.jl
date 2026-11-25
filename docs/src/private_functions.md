@@ -18,30 +18,11 @@ SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
 SymbolicAWEModels.InplaceGetter
 SymbolicAWEModels.ScatterGroup
-SymbolicAWEModels.ColumnVec3
-SymbolicAWEModels.ColumnQuat
 SymbolicAWEModels.sysstate_counts
-SymbolicAWEModels.Records
-SymbolicAWEModels.ComponentState
-SymbolicAWEModels.sysstate
-SymbolicAWEModels.run_state
-SymbolicAWEModels.index
-SymbolicAWEModels.@state_record
-SymbolicAWEModels.derived
 SymbolicAWEModels.tether_stretched_length
-SymbolicAWEModels.body_slot
 SymbolicAWEModels.body_frame
-SymbolicAWEModels.com_offset
-SymbolicAWEModels.PointState
-SymbolicAWEModels.StationState
-SymbolicAWEModels.SegmentState
-SymbolicAWEModels.PulleyState
-SymbolicAWEModels.TetherState
-SymbolicAWEModels.WinchState
-SymbolicAWEModels.BodyState
 SymbolicAWEModels.state_vars
 SymbolicAWEModels.set_state_vars!
-SymbolicAWEModels.next_values!
 SymbolicAWEModels.create_vsm_wing
 SymbolicAWEModels.build_vsm_engine
 SymbolicAWEModels.build_vsm_solver
@@ -52,9 +33,7 @@ SymbolicAWEModels.build_vsm_solver
 ```@docs
 SymbolicAWEModels.reinit!
 SymbolicAWEModels.reposition!
-SymbolicAWEModels.update_sys_struct!
 SymbolicAWEModels.get_set_hash
-SymbolicAWEModels.get_sys_struct_hash
 ```
 
 ## Physics and geometry helpers
@@ -143,7 +122,6 @@ SymbolicAWEModels.has_body_flap
 SymbolicAWEModels.has_point_flap
 SymbolicAWEModels.flap_delta
 SymbolicAWEModels.point_flap_delta
-SymbolicAWEModels.init_station_flap!
 SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
@@ -215,14 +193,11 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tube_initial_frames
-SymbolicAWEModels.init_tube_rest!
 SymbolicAWEModels.rigidity_fields
 SymbolicAWEModels.concrete_rigidities
 SymbolicAWEModels.with_law_rigidities
 SymbolicAWEModels.timoshenko_element_frame
-SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.particle_wing_parts
-SymbolicAWEModels.structure_tubes
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
@@ -232,7 +207,6 @@ SymbolicAWEModels.compute_spatial_station_mapping!
 SymbolicAWEModels.nearest_station
 SymbolicAWEModels.share_body_mass!
 SymbolicAWEModels.carrier_body_idx
-SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
 SymbolicAWEModels.initial_rotation
 SymbolicAWEModels.initial_body_position
@@ -282,7 +256,6 @@ SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
 SymbolicAWEModels.AeroSpec
 SymbolicAWEModels.setup_model_aero!
-SymbolicAWEModels.aero_mode_name
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.has_vsm_wing
 SymbolicAWEModels.aero_mode_tag
@@ -397,10 +370,6 @@ SymbolicAWEModels.refreshed_path
 SymbolicAWEModels.sync_class
 SymbolicAWEModels.LIVE_FIELDS
 SymbolicAWEModels.AERO_FIELDS
-SymbolicAWEModels.RunParams
-SymbolicAWEModels.run_param
-SymbolicAWEModels.set_run_param!
-SymbolicAWEModels.param_access
 SymbolicAWEModels.point_aero_force_array
 SymbolicAWEModels.zero_aero_force
 SymbolicAWEModels.PanelAeroList

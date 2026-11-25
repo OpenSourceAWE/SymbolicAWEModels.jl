@@ -49,7 +49,7 @@ CascadedLengthWinch
 
 ```@docs
 SymbolicAWEModel
-SymbolicAWEModel(set::Settings, sys_struct::SystemDefinition; kwargs...)
+SymbolicAWEModel(::Union{Nothing, Settings}, ::SystemDefinition)
 ```
 
 ## Backends
@@ -100,7 +100,6 @@ TUBE_POISSON_RATIO
 ## System state
 
 ```@docs
-SystemState
 SysState
 update_sys_state!
 update_from_sysstate!

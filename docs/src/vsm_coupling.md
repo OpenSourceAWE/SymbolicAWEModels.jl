@@ -136,15 +136,14 @@ system** — orthogonal to the wing type choice.
 ### `AeroDirect`
 
 A single VSM solve at the current operating point. The resulting forces are
-stored in the wing struct and read back as flat parameters during ODE
-evaluation:
+stored in the run and read back as flat parameters during ODE evaluation:
 
 1. `vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω from the live wing
    state and calls `VortexStepMethod.solve!`
 2. `apply_direct_forces!` reconstructs physical forces in the wind-axis basis:
    `F = q∞ · A · (CL · lift + CD · drag + CS · side)`
-3. Forces are stored in `wing.aero_force_b` and `wing.aero_moment_b`
-   (RIGID_DYNAMICS) or per-point via `distribute_panel_forces_to_points!`
+3. Forces are stored in the wing's run values `aero_force_b` and `aero_moment_b`
+   (`run_value(sam, :wings, wing_idx, :aero_force_b)`; RIGID_DYNAMICS) or per-point via `distribute_panel_forces_to_points!`
    (PARTICLE_DYNAMICS)
 4. Between VSM updates (controlled by `vsm_interval`), forces are held constant
 
@@ -287,9 +286,10 @@ frozen state — a non-finite point force or traction pattern — are
 
 ## Swappable aero components (dispatch)
 
-Each wing carries an `aero::AbstractAeroModel` field. The builder is selected by
-dispatch on **both** its type and the wing's dynamics, [`aero_component`](@ref)
-`(mode, dynamics::WingDynamics, wing, sys_struct; name, params)`, returning a `System`
+Each wing of a model flies an aero mode, `sam.aero[wing_idx]::AbstractAeroModel`. The
+builder is selected by dispatch on **both** its type and the wing's dynamics,
+[`aero_component`](@ref) `(mode, dynamics::WingDynamics, sam, wing_idx; name, params)`,
+returning a `System`
 exactly like the `dynamics` of a winch's [`WinchModel`](@ref). The built-in subtypes
 [`AeroNone`](@ref), [`AeroDirect`](@ref), [`AeroLinearized`](@ref) ship their
 own methods. A mode supports a wing dynamics by defining the matching method,
@@ -302,12 +302,12 @@ the mode to the model under the wing's name:
 struct MyAero <: AbstractAeroModel end
 
 function SymbolicAWEModels.aero_component(::MyAero, ::SymbolicAWEModels.RigidDynamics,
-                                          wing, sys_struct; name, params)
+                                          sam, wing_idx; name, params)
     # ... build and return a System with the connectors below ...
 end
 SymbolicAWEModels.aero_mode_tag(::Type{MyAero}) = "myaero"
 
-sam = SymbolicAWEModel(set, sys_struct; aero = Dict(:kite => MyAero()))
+sam = SymbolicAWEModel(set, sys; aero = Dict(:kite => MyAero()))
 ```
 
 Everything else is an **optional hook with a working default**, dispatched on
@@ -342,7 +342,7 @@ The returned `System`'s connectors are fixed by the wing's dynamics type
 ([`RigidDynamics`](@ref)/[`ParticleDynamics`](@ref); all quantities in the wing **body
 frame**):
 
-- **`RIGID_DYNAMICS`** (`ng = length(wing.station_idxs)`):
+- **`RIGID_DYNAMICS`** (`ng = length(wing_station_idxs(sam, wing_idx))`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, and — when
     `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
@@ -367,8 +367,8 @@ must be reported by [`aero_hash_id`](@ref); runtime-mutable fields must not
 ### Live-updating fields
 
 Put the mutable value on the mode struct and read it through the build-time
-`params` view: the field becomes a flat MTK parameter synced from the live
-`SystemDefinition` once per step (no `@register_symbolic`, no `psys`):
+`params` view: the field becomes a flat MTK parameter read from the wing's mode in
+the model, `sam.aero[wing_idx]` (no `@register_symbolic`, no `psys`):
 
 ```julia
 mutable struct ConstantLiftAero <: AbstractAeroModel
@@ -376,17 +376,19 @@ mutable struct ConstantLiftAero <: AbstractAeroModel
 end
 
 function SymbolicAWEModels.aero_component(::ConstantLiftAero,
-                                          ::SymbolicAWEModels.RigidDynamics, wing,
-                                          sys_struct; name, params)
-    CL = params.wings[wing.idx].aero.CL   # flat param, synced live each step
+                                          ::SymbolicAWEModels.RigidDynamics,
+                                          sam, wing_idx; name, params)
+    CL = params.wings[wing_idx].aero.CL   # flat param, synced with the aero refresh
     # ... use CL in the force equation ...
 end
 ```
 
-Mutate the field between steps — no `remake`, picked up at the next sync:
+Mutate the field between steps — no `remake`. A mode's fields are synced into the
+integrator with each aerodynamic refresh (every `vsm_interval` steps of a model with a
+VSM wing) and at `init!`:
 
 ```julia
-sam.state.wings[1].aero.CL = 0.8
+sam.aero[1].CL = 0.8
 ```
 
 A numeric field becomes a scalar/array param; a **callable** field (an

@@ -481,9 +481,14 @@ The source code is organized into modular directories:
     its reference points
   - `rigid_body.jl`: [`BodyModel`](@ref), [`TimoshenkoTube`](@ref),
     [`ElasticTube`](@ref)
-  - `system_structure_core.jl`: [`system_definition`](@ref), reference
-    resolution
-  - `utilities.jl`: Validation, tether creation, state management
+  - `system_structure_core.jl`: [`system_definition`](@ref) and a wing's station
+    mapping
+  - `run_values.jl`: the run's quantity tables, [`run_value`](@ref) and
+    [`set_run_value!`](@ref), and every property a run works out from its definition
+  - `utilities.jl`: validation ([`validate_run`](@ref)), the start of a run and
+    tether lengths
+- **`src/symbolic_awe_model.jl`** — [`SymbolicAWEModel`](@ref), the run of a
+  structure
 - **`src/aero_modes/`** — one file per [`AbstractAeroModel`](@ref)
   (`none`, `direct`, `linearized`, `continuous`, `pressure`, `plate`), plus
   `common.jl` with the dispatch interface and the shared VSM numerics

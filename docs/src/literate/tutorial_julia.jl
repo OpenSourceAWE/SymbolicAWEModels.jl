@@ -21,11 +21,11 @@
 #    rows, the `Material` table the segments name, a KiteGeometry
 #    `Transform`, and optionally `Tether`, `Winch` and `Pulley` rows
 # 2. **Assemble** — pass the rows to [`system_definition`](@ref), which
-#    resolves all symbolic references (`:anchor` → index 1) and
-#    validates the structure
-# 3. **Compile** — wrap in [`SymbolicAWEModel`](@ref), which generates
-#    symbolic equations via ModelingToolkit and compiles an `ODEProblem`
-# 4. **Simulate** — call [`init!`](@ref) and [`next_step!`](@ref)
+#    builds and places the `SystemDefinition`
+# 3. **Run** — wrap it in a [`SymbolicAWEModel`](@ref), the run of the
+#    structure; [`init!`](@ref) generates the symbolic equations via
+#    ModelingToolkit, compiles an `ODEProblem` and validates the run
+# 4. **Simulate** — call [`next_step!`](@ref)
 #
 # All components use symbolic names (`:anchor`, `:spring`, etc.) and
 # reference each other by name. [`system_definition`](@ref) resolves
@@ -111,26 +111,27 @@ end
 # system using spherical coordinates (elevation, azimuth, heading)
 # relative to a base position. It names the base point, the point it
 # turns and the points it moves by their index; [`place!`](@ref) puts
-# the structure where it says. Then visualize it:
+# the structure where it says. Then visualize it, as a model built on it
+# without settings (building one compiles nothing):
 
-sys_struct = system_definition("tether", set; points, segments, materials)
+sys = system_definition("tether", set; points, segments, materials)
 transforms = [Transform(; name=:tf, elevation=deg2rad(-80), azimuth=0.0,
     heading=0.0, base_pos=[0.0, 0.0, 50.0], base_point=1,
     rot_point=[length(points) => 1.0], points=collect(eachindex(points)))]
-place!(sys_struct, transforms)
+place!(sys, transforms)
 
-scene = plot(sys_struct)                                          #hide
-plot(sys_struct)
+scene = plot(SymbolicAWEModel(nothing, sys))                      #hide
+plot(SymbolicAWEModel(nothing, sys))
 
-GLMakie.save(joinpath(ASSETS, "tether_sys_struct.png"), scene)    #hide
+GLMakie.save(joinpath(ASSETS, "tether_structure.png"), scene)     #hide
 
-#md # ![SystemDefinition visualization](assets/tether_sys_struct.png)
+#md # ![SystemDefinition visualization](assets/tether_structure.png)
 #
 # If the system looks correct, compile and simulate:
 
 using KiteUtils: init!, next_step!, update_sys_state!
 
-sam = SymbolicAWEModel(set, sys_struct; transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; prn=false, remake=true)                                             #hide
 init!(sam)
 
@@ -146,8 +147,8 @@ end
 
 save_log(logger, "tether_sim")
 lg = load_log("tether_sim")
-SymbolicAWEModels.record(lg, sam.sys_struct, "tether_sim.gif")
-SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
+SymbolicAWEModels.record(lg, sam, "tether_sim.gif")
+SymbolicAWEModels.record(lg, sam,                                 #hide
     joinpath(ASSETS, "tether_sim.gif"); framerate=20)             #hide
 
 #md # ![Tether simulation](assets/tether_sim.gif)
@@ -178,18 +179,17 @@ winches = [Winch(; name=:winch, tethers=[:main], winch_point=:anchor,
 
 # Build and simulate with a constant torque of -20 Nm:
 
-sys_struct = system_definition("winch", set; points, segments, materials, tethers,
-    winches)
-place!(sys_struct, transforms)
+sys = system_definition("winch", set; points, segments, materials, tethers, winches)
+place!(sys, transforms)
 
-scene = plot(sys_struct)                                          #hide
-GLMakie.save(joinpath(ASSETS, "winch_sys_struct.png"), scene)     #hide
+scene = plot(SymbolicAWEModel(nothing, sys))                      #hide
+GLMakie.save(joinpath(ASSETS, "winch_structure.png"), scene)      #hide
 
-#md # ![Winch system structure](assets/winch_sys_struct.png)
+#md # ![Winch system structure](assets/winch_structure.png)
 
 using KiteUtils: init!, next_step!, update_sys_state!
 
-sam = SymbolicAWEModel(set, sys_struct; transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; prn=false, remake=true)                                             #hide
 init!(sam)
 
@@ -205,8 +205,8 @@ end
 
 save_log(logger, "winch_sim")
 lg = load_log("winch_sim")
-SymbolicAWEModels.record(lg, sam.sys_struct, "winch_sim.gif")
-SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
+SymbolicAWEModels.record(lg, sam, "winch_sim.gif")
+SymbolicAWEModels.record(lg, sam,                                 #hide
     joinpath(ASSETS, "winch_sim.gif"); framerate=20)              #hide
 
 #md # ![Winch simulation](assets/winch_sim.gif)
@@ -253,16 +253,16 @@ pulleys = [Pulley(; name=:pulley, segments=(:to_left, :to_right),
 
 # Build the system:
 
-sys_struct = system_definition("pulley", set; points, segments, materials, pulleys)
+sys = system_definition("pulley", set; points, segments, materials, pulleys)
 
-scene = plot(sys_struct)                                          #hide
-GLMakie.save(joinpath(ASSETS, "pulley_sys_struct.png"), scene)    #hide
+scene = plot(SymbolicAWEModel(nothing, sys))                      #hide
+GLMakie.save(joinpath(ASSETS, "pulley_structure.png"), scene)     #hide
 
-#md # ![Pulley system structure](assets/pulley_sys_struct.png)
+#md # ![Pulley system structure](assets/pulley_structure.png)
 
 using KiteUtils: init!, next_step!, update_sys_state!
 
-sam = SymbolicAWEModel(set, sys_struct)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; prn=false, remake=true)                                             #hide
 init!(sam)
 
@@ -278,8 +278,8 @@ end
 
 save_log(logger, "pulley_sim")
 lg = load_log("pulley_sim")
-SymbolicAWEModels.record(lg, sam.sys_struct, "pulley_sim.gif")
-SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
+SymbolicAWEModels.record(lg, sam, "pulley_sim.gif")
+SymbolicAWEModels.record(lg, sam,                                 #hide
     joinpath(ASSETS, "pulley_sim.gif"); framerate=20)             #hide
 
 #md # ![Pulley simulation](assets/pulley_sim.gif)

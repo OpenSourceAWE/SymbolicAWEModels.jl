@@ -363,7 +363,8 @@ it holds. So the body's
 
 - `total_mass` is `extra_mass` plus the `total_mass` of every point it carries, and its
   weight acts at the COM;
-- COM (`com_offset_b`) is the mass-weighted mean of its own COM and those points;
+- COM (the run quantity `total_com_offset_b`; the row's `com_offset_b` is its own)
+  is the mass-weighted mean of its own COM and those points;
 - inertia is its own about that COM plus each point's, by the parallel-axis theorem.
 
 ```text
@@ -380,9 +381,9 @@ the KCU. A wing with no `extra_mass` of its own and no point masses spreads
 `set.mass` over its points. A particle wing's `total_mass` adds up its free points
 and section bodies, which carry its mass.
 
-The segment halves use each segment's `l0` at the start of a run
-([`update_mass_properties!`](@ref), run by [`init!`](@ref)); they are not updated while
-a winch changes a tether's `l0` during a run.
+The segment halves use each segment's rest length in the run as it stands
+([`point_total_mass`](@ref)), so a point's mass follows a winch changing its tether's
+length during a run.
 
 ### Bodies and tubes
 

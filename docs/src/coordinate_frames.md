@@ -1,3 +1,7 @@
+```@meta
+CurrentModule = SymbolicAWEModels
+```
+
 # Coordinate Frames
 
 ## Overview
@@ -124,8 +128,8 @@ At runtime, the quaternion state gives ``R_{b \to w}``, and world
 positions are recovered as
 ``\mathbf{p}_w = \mathbf{wing.pos}_w + R_{b \to w} \, \mathbf{p}_b``.
 
-See [`update_mass_properties!`](@ref) in
-`system_structure_core.jl`.
+See [`body_mass_properties`](@ref) in `run_values.jl`: a model works them out from its
+definition whenever they are read.
 
 ## Principal Frame — RIGID_DYNAMICS
 
@@ -136,7 +140,7 @@ terms. It is a constant rotation off the body frame,
 ``R_{b \to p} = R_{p \to c}^\top R_{b \to c}``.
 
 The inertia it diagonalises is the body's with the points it carries
-([`update_mass_properties!`](@ref)), expressed in the body frame, and
+([`body_mass_properties`](@ref)), expressed in the body frame, and
 [`PrincipalFrameMethod`](@ref) selects how ``R_{b \to p}`` is found from it:
 
 - `EIGEN_DECOMP` (`principal_frame`) — full 3-axis eigendecomposition
@@ -197,7 +201,7 @@ Key points:
 - Different reference point choices produce different body frames —
   pick what makes physical sense for your model
 
-See `calc_particle_dynamics_wing_frame` in `wing.jl`.
+See [`wing_frame_columns`](@ref) and [`wing_kinematics_from_points!`](@ref).
 
 ## Aero Geometry to Body Transformation (VSM Panels)
 

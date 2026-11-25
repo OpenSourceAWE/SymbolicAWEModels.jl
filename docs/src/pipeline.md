@@ -14,11 +14,11 @@ This page explains each stage.
     Stage 1            Stage 2              Stage 3               Stage 4
 ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐   ┌──────────────┐
 │ Component    │──▶│ System       │──▶│ Symbolic Eqs     │──▶│ ODEProblem   │
-│ Definition   │   │ Structure    │   │ ModelingToolkit  │   │ + Integrator │
+│ Definition   │   │ Definition   │   │ ModelingToolkit  │   │ + Integrator │
 │              │   │              │   │                  │   │              │
 │ Point rows   │   │ resolve refs │   │ point_eqs!()     │   │ init!()      │
-│ Segment rows │   │ validate     │   │ segment_eqs!()   │   │ cache to .bin│
-│ Wing rows    │   │ compute COM  │   │ wing_eqs!()      │   │              │
+│ Segment rows │   │ complete     │   │ segment_eqs!()   │   │ validate_run │
+│ Wing rows    │   │ place!       │   │ wing_eqs!()      │   │ cache to .bin│
 │ Winch rows   │   │              │   │ winch_eqs!()     │   │              │
 │ ...          │   │              │   │ aero_eqs!()      │   │              │
 └──────────────┘   └──────────────┘   └──────────────────┘   └──────────────┘
@@ -52,24 +52,37 @@ Alternatively, components can be parsed from a YAML file using
 
 [`system_definition`](@ref) takes the component vectors and:
 
-1. **Builds the definition** — the rows and the `materials` they name become a
-   KiteGeometry `SystemDefinition`; a winch without a `gear_ratio` or `drum_radius`
-   takes `set`'s
-2. **Completes and places the wings** — KiteGeometry's `complete_wings!` puts every
-   wing's body in its design pose and gives it `set.mass` where it carries none, and
-   KiteGeometry's `place!` places the whole
-3. **Computes derived properties**:
-   - Segment `l0` from point positions (if zero)
-   - Wing center of mass and inertia tensor — from the `.obj` mesh when one is
-     supplied, otherwise from the mass-weighted point masses
-   - Body and principal frames ([`PrincipalFrameMethod`](@ref))
-   - VSM panel geometry adjustments
-4. **Validates** — checks for NaN masses, zero stiffness, invalid pulley constraints,
-   etc. via `validate_sys_struct()`
+1. **Completes the winches** — a winch without a `gear_ratio` or `drum_radius` takes
+   `set`'s
+2. **Builds the definition** — the rows and the `materials` they name become a
+   KiteGeometry `SystemDefinition`, with the body of each wing leading `bodies`
+3. **Completes the wings** — KiteGeometry's `complete_wings!` gives every wing
+   `set.mass` where it carries none and puts its body in its design pose from where
+   its points stand
+4. **Places it** — KiteGeometry's `place!` gives each unset (zero) segment rest length
+   the length it has between its points, sets each tether's length and rest length
+   from its `init_*` columns, shares out pulley rest lengths, applies the transforms
+   and carries each body's points and each wing's frame with it (`ignore_l0=true`
+   makes every rest length its placed length)
 
 ```julia
 sys = system_definition("my_model", set; points, segments, materials)
 ```
+
+Nothing else is computed here: the definition holds only what was authored and where
+it was placed. A [`SymbolicAWEModel`](@ref) built on it, `SymbolicAWEModel(set, sys)`,
+is the run of the definition and compiles nothing. It sets up each wing's aero engine
+(VSM panel geometry and its station mapping) and starts the run at the placed pose
+([`start_run!`](@ref)). Every derived property — a point's total mass, a body's mass,
+centre of mass, inertia and principal frame ([`PrincipalFrameMethod`](@ref)), from the
+`.obj` mesh when one is supplied, otherwise from the point masses; a segment's rest
+length, a station's chord, a tube's rest state — is worked out from the definition
+when the model reads it ([`run_value`](@ref), the quantity tables in
+`src/system_structure/run_values.jl`), so it is never stale.
+
+The run is validated ([`validate_run`](@ref): NaN or non-positive masses and
+inertias, NaN positions, non-positive stiffness or rest length, zero pulley lengths,
+etc.) at the end of [`init!`](@ref), once the integrator holds the run's values.
 
 ## Stage 3: symbolic equation generation
 
@@ -117,8 +130,9 @@ equations are not captured by the model hash.
 Once compiled, the simulation loop consists of:
 
 1. **`next_step!(sam)`** — advances the ODE integrator by one time step
-2. **`update_sys_struct!()`** — copies the integrator state back to the mutable
-   component structs (point positions, wing orientation, etc.)
+2. **[`update_run_state!`](@ref)** — copies the integrator state into the run's
+   `SysState` (point positions, wing orientation, etc.), which
+   [`run_value`](@ref) reads
 3. **`refresh_aero!()`** — periodically calls the Vortex Step Method to update
    aerodynamic forces (controlled by `vsm_interval`)
 
@@ -134,19 +148,32 @@ end
 
 ## Runtime parameter changes
 
-Numeric fields of the component structs are emitted as **flat MTK parameters** and
-synced from the live `SystemDefinition` once per step, so many parameters
-can be changed at runtime without recompiling:
+Numeric run values are emitted as **flat MTK parameters**, so many of them can be
+changed at runtime without recompiling. Once [`init!`](@ref) has built the integrator,
+a parameter is read from and written to the model, not to a `SystemDefinition`:
+[`set_run_value!`](@ref) writes it into the integrator, and [`run_value`](@ref) reads it
+back. Before `init!` a parameter reads its default from the definition row, and is
+changed by writing the row.
 
-- Winch parameters: `inertia_total`, `coulomb_friction`, `viscous_coefficient`, `gear_ratio`
-- Segment properties: `l0` (via tether/winch control)
+```julia
+set_run_value!(sam, :winches, 1, :inertia_total, 0.1)
+set_run_value!(sam, :points, :kite, :body_frame_damping, [1.0, 1.0, 1.0])
+```
+
+Among them:
+
+- Winch parameters: `inertia_total`, `coulomb_friction`, `viscous_coefficient`,
+  `gear_ratio`, `drum_radius`
+- Segment properties: `rest_length` (driven by tether and pulley lengths where a
+  segment has one), `unit_stiffness`, `unit_damping`
 - Point damping: `body_frame_damping`, `world_frame_damping`
 - Aero state: `aero_jac`, `aero_x`, `aero_y`, `aero_force_b` (updated by
   `refresh_aero!()`)
 
-Mutate the struct field between steps and it is picked up at the next sync — no
-`init!` or `remake` call is needed. Flat parameters compile to direct buffer
-loads, which is why the generated RHS is allocation-free.
+Values the run's `SysState` holds (positions, tether lengths, aero forces) are synced
+into their parameters every step, and an aero mode's fields with each aerodynamic
+refresh. Flat parameters compile to direct buffer loads, which is why the generated
+RHS is allocation-free.
 
 Changes that **do** require recompilation (rebuilding the symbolic system):
 - Adding or removing components (points, segments, wings, bodies, tubes)
@@ -154,4 +181,5 @@ Changes that **do** require recompilation (rebuilding the symbolic system):
 - Changing dynamics types (STATIC ↔ DYNAMIC)
 - Changing an aero mode, or any structural field it reports via `aero_hash_id`
 
-These require creating a new `SystemDefinition` and [`SymbolicAWEModel`](@ref).
+These require a new `SystemDefinition` and [`SymbolicAWEModel`](@ref), and
+[`init!`](@ref) to compile it.

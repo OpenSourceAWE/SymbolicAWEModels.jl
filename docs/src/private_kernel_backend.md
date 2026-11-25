@@ -47,6 +47,8 @@ SymbolicAWEModels.KernelCodegen._resolved_reads
 ## Kernel backend — runtime
 
 ```@docs
+SymbolicAWEModels.KernelParameter
+SymbolicAWEModels.parent_body
 SymbolicAWEModels.SlotMap
 SymbolicAWEModels.group_name
 SymbolicAWEModels.slots
@@ -278,9 +280,6 @@ SymbolicAWEModels.StationReadout
 SymbolicAWEModels.wing_aero_readouts
 SymbolicAWEModels.station_readouts
 SymbolicAWEModels.observed_slots
-SymbolicAWEModels.inflow_slots
-SymbolicAWEModels.mass_slot
-SymbolicAWEModels.va_frame_body
 SymbolicAWEModels.drag_source
 SymbolicAWEModels.copy_slots!
 SymbolicAWEModels.KernelControlSetter
