@@ -7,24 +7,47 @@
     read_path(obj, path)
 
 Walk `path` (a tuple of `Symbol` fields and `Int` indices) from `obj`, e.g.
-`read_path(sys_struct, (:wings, 1, :aero, :engine, :aero_jac))`.
+`read_path(sam, (:wings, 1, :aero, :aero_jac))`. From a run, a leading
+`(collection, index, quantity)` is that item's [`run_value`](@ref).
 """
 read_path(obj, ::Tuple{}) = obj
 read_path(obj, path::Tuple) = read_path(path_step(obj, first(path)), Base.tail(path))
+function read_path(sam::SymbolicAWEModel, path::Tuple)
+    is_item_path(path) || return read_path(path_step(sam, first(path)), Base.tail(path))
+    return read_path(run_value(sam, Val(path[1]), path[2], Val(path[3])), path[4:end])
+end
 @inline path_step(obj, key::Symbol) = getproperty(obj, key)
 path_step(obj, key::Int) = obj[key]
+
+"""Whether `path` starts at a quantity of an item of a run: `(collection, index,
+quantity, …)`."""
+is_item_path(path) = length(path) >= 3 && is_collection(path[1]) && path[2] isa Int &&
+    path[3] isa Symbol
+
+"""
+    canonical_path(sam, path)
+
+`path` as the parameter it reads is named: a quantity of wing `w` of `sam` that is its
+body's, `(:wings, w, quantity)`, reads `(:bodies, wing_body(sam, w), quantity)`.
+"""
+function canonical_path(sam, path)
+    length(path) == 3 && path[1] === :wings && path[2] isa Int &&
+        !has_quantity(:wings, path[3]) || return path
+    return (:bodies, wing_body(sam, path[2]), path[3])
+end
 
 """
     PathReader(path)
 
-Serialisable closure reading a fixed `path` from a `sys_struct` at sync time
-(holds only the path, never the struct).
+Serialisable closure reading a fixed `path` from a run `sam` at sync time (holds only
+the path, never the run).
 
 The field names live in the type and the container indices stay values. A name has
 to be a compile-time constant for the field read to resolve to an offset —
 otherwise every step of the walk is a dynamic call that boxes both its argument
 and its result — while keeping the indices out of the type lets all components of
-one kind share a single compiled reader instead of one per index.
+one kind share a single compiled reader instead of one per index. A leading
+`(collection, index, quantity)` reads that item's [`run_value`](@ref).
 """
 struct PathReader{Fields, I <: Tuple}
     indices::I
@@ -50,10 +73,16 @@ end
 Base.getproperty(reader::PathReader, name::Symbol) =
     name === :path ? path_of(reader) : getfield(reader, name)
 
-@generated function (reader::PathReader{Fields})(sys_struct) where {Fields}
-    walk = :sys_struct
-    taken = 0
-    for field in Fields
+@generated function (reader::PathReader{Fields})(sam) where {Fields}
+    walk, taken, start = :sam, 0, 1
+    if length(Fields) >= 3 && Fields[1] isa Symbol &&
+            hasfield(typeof(QUANTITIES), Fields[1]) && Fields[2] === nothing &&
+            Fields[3] isa Symbol
+        walk = :(run_value(sam, Val($(QuoteNode(Fields[1]))),
+                           getfield(reader, :indices)[1], Val($(QuoteNode(Fields[3])))))
+        taken, start = 1, 4
+    end
+    for field in Fields[start:end]
         if field === nothing
             taken += 1
             walk = :(path_step($walk, getfield(reader, :indices)[$taken]))
@@ -67,7 +96,7 @@ end
 """
     ParamEntry
 
-One flattened parameter: the symbolic `param`, a `read(sys_struct)` callable that
+One flattened parameter: the symbolic `param`, a `read(sam)` callable that
 returns its live value, a `kind` (`:scalar`, `:array`, or `:callable`), and the
 `path` it was read from (a `(name,)` tuple for computed leaves). The `path` lets a
 backend resolve a runtime address per instance (see `ParamView`).
@@ -87,12 +116,12 @@ generation; the `params` view records one [`ParamEntry`](@ref) per distinct fiel
 it reads (memoised by cache key). After compilation it drives `sync_params!`.
 """
 mutable struct ParamRegistry
-    sys_struct::SystemState
+    "the run the parameters are read from"
+    sam::SymbolicAWEModel
     entries::Vector{ParamEntry}
     cache::Dict{Any, Any}
 end
-ParamRegistry(sys_struct::SystemState) =
-    ParamRegistry(sys_struct, ParamEntry[], Dict{Any, Any}())
+ParamRegistry(sam::SymbolicAWEModel) = ParamRegistry(sam, ParamEntry[], Dict{Any, Any}())
 
 # ---- parameter constructors (value baked in as default) ----
 
@@ -123,7 +152,7 @@ end
 Create (once, memoised on `key`) and record the flat parameter for a leaf
 `value` under symbol `name`. Numeric scalars/arrays become data params; any other
 (callable) leaf — an interpolation or polar — becomes a callable param applied as
-`name(x)`. `reader` reads the live value from a `sys_struct` at sync time; `path`
+`name(x)`. `reader` reads the live value from the run at sync time; `path`
 is stored on the entry for per-instance address resolution.
 """
 function register_leaf!(reg::ParamRegistry, key, name::Symbol, reader, value, path)
@@ -155,13 +184,12 @@ leaf_param!(reg::ParamRegistry, path::Tuple, reader, value) =
 """
     param_computed!(reg, name, reader)
 
-Escape hatch for a value that is not a plain field read — `reader(sys_struct)`
-computes it (e.g. a [`WindFactorReader`](@ref) building a callable wind-factor
-from the atmospheric model). `reader` must be a named struct (serialisable), not
-a closure over `sys_struct`.
+Escape hatch for a value that is not a plain field read — `reader(sam)` computes it
+(e.g. a [`WindFactorReader`](@ref) building a callable wind-factor from the atmospheric
+model). `reader` must be a named struct (serialisable), not a closure over the run.
 """
 param_computed!(reg::ParamRegistry, name::Symbol, reader) =
-    register_leaf!(reg, name, name, reader, reader(reg.sys_struct), (name,))
+    register_leaf!(reg, name, name, reader, reader(reg.sam), (name,))
 
 # ==================== BUILD-TIME VIEW ==================== #
 
@@ -175,14 +203,14 @@ param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 
 """
 Top-level `params` view wrapping a [`ParamRegistry`](@ref): `params.segments[i].rest_length`
-mirrors `sys_struct.segments[i].rest_length` and records the parameter that stands for it
-(build-time only).
+reads `run_value(sam, :segments, i, :rest_length)` and records the parameter that stands
+for it (build-time only).
 """
 struct ParamView
     reg::ParamRegistry
 end
 
-"""A partial path into `sys_struct` on its way to a parameter."""
+"""A partial path into the run on its way to a parameter."""
 struct PathView
     reg::ParamRegistry
     path::Tuple
@@ -206,22 +234,25 @@ param_unknowns(params::ParamView) = Any[entry.param for entry in params.reg.entr
 function Base.getproperty(view::PathView, sym::Symbol)
     (sym === :reg || sym === :path) && return getfield(view, sym)
     reg = getfield(view, :reg)
-    path = (getfield(view, :path)..., sym)
-    value = read_path(reg.sys_struct, path)
+    path = canonical_path(reg.sam, (getfield(view, :path)..., sym))
+    cached = get(reg.cache, path, nothing)
+    cached === nothing || return cached
+    value = read_path(reg.sam, path)
     param_descend(value) && return PathView(reg, path)
-    parent = read_path(reg.sys_struct, Base.front(path))
-    return leaf_param!(reg, path, leaf_reader(path, value, parent), value)
+    return leaf_param!(reg, path, leaf_reader(path, value), value)
 end
 
-"""The reader of the leaf `value` at `path`, a property of `parent`: a
-[`PathReader`](@ref), copying into a buffer of its own a vector built on read — one a
-run's state holds in its columns, or one a definition row holds as one number per axis —
-and a [`StiffnessReader`](@ref) for a segment's numeric `unit_stiffness`."""
-leaf_reader(path, value, parent) = PathReader(path)
-leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}, parent) =
-    CopyReader(PathReader(path), MVector(Tuple(value)))
-leaf_reader(path, value::Real, parent::SegmentState) = last(path) === :unit_stiffness ?
-    StiffnessReader(PathReader(Base.front(path))) : PathReader(path)
+"""The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
+buffer of its own a vector built on read, and a [`StiffnessReader`](@ref) for a
+segment's numeric `unit_stiffness`."""
+leaf_reader(path, value) = PathReader(path)
+leaf_reader(path, value::SVector) = CopyReader(PathReader(path), MVector(Tuple(value)))
+leaf_reader(path, value::Real) = is_stiffness_path(path) ?
+    StiffnessReader(PathReader(path)) : PathReader(path)
+
+"""Whether `path` reads a segment's `unit_stiffness`."""
+is_stiffness_path(path) = length(path) == 3 && path[1] === :segments &&
+    path[3] === :unit_stiffness
 
 """
     CopyReader(reader, buffer)
@@ -235,30 +266,29 @@ struct CopyReader{R, B}
     buffer::B
 end
 
-(reader::CopyReader)(sys_struct) = (reader.buffer .= reader.reader(sys_struct))
+(reader::CopyReader)(sam) = (reader.buffer .= reader.reader(sam))
 
 """
-    StiffnessReader(segment)
+    StiffnessReader(reader)
 
-Reads the numeric stiffness per unit length of the segment the reader `segment` reads,
-through [`numeric_unit_stiffness`](@ref).
+Reads the numeric stiffness per unit length of a segment `reader` reads as a `Float64`.
 """
 struct StiffnessReader{R}
-    segment::R
+    reader::R
 end
 
-(reader::StiffnessReader)(sys_struct) = numeric_unit_stiffness(reader.segment(sys_struct))
+(reader::StiffnessReader)(sam) = to_float64(reader.reader(sam))
 
 """The [`PathReader`](@ref) `reader` reads through, or `nothing` for a computed one."""
 path_reader(reader) = nothing
 path_reader(reader::PathReader) = reader
 path_reader(reader::CopyReader) = reader.reader
-path_reader(reader::StiffnessReader) = PathReader((reader.segment.path..., :unit_stiffness))
+path_reader(reader::StiffnessReader) = reader.reader
 
 """A reader of the same kind as `reader` reading `path` instead."""
 read_at(::PathReader, path) = PathReader(path)
 read_at(reader::CopyReader, path) = CopyReader(PathReader(path), similar(reader.buffer))
-read_at(::StiffnessReader, path) = StiffnessReader(PathReader(Base.front(path)))
+read_at(::StiffnessReader, path) = StiffnessReader(PathReader(path))
 
 # ==================== SYNC ==================== #
 
@@ -301,15 +331,15 @@ function group_readers(targets, readers)
 end
 
 """
-    sync_readers!(group::ReaderGroup, destination, sys_struct)
+    sync_readers!(group::ReaderGroup, destination, sam)
 
 Write every reader of `group` into `destination` at its target index. Called with
 a concretely typed `group`, which is the function barrier the grouping exists for.
 """
-function sync_readers!(group::ReaderGroup, destination, sys_struct)
+function sync_readers!(group::ReaderGroup, destination, sam)
     targets, readers = group.targets, group.readers
     @inbounds for k in eachindex(targets)
-        destination[targets[k]] = readers[k](sys_struct)
+        destination[targets[k]] = readers[k](sam)
     end
     return nothing
 end
@@ -339,8 +369,8 @@ end
 
 The [`ParamKinds`](@ref) of each sync class: the parameters a run's `SysState` gives
 (`live`, written every step), those an aerodynamic refresh changes (`aero`), and the
-rest, which a run writes once when it starts and then only where a record writes one
-(`run`).
+rest, which a run writes once when it starts and then only where
+[`set_run_value!`](@ref) writes one (`run`).
 """
 struct ParamSync{L, A, R}
     live::L
@@ -386,8 +416,8 @@ bare param matches its namespaced counterparts from subsystems.
 A field read by both the parent equations and a subsystem is memoised to one registry
 entry but compiles to one parameter per reader, all sharing a leaf name. Keeping only
 the last would leave the others frozen at their build-time value, and whichever
-observed equation reads a frozen one then writes it back over the struct in
-`update_sys_struct!`.
+observed equation reads a frozen one then writes it back over the run in
+[`update_run_state!`](@ref).
 """
 function survivor_index(sys)
     index = Dict{String, Vector{Any}}()
@@ -433,51 +463,51 @@ function build_param_sync(sys, registry::ParamRegistry)
 end
 
 """
-    sync_params!(sync, target, sys_struct)
+    sync_params!(sync, target, sam)
 
-Copy the parameters a run's `SysState` gives from the live `sys_struct` into
+Copy the parameters a run's `SysState` gives from the live `sam` into
 `target`'s parameter buffers (`target` is an `ODEProblem` or an `ODEIntegrator`). A
 no-op when there are no flattened parameters.
 """
-sync_params!(::Nothing, target, sys_struct) = nothing
-sync_params!(sync::ParamSync, target, sys_struct) =
-    sync_kinds!(sync.live, target, sys_struct)
+sync_params!(::Nothing, target, sam) = nothing
+sync_params!(sync::ParamSync, target, sam) =
+    sync_kinds!(sync.live, target, sam)
 
 """
-    sync_aero_params!(sync, target, sys_struct)
+    sync_aero_params!(sync, target, sam)
 
 [`sync_params!`](@ref), and the parameters an aerodynamic refresh changes: to call right
 after a refresh.
 """
-sync_aero_params!(::Nothing, target, sys_struct) = nothing
-function sync_aero_params!(sync::ParamSync, target, sys_struct)
-    sync_kinds!(sync.aero, target, sys_struct)
-    return sync_params!(sync, target, sys_struct)
+sync_aero_params!(::Nothing, target, sam) = nothing
+function sync_aero_params!(sync::ParamSync, target, sam)
+    sync_kinds!(sync.aero, target, sam)
+    return sync_params!(sync, target, sam)
 end
 
 """
-    sync_run_params!(sync, target, sys_struct)
+    sync_run_params!(sync, target, sam)
 
-Every parameter, from `sys_struct`: where a run starts, before it holds any of its own.
+Every parameter, from `sam`: where a run starts, before it holds any of its own.
 """
-sync_run_params!(::Nothing, target, sys_struct) = nothing
-function sync_run_params!(sync::ParamSync, target, sys_struct)
-    sync_kinds!(sync.run, target, sys_struct)
-    return sync_aero_params!(sync, target, sys_struct)
+sync_run_params!(::Nothing, target, sam) = nothing
+function sync_run_params!(sync::ParamSync, target, sam)
+    sync_kinds!(sync.run, target, sam)
+    return sync_aero_params!(sync, target, sam)
 end
 
-function sync_kinds!(kinds::ParamKinds, target, sys_struct)
-    sync_group!(kinds.scalar, target, sys_struct)
-    sync_group!(kinds.array, target, sys_struct)
-    sync_group!(kinds.callable, target, sys_struct)
+function sync_kinds!(kinds::ParamKinds, target, sam)
+    sync_group!(kinds.scalar, target, sam)
+    sync_group!(kinds.array, target, sam)
+    sync_group!(kinds.callable, target, sam)
     return nothing
 end
 
-sync_group!(::Nothing, target, sys_struct) = nothing
-function sync_group!(group::ParamGroup, target, sys_struct)
+sync_group!(::Nothing, target, sam) = nothing
+function sync_group!(group::ParamGroup, target, sam)
     buffer = group.buffer
     for reader_group in group.groups
-        sync_readers!(reader_group, buffer, sys_struct)
+        sync_readers!(reader_group, buffer, sam)
     end
     group.setter(target, buffer)
     return nothing
@@ -486,73 +516,25 @@ end
 # ==================== RUN PARAMETERS ==================== #
 
 """
-    RunParams(prob, integrator)
+    build_parameter_access(sync, prob, path) -> ParameterAccess
 
-The parameters of a run's `integrator`, built from `prob`, a
-[`ProbWithAttributes`](@ref), by the path each is read from (`(:segments, 3,
-:rest_length)`): where a record reads and writes a value a run holds once it has
-started.
-"""
-struct RunParams{P, I}
-    prob::P
-    integrator::I
-    access::Dict{Any, Any}
-end
-RunParams(prob, integrator) = RunParams(prob, integrator, Dict{Any, Any}())
-
-"""
-    run_param(run, path) -> value or `nothing`
-
-The value the parameter at `path` has in `run`'s integrator, `nothing` where no
+The access to the parameter read from `path` in an integrator of `prob`, a
+[`ProbWithAttributes`](@ref), whose parameters `sync` syncs: `nothing` where no
 parameter is read from `path`.
 """
-function run_param(run::RunParams, path)
-    access = param_access(run, path)
-    isnothing(access) && return nothing
-    return access.read(run.integrator)
+build_parameter_access(::Nothing, prob, path) = nothing
+function build_parameter_access(::ParamSync, prob, path)
+    survivors = get(survivor_index(prob.sys), string(param_name(path)), nothing)
+    return isnothing(survivors) ? nothing : MonolithParameter(survivors)
 end
 
-"""
-    set_run_param!(run, path, value) -> Bool
+"""The value of the parameter `access` stands for in `integrator`."""
+read_parameter(access::MonolithParameter, integrator) =
+    getp(integrator, first(access.parameters))(integrator)
 
-Write `value` to the parameter at `path` in `run`'s integrator; `false` where no
-parameter is read from `path`.
-"""
-function set_run_param!(run::RunParams, path, value)
-    access = param_access(run, path)
-    isnothing(access) && return false
-    access.write(run.integrator, value)
-    return true
-end
-
-"""
-    run_station_aero_moment(run, idx) -> Float64
-
-The aerodynamic twist moment on station `idx` [N·m] at `run`'s integrator state.
-"""
-function run_station_aero_moment(run::RunParams, idx)
-    read = get!(run.access, (:station_aero_moment, idx)) do
-        station_aero_moment_reader(run.prob.get_all_state, run.prob, idx)
-    end
-    return read(run.integrator)
-end
-
-"""The function of an integrator that reads station `idx`'s aerodynamic twist moment
-[N·m] from the monolithic system of `prob`."""
-station_aero_moment_reader(_, prob, idx) =
-    getu(prob.sys, prob.sys.station_aero_moment[idx])
-
-"""The getter and setter of the parameter at `path` in `run`, `nothing` for none."""
-param_access(run::RunParams, path) =
-    get!(() -> build_param_access(run.prob.param_sync, run.prob, path), run.access, path)
-
-build_param_access(::Nothing, prob, path) = nothing
-function build_param_access(::ParamSync, prob, path)
-    sys = prob.sys
-    survivors = get(survivor_index(sys), string(param_name(path)), nothing)
-    isnothing(survivors) && return nothing
-    getter = getp(sys, first(survivors))
-    setter = setp(sys, survivors)
-    return (read=getter,
-            write=(target, value) -> setter(target, fill(value, length(survivors))))
+"""Write `value` to every parameter `access` stands for in `integrator`."""
+function write_parameter!(access::MonolithParameter, integrator, value)
+    setp(integrator, access.parameters)(integrator,
+                                        fill(value, length(access.parameters)))
+    return nothing
 end

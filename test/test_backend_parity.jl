@@ -32,7 +32,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: update_sys_struct!, MonolithBackend, KernelBackend,
+using SymbolicAWEModels: update_run_state!, MonolithBackend, KernelBackend,
                          VortexStepMethod
 using KiteUtils
 
@@ -40,7 +40,7 @@ using KiteUtils
     parity_model(backend, geometry, root)
 
 The 2plate kite on `backend`, built from `geometry` and initialised, with its
-struct scattered back out of the solved model. Each backend gets its own copy of
+run state scattered back out of the solved model. Each backend gets its own copy of
 the fixture so neither can read the other's model cache.
 """
 function parity_model(backend, geometry, root; aero_mode=nothing, fixture=false)
@@ -58,7 +58,7 @@ function parity_model(backend, geometry, root; aero_mode=nothing, fixture=false)
         Dict(wing.name => aero_mode() for wing in sys.wings)
     sam = SymbolicAWEModel(set, sys; transforms, backend, vsm_set, aero)
     init!(sam; prn=false, remake=true)
-    update_sys_struct!(sam.prob, sam.integrator, sam.state)
+    update_run_state!(sam.prob, sam.integrator, sam)
     return sam
 end
 
@@ -67,45 +67,47 @@ comparable(value) = value isa Real ||
     (value isa AbstractArray && eltype(value) <: Real)
 
 """
-    field_mismatches(tag, kernel_components, monolith_components, atol)
+    push_mismatch!(found, tag, idx, name, left, right, atol)
 
-Every `(tag, index, field, max|Δ|)` where the two backends' components disagree by
-more than `atol`. A field left `NaN` on both agrees — that is a quantity neither
-backend defines, not a gap between them.
+Record `(tag, idx, name, max|Δ|)` in `found` where `left` and `right` are comparable
+and disagree by more than `atol`. A value `NaN` on both agrees — that is a quantity
+neither backend defines, not a gap between them.
 """
-function field_mismatches(tag, kernel_components, monolith_components, atol)
-    found = Tuple{String, Int, Symbol, Float64}[]
-    for (idx, (a, b)) in enumerate(zip(kernel_components, monolith_components))
-        for name in propertynames(a)
-            left, right = getproperty(a, name), getproperty(b, name)
-            comparable(left) && comparable(right) || continue
-            av, bv = collect(left), collect(right)
-            all(isnan, av) && all(isnan, bv) && continue
-            delta = maximum(abs.(av .- bv); init=0.0)
-            isnan(delta) && (delta = Inf)
-            delta > atol && push!(found, (tag, idx, name, delta))
-        end
-    end
+function push_mismatch!(found, tag, idx, name, left, right, atol)
+    comparable(left) && comparable(right) || return found
+    av, bv = collect(left), collect(right)
+    all(isnan, av) && all(isnan, bv) && return found
+    delta = maximum(abs.(av .- bv); init=0.0)
+    isnan(delta) && (delta = Inf)
+    delta > atol && push!(found, (tag, idx, name, delta))
     return found
 end
 
 """
-    struct_mismatches(kernel, monolith; atol)
+    run_mismatches(kernel, monolith; atol)
 
-Every read-back mismatch between two structs, over all component groups. `wings` is
-left out because it is a filtered view of `bodies` — the same `Body` objects, so
-including it would only report each wing twice.
+Every read-back mismatch between two runs: each quantity of each item of every
+collection, and each field of every tube model.
 """
-function struct_mismatches(kernel, monolith; atol=1e-6)
-    groups = (:points, :spanwise_stations, :segments, :pulleys, :tethers, :winches,
-              :bodies, :tubes)
-    found = reduce(vcat, (field_mismatches(String(group), getproperty(kernel, group),
-                                           getproperty(monolith, group), atol)
-                          for group in groups))
-    tube_models = field_mismatches("tube models",
-        [tube.model for tube in kernel.tubes],
-        [tube.model for tube in monolith.tubes], atol)
-    return [found; tube_models]
+function run_mismatches(kernel, monolith; atol=1e-6)
+    found = Tuple{String, Int, Symbol, Float64}[]
+    for (collection, quantities) in pairs(SymbolicAWEModels.QUANTITIES)
+        for idx in eachindex(getproperty(kernel.definition, collection)),
+                name in keys(quantities)
+            push_mismatch!(found, String(collection), idx, name,
+                           run_value(kernel, collection, idx, name),
+                           run_value(monolith, collection, idx, name), atol)
+        end
+    end
+    for idx in eachindex(kernel.definition.tubes)
+        a = run_value(kernel, :tubes, idx, :model)
+        b = run_value(monolith, :tubes, idx, :model)
+        for name in propertynames(a)
+            push_mismatch!(found, "tube models", idx, name, getproperty(a, name),
+                           getproperty(b, name), atol)
+        end
+    end
+    return found
 end
 
 """One line per mismatch, worst first, for a failing test's message."""
@@ -131,8 +133,7 @@ end
             monolith = parity_model(MonolithBackend(), geometry,
                                     joinpath(root, name); aero_mode, fixture)
 
-            mismatches = struct_mismatches(kernel.state,
-                                           monolith.state)
+            mismatches = run_mismatches(kernel, monolith)
             @test isempty(mismatches)
             isempty(mismatches) || println(describe(mismatches))
         end

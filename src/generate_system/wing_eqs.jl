@@ -37,17 +37,18 @@ function wing_eqs!(
 )
     get_ref_position(pos, refs) = KiteGeometry.ref_position(PointColumns(pos), refs)
 
-    for wing in s.state.bodies
+    for body_idx in eachindex(s.definition.bodies)
         # KINEMATIC wings: body frame fitted from ref points; DYNAMIC via body_eqs!.
-        body_type(wing) == KINEMATIC || continue
-        (z_p1, z_p2), (y_p1, y_p2) = wing.wing_frame.z_ref_points,
-                                     wing.wing_frame.y_ref_points
+        body_type(s, body_idx) == KINEMATIC || continue
+        wing_idx = body_wing(s, body_idx)
+        frame = wing_frame(s, wing_idx)
+        (z_p1, z_p2), (y_p1, y_p2) = frame.z_ref_points, frame.y_ref_points
         pos_z1 = collect(get_ref_position(pos, z_p1))
         pos_z2 = collect(get_ref_position(pos, z_p2))
         pos_y1 = collect(get_ref_position(pos, y_p1))
         pos_y2 = collect(get_ref_position(pos, y_p2))
 
-        R_wing = R_b_to_w[:, :, wing.idx]
+        R_wing = R_b_to_w[:, :, body_idx]
         q_wing = rotation_matrix_to_quaternion(R_wing)
         xaxis, yaxis, zaxis = wing_frame_columns(pos_z1, pos_z2, pos_y1, pos_y2;
             torn_frame=R_wing)
@@ -62,29 +63,29 @@ function wing_eqs!(
              collect(get_ref_position(vel, y_p2))), frame_axes)
         eqs = [
             eqs
-            R_b_to_w[:, 3, wing.idx] ~ zaxis
-            R_b_to_w[:, 1, wing.idx] ~ xaxis
-            R_b_to_w[:, 2, wing.idx] ~ yaxis
+            R_b_to_w[:, 3, body_idx] ~ zaxis
+            R_b_to_w[:, 1, body_idx] ~ xaxis
+            R_b_to_w[:, 2, body_idx] ~ yaxis
             # Body frame output from origin ref points
-            wing_pos[:, wing.idx] ~ get_ref_position(pos, wing.origin)
-            wing_vel[:, wing.idx] ~ get_ref_position(vel, wing.origin)
-            wing_acc[:, wing.idx] ~ get_ref_position(acc, wing.origin)
-            Q_b_to_w[1, wing.idx] ~ q_wing[1]
-            Q_b_to_w[2, wing.idx] ~ q_wing[2]
-            Q_b_to_w[3, wing.idx] ~ q_wing[3]
-            Q_b_to_w[4, wing.idx] ~ q_wing[4]
-            ω_b[:, wing.idx] ~ body_frame_omega(frame_axes, frame_rates)
-            α_b[:, wing.idx] ~ zeros(3)
+            wing_pos[:, body_idx] ~ get_ref_position(pos, wing_origin(s, wing_idx))
+            wing_vel[:, body_idx] ~ get_ref_position(vel, wing_origin(s, wing_idx))
+            wing_acc[:, body_idx] ~ get_ref_position(acc, wing_origin(s, wing_idx))
+            Q_b_to_w[1, body_idx] ~ q_wing[1]
+            Q_b_to_w[2, body_idx] ~ q_wing[2]
+            Q_b_to_w[3, body_idx] ~ q_wing[3]
+            Q_b_to_w[4, body_idx] ~ q_wing[4]
+            ω_b[:, body_idx] ~ body_frame_omega(frame_axes, frame_rates)
+            α_b[:, body_idx] ~ zeros(3)
             # Principal frame aliases/zeros (no rigid-body rotation)
-            [R_p_to_w[:, i, wing.idx] ~ R_b_to_w[:, i, wing.idx] for i = 1:3]
-            com_w[:, wing.idx] ~ wing_pos[:, wing.idx]
-            com_vel[:, wing.idx] ~ wing_vel[:, wing.idx]
-            com_acc[:, wing.idx] ~ wing_acc[:, wing.idx]
-            Q_p_to_w[:, wing.idx] ~ Q_b_to_w[:, wing.idx]
-            ω_p[:, wing.idx] ~ zeros(3)
-            α_p[:, wing.idx] ~ zeros(3)
-            Q_p_vel[:, wing.idx] ~ zeros(4)
-            moment_p[:, wing.idx] ~ zeros(3)
+            [R_p_to_w[:, i, body_idx] ~ R_b_to_w[:, i, body_idx] for i = 1:3]
+            com_w[:, body_idx] ~ wing_pos[:, body_idx]
+            com_vel[:, body_idx] ~ wing_vel[:, body_idx]
+            com_acc[:, body_idx] ~ wing_acc[:, body_idx]
+            Q_p_to_w[:, body_idx] ~ Q_b_to_w[:, body_idx]
+            ω_p[:, body_idx] ~ zeros(3)
+            α_p[:, body_idx] ~ zeros(3)
+            Q_p_vel[:, body_idx] ~ zeros(4)
+            moment_p[:, body_idx] ~ zeros(3)
         ]
     end
 

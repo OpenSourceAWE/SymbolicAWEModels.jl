@@ -7,6 +7,5 @@ include("types.jl")         # Enums, aero modes, dynamics types, segment springs
 include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for TimoshenkoTube
 include("rigid_body.jl")    # Body models, tube elements, flaps
 include("wing.jl")
-include("system_state.jl")  # SystemState: what a run holds of each component
+include("run_values.jl")  # The quantities of a run and how it reads them
 include("system_structure_core.jl")  # system_definition and station mapping
-include("utilities.jl")     # Helpers, validation, state management

@@ -4,14 +4,12 @@
 # Thin caller for winch motor dynamics; dispatches to `winch_component`.
 
 """
-    winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-               sys_struct, params;
+    winch_eqs!(sam, eqs, defaults, params, initial;
                spring_force_vec, set_values, tether_len, tether_vel,
                winch_vel, winch_acc, winch_force_vec, winch_friction)
 
-Generate equations for winch motor dynamics and per-tether length
-state, and return the list of `ODESystem` subsystems to attach to the
-parent system.
+Generate equations for the winch motor dynamics and per-tether length state of the run
+`sam`, and return the list of `ODESystem` subsystems to attach to the parent system.
 
 For each winch:
 1. Sum spring force vectors of the segments meeting the winch point
@@ -33,42 +31,42 @@ segments' dampers read as a rest-length rate:
   parameter, so writing `tether.len` retrims a running simulation without a
   `reinit!`.
 """
-function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-                    sys_struct, params, initial;
+function winch_eqs!(sam, eqs, defaults, params, initial;
                     spring_force_vec, set_values, tether_len, tether_vel,
                     winch_vel, winch_acc, winch_force_vec, winch_force,
                     winch_friction)
+    (; winches, tethers, segments, points) = sam.definition
     tether_winch = Dict{Int, Int}()
-    for winch in winches
+    for (winch_idx, winch) in enumerate(winches)
         for tether_idx in winch.tethers
             haskey(tether_winch, tether_idx) && error(
                 "Tether $tether_idx is connected to winch " *
-                "$(tether_winch[tether_idx]) and winch $(winch.idx). " *
+                "$(tether_winch[tether_idx]) and winch $winch_idx. " *
                 "Each tether can have at most one winch.")
-            tether_winch[tether_idx] = winch.idx
+            tether_winch[tether_idx] = winch_idx
         end
     end
 
-    for tether in tethers
-        if !haskey(tether_winch, tether.idx)
+    for tether_idx in eachindex(tethers)
+        if !haskey(tether_winch, tether_idx)
             eqs = [eqs
-                   tether_vel[tether.idx] ~ 0
-                   tether_len[tether.idx] ~ params.tethers[tether.idx].len]
+                   tether_vel[tether_idx] ~ 0
+                   tether_len[tether_idx] ~ params.tethers[tether_idx].len]
             continue
         end
-        winch_idx = tether_winch[tether.idx]
+        winch_idx = tether_winch[tether_idx]
         reel = ifelse(params.winches[winch_idx].brake > 0.5, 0,
                       winch_vel[winch_idx])
         eqs = [eqs
-               tether_vel[tether.idx] ~ reel
-               D(tether_len[tether.idx]) ~ reel]
+               tether_vel[tether_idx] ~ reel
+               D(tether_len[tether_idx]) ~ reel]
         defaults = [defaults
-                    bind_initial!(initial.tethers[tether.idx].len,
-                                  tether_len[tether.idx])]
+                    bind_initial!(initial.tethers[tether_idx].len,
+                                  tether_len[tether_idx])]
     end
 
     winch_subsystems = Any[]
-    for winch in winches
+    for (winch_idx, winch) in enumerate(winches)
         isempty(winch.tethers) &&
             error("Winch $(winch.name): no connected tethers; " *
                   "at least one is required.")
@@ -81,41 +79,41 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
             union!(winch_seg_idxs, tethers[tether_idx].segments)
         end
         force_vec = zeros(Num, 3)
-        for segment in segments
-            segment.idx in winch_seg_idxs || continue
+        for (k, segment) in enumerate(segments)
+            k in winch_seg_idxs || continue
             if segment.points[1] == winch_point_idx
-                force_vec .+= spring_force_vec[:, segment.idx]
+                force_vec .+= spring_force_vec[:, k]
             elseif segment.points[2] == winch_point_idx
-                force_vec .-= spring_force_vec[:, segment.idx]
+                force_vec .-= spring_force_vec[:, k]
             end
         end
 
-        subsys = winch_component(winch.model.dynamics, sys_struct, winch.idx;
-                                 name=Symbol("winch_$(winch.idx)"), params)
+        subsys = winch_component(winch.model.dynamics, sam, winch_idx;
+                                 name=Symbol("winch_$winch_idx"), params)
         validate_winch_component(subsys, winch)
         push!(winch_subsystems, subsys)
 
-        brake_p = params.winches[winch.idx].brake
+        brake_p = params.winches[winch_idx].brake
         eqs = [eqs
-               winch_force_vec[:, winch.idx] ~ force_vec
-               winch_force[winch.idx] ~
-                   smooth_norm(winch_force_vec[:, winch.idx])
-               subsys.vel       ~ winch_vel[winch.idx]
+               winch_force_vec[:, winch_idx] ~ force_vec
+               winch_force[winch_idx] ~
+                   smooth_norm(winch_force_vec[:, winch_idx])
+               subsys.vel       ~ winch_vel[winch_idx]
                subsys.len       ~
                    sum(tether_len[tether_idx] for tether_idx in winch.tethers) /
                    length(winch.tethers)
-               subsys.force     ~ winch_force[winch.idx]
-               subsys.set_value ~ set_values[winch.idx]
+               subsys.force     ~ winch_force[winch_idx]
+               subsys.set_value ~ set_values[winch_idx]
                subsys.brake     ~ brake_p
-               winch_acc[winch.idx]      ~
-                   ifelse(params.winches[winch.idx].speed_controlled == true,
+               winch_acc[winch_idx]      ~
+                   ifelse(params.winches[winch_idx].speed_controlled == true,
                           0.0, subsys.acc)
-               winch_friction[winch.idx] ~ subsys.friction
-               D(winch_vel[winch.idx]) ~
-                   ifelse(brake_p > 0.5, 0, winch_acc[winch.idx])]
+               winch_friction[winch_idx] ~ subsys.friction
+               D(winch_vel[winch_idx]) ~
+                   ifelse(brake_p > 0.5, 0, winch_acc[winch_idx])]
         defaults = [defaults
-                    bind_initial!(initial.winches[winch.idx].vel,
-                                  winch_vel[winch.idx])]
+                    bind_initial!(initial.winches[winch_idx].vel,
+                                  winch_vel[winch_idx])]
     end
     return eqs, defaults, winch_subsystems
 end

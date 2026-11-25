@@ -88,10 +88,10 @@ struct RigidDynamics <: WingDynamics end
 """Dynamics tag for a `PARTICLE_DYNAMICS` wing (frame fitted from points)."""
 struct ParticleDynamics <: WingDynamics end
 
-"""The [`WingDynamics`](@ref) of wing record `wing`, which its aero component dispatches
+"""The [`WingDynamics`](@ref) of wing `w` of `sam`, which its aero component dispatches
 on."""
-wing_dynamics(wing) =
-    body_dynamics_type(wing) == RIGID_DYNAMICS ? RigidDynamics() : ParticleDynamics()
+wing_dynamics(sam, w) = wing_dynamics_type(sam.definition.wings[w]) == RIGID_DYNAMICS ?
+    RigidDynamics() : ParticleDynamics()
 
 """
     AbstractAeroModel
@@ -154,6 +154,14 @@ the linearization state, and the structural↔panel mapping.
 - `aero_scale_chord`: force scale compensating chord-length error (PARTICLE).
 - `aero_z_offset`: body-frame z-shift of VSM panels (RIGID).
 - `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections.
+- `station_le_b`, `station_chord`, `station_y_airf`: the leading edge from the body
+  origin [m], chord vector [m] and spanwise axis of the VSM section nearest each of the
+  wing's stations, body frame, zero for a station whose row gives its chord.
+- `station_sections`, `station_panels`: the unrefined sections and the panels each
+  station takes ([`compute_spatial_station_mapping!`](@ref)).
+- `station_body_mass`: each station's share of the mass of the wing's body [kg].
+
+The station vectors are indexed by a station's position among its wing's stations.
 """
 mutable struct VSMEngine{BA, W, SL}
     vsm_aero::BA
@@ -167,7 +175,14 @@ mutable struct VSMEngine{BA, W, SL}
     aero_scale_chord::SimFloat
     aero_z_offset::SimFloat
     unsteady::UnsteadyAero
+    station_le_b::Vector{KVec3}
+    station_chord::Vector{KVec3}
+    station_y_airf::Vector{KVec3}
+    station_sections::Vector{Vector{Int}}
+    station_panels::Vector{Vector{Int}}
+    station_body_mass::Vector{SimFloat}
 end
+
 
 """
     abstract type AbstractVSMAero <: AbstractAeroModel
@@ -178,6 +193,19 @@ operations dispatch on this supertype; the engine's fields (`vsm_wing`, `aero_x`
 [`AeroLinearized`](@ref), [`ContinuousAero`](@ref) and [`AeroPressure`](@ref).
 """
 abstract type AbstractVSMAero <: AbstractAeroModel end
+
+"""
+    station_vsm_value(mode, field, k)
+
+What the aero mode `mode` of a wing worked out of the wing's `k`-th station: the `k`-th
+of its VSM engine's `field` ([`VSMEngine`](@ref)), `nothing` for a mode without an
+engine or a station it worked out nothing of.
+"""
+station_vsm_value(::AbstractAeroModel, field, k) = nothing
+function station_vsm_value(mode::AbstractVSMAero, field, k)
+    values = getfield(getfield(mode, :engine), field)
+    return k <= length(values) ? values[k] : nothing
+end
 
 # VSM engine fields forwarded from a VSM aero mode to its `engine`.
 const VSM_ENGINE_FIELDS = (
@@ -389,7 +417,7 @@ to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
     abstract type AbstractWinchModel
 
 Selects the winch motor dynamics. Each concrete model carries its own
-parameter fields and adds a `winch_component(model, sys_struct, idx; name,
+parameter fields and adds a `winch_component(model, sam, idx; name,
 params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref)).
 The model is a winch row's `model.dynamics` ([`WinchModel`](@ref)); the common drum
 parameters (`gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,

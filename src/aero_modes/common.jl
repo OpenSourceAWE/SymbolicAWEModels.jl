@@ -34,14 +34,14 @@ couples_to_sections(::AbstractAeroModel) = false
 couples_to_sections(::AbstractVSMAero) = true
 
 """
-    has_vsm_wing(sys_struct::SystemDefinition) -> Bool
+    has_vsm_wing(sam) -> Bool
 
-`true` if any wing carries a VSM aero mode ([`AbstractVSMAero`](@ref)) whose
-state must be refreshed each `vsm_interval`. When `false`, [`refresh_aero!`](@ref)
-is a no-op for every wing, so callers skip it and the trailing parameter sync.
+`true` if any wing of the run `sam` carries a VSM aero mode ([`AbstractVSMAero`](@ref))
+whose state must be refreshed each `vsm_interval`. When `false`,
+[`refresh_aero!`](@ref) is a no-op for every wing, so callers skip it and the trailing
+parameter sync.
 """
-has_vsm_wing(sys_struct) =
-    any(wing -> wing.aero isa AbstractVSMAero, sys_struct.wings)
+has_vsm_wing(sam) = any(has_vsm_engine, sam.aero)
 
 # ==================== interface: required cache tag ==================== #
 
@@ -63,27 +63,33 @@ aero_mode_tag(M::Type) = error(
 # ==================== interface: diagnostics ==================== #
 
 """
-    calc_aoa(mode::AbstractAeroModel, wing) -> SimFloat
+    calc_aoa(mode::AbstractAeroModel, sam, wing_idx) -> SimFloat
 
-Angle of attack [rad] for `wing` under aero `mode`. Defaults to `NaN`
+Angle of attack [rad] of wing `wing_idx` of `sam` under its aero `mode`. Defaults to `NaN`
 (undefined); VSM modes read the mid-span geometric AoA (wrapped to [-π, π]) and
 [`AeroPlate`](@ref) derives it from the body-frame apparent wind.
 """
-calc_aoa(::AbstractAeroModel, wing) = SimFloat(NaN)
-function calc_aoa(mode::AbstractVSMAero, wing)
+calc_aoa(::AbstractAeroModel, sam, wing_idx) = SimFloat(NaN)
+function calc_aoa(mode::AbstractVSMAero, sam, wing_idx)
     dist = mode.vsm_solver.sol.alpha_geometric_dist
     n = length(dist)
     return mod(dist[n ÷ 2 + n % 2] + π, 2π) - π
 end
 
-"""
-    calc_side_slip(wing) -> SimFloat
+"""The apparent wind on the body of wing `wing_idx` of `sam`, body frame [m/s]."""
+wing_apparent_wind(sam, wing_idx) =
+    run_value(sam, Val(:bodies), wing_body(sam, wing_idx), Val(:va_b))
 
-Side-slip angle [rad] from the body-frame apparent wind. Pure geometry —
-the same formula for every aero mode, so it does not dispatch.
 """
-calc_side_slip(wing) =
-    atan(wing.va_b[2], hypot(wing.va_b[1], wing.va_b[3]))
+    calc_side_slip(sam, wing_idx) -> SimFloat
+
+Side-slip angle [rad] of wing `wing_idx` of `sam` from its body-frame apparent wind, the
+same for every aero mode.
+"""
+function calc_side_slip(sam, wing_idx)
+    va_b = wing_apparent_wind(sam, wing_idx)
+    return atan(va_b[2], hypot(va_b[1], va_b[3]))
+end
 
 # ==================== connector scaffolding ==================== #
 
@@ -97,7 +103,11 @@ function rigid_aero_connectors(num_stations::Int)
         moment(t)[1:3]
     end
     if num_stations > 0
-        @variables twist(t)[1:num_stations] twist_vel(t)[1:num_stations] twist_moment(t)[1:num_stations]
+        @variables begin
+            twist(t)[1:num_stations]
+            twist_vel(t)[1:num_stations]
+            twist_moment(t)[1:num_stations]
+        end
     else
         twist = nothing
         twist_vel = nothing
@@ -141,32 +151,34 @@ function particle_unknowns(connectors)
 end
 
 """
-    frozen_point_force_component(wing, sys_struct; name, params) -> System
+    frozen_point_force_component(sam, wing_idx; name, params) -> System
 
-Particle aero component binding each wing node's connector force to its frozen
-`point.aero_force_b` flat parameter, set at each refresh
-([`sync_aero_params!`](@ref)). Used by
+Particle aero component binding each node of wing `wing_idx` of `sam` to its frozen
+`aero_force_b` flat parameter, set at each refresh ([`sync_aero_params!`](@ref)). Used by
 [`AeroDirect`](@ref), whose refresh precomputes that force. Touching the parameter
 here is what registers it.
 """
-function frozen_point_force_component(wing, sys_struct; name, params=nothing)
-    points = wing_points(sys_struct, wing)
-    connectors = particle_aero_connectors(length(points))
+function frozen_point_force_component(sam, wing_idx; name, params=nothing)
+    point_idxs = wing_points(sam, wing_idx)
+    connectors = particle_aero_connectors(length(point_idxs))
     flat_ps = Any[]
     eqs = Equation[]
-    for (point_num, point) in enumerate(points)
-        force_p = params.points[point.idx].aero_force_b
+    for (point_num, i) in enumerate(point_idxs)
+        force_p = params.points[i].aero_force_b
         push!(flat_ps, force_p)
-        eqs = [eqs
-               collect(connectors.point_force[:, point_num]) .~ collect(force_p)]
+        append!(eqs, collect(connectors.point_force[:, point_num]) .~ collect(force_p))
     end
     return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
 end
 
-function wing_points(state, wing)
-    return [point for point in state.points
-            if point.is_wing_node && point.wing_idx == wing.idx]
-end
+"""
+    wing_points(sam, wing_idx) -> Vector{Int}
+
+The indices of the nodes of wing `wing_idx` of `sam`, in point order: the connector columns
+of its particle aero component.
+"""
+wing_points(sam, wing_idx) = [i for i in eachindex(sam.definition.points)
+                       if wing_node(sam.definition, i) && point_wing(sam, i) == wing_idx]
 
 """
     build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
@@ -353,48 +365,49 @@ scatter_couple(::AbstractAeroModel, slots, i, panel) =
     collect(slots.panel_couple[:, i])
 
 """
-    flow_curvature_enabled(wing) -> Bool
+    flow_curvature_enabled(mode) -> Bool
 
-Whether this wing's VSM solver adds the `VortexStepMethod.flow_curvature_cm` increment. The
-aero modes all read the one flag, so a model cannot carry the term through
-`AeroDirect` and lose it in [`ContinuousAero`](@ref). A wing without a VSM engine
+Whether the VSM solver of aero `mode` adds the `VortexStepMethod.flow_curvature_cm`
+increment. The aero modes all read the one flag, so a model cannot carry the term through
+`AeroDirect` and lose it in [`ContinuousAero`](@ref). A mode without a VSM engine
 ([`AeroPlate`](@ref)) has no flag and no increment.
 """
-function flow_curvature_enabled(wing)
-    engine = vsm_engine(wing.aero)
+function flow_curvature_enabled(mode)
+    engine = vsm_engine(mode)
     return !isnothing(engine) && engine.vsm_solver.flow_curvature
 end
 
 # ==================== unsteady corrections ==================== #
 
 """
-    unsteady_aero(wing) -> UnsteadyAero
+    unsteady_aero(mode) -> UnsteadyAero
 
-The wing's [`UnsteadyAero`](@ref) corrections, or an all-off default for a wing
-whose aero mode carries no VSM engine.
+The [`UnsteadyAero`](@ref) corrections of aero `mode`, or an all-off default for a mode
+that carries no VSM engine.
 """
-function unsteady_aero(wing)
-    engine = vsm_engine(wing.aero)
+function unsteady_aero(mode)
+    engine = vsm_engine(mode)
     return isnothing(engine) ? UnsteadyAero() : engine.unsteady
 end
 
 """
-    wagner_enabled(wing) -> Bool
+    wagner_enabled(mode) -> Bool
 
-Whether this wing carries the two-state Wagner lift lag ([`wagner_lag_eqs`](@ref)).
+Whether a wing flown with aero `mode` carries the two-state Wagner lift lag
+([`wagner_lag_eqs`](@ref)).
 """
-wagner_enabled(wing) = unsteady_aero(wing).wagner
+wagner_enabled(mode) = unsteady_aero(mode).wagner
 
 """
-    panel_chord_width(wing) -> (chord, width)
+    panel_chord_width(mode) -> (chord, width)
 
 Each refined panel's mean chord and quarter-chord width [m] read off the frozen VSM
-mesh, from the `VortexStepMethod` helpers the `chord` and `width` equations in
-[`panel_force_eqs`](@ref) are traced through.
+mesh of aero `mode`, from the `VortexStepMethod` helpers the `chord` and `width`
+equations in [`panel_force_eqs`](@ref) are traced through.
 """
-function panel_chord_width(wing)
-    refined = wing.vsm_wing.refined_sections
-    n = Int(wing.vsm_wing.n_panels)
+function panel_chord_width(mode)
+    refined = mode.vsm_wing.refined_sections
+    n = Int(mode.vsm_wing.n_panels)
     chord = zeros(SimFloat, n)
     width = zeros(SimFloat, n)
     for i in 1:n
@@ -424,99 +437,112 @@ function chord_blend_weights!(chord_weight, width)
 end
 
 """
-    panel_apparent_mass(wing, rho) -> Vector{SimFloat}
+    panel_apparent_mass(mode, rho) -> Vector{SimFloat}
 
-The entrained air [kg] of each refined panel: the thin-plate added mass per unit
-span `ρ·π·(c/2)²` taken over the panel's width, which is the fluid a flat plate
-carries with it when it accelerates normal to itself.
+The entrained air [kg] of each refined panel of aero `mode` at air density `rho`: the
+thin-plate added mass per unit span `ρ·π·(c/2)²` taken over the panel's width, which is
+the fluid a flat plate carries with it when it accelerates normal to itself.
 """
-function panel_apparent_mass(wing, rho)
-    chord, width = panel_chord_width(wing)
+function panel_apparent_mass(mode, rho)
+    chord, width = panel_chord_width(mode)
     return @. rho * π * chord^2 * width / 4
 end
 
 """
-    apply_apparent_mass!(sys_struct, wing, rho)
+    apply_apparent_mass!(sam)
 
-Give the wing's nodes the air they entrain, scaled by the wing's
-[`UnsteadyAero`](@ref) `apparent_mass`. Each panel's
-[`panel_apparent_mass`](@ref) is spread over the nodes by the weights that already
-carry its force ([`aero_scatter_entries`](@ref)), so the air lands where the lift
-does. It resists acceleration without weighing anything, which is why it is a
-field of its own and not `extra_mass`. Always clears the carriers first, so turning
-the correction off and rebuilding leaves no stale inertia behind.
-
-The air goes to whatever actually integrates the node's translation
-([`apparent_mass_carriers`](@ref)): the node itself when it is a free particle, and
-the body or pair of beam bodies that place it when it is not — which is every node of
-a beam wing, whose mass and motion live in those bodies.
+Give the nodes of each wing of the running `sam` the air they entrain, scaled by its
+[`UnsteadyAero`](@ref) `apparent_mass`, as the `apparent_mass` of whatever integrates
+them ([`apparent_mass_carriers`](@ref)). Each panel's [`panel_apparent_mass`](@ref), at
+the air density at the wing, is spread over the nodes by the weights that carry its
+force ([`aero_scatter_entries`](@ref)). A carrier of no entrained air gets zero. Writes
+only values that change, and nothing before `init!` builds the integrator.
 """
-function apply_apparent_mass!(sys_struct, wing, rho)
-    points = wing_points(sys_struct, wing)
-    for point in points
-        for (carrier, _) in apparent_mass_carriers(sys_struct, point)
-            carrier.apparent_mass = 0.0
-        end
+function apply_apparent_mass!(sam)
+    isnothing(sam.integrator) && return nothing
+    totals = Dict{Tuple{Symbol, Int}, SimFloat}()
+    for wing_idx in eachindex(sam.aero)
+        add_apparent_mass!(totals, sam, wing_idx)
     end
-    scale = unsteady_aero(wing).apparent_mass
+    for ((collection, idx), mass) in totals
+        run_value(sam, collection, idx, :apparent_mass) == mass && continue
+        set_run_value!(sam, collection, idx, :apparent_mass, mass)
+    end
+    return nothing
+end
+
+"""
+    add_apparent_mass!(totals, sam, wing_idx)
+
+Add the air the nodes of wing `wing_idx` of `sam` entrain to `totals`, by carrier
+`(collection, index)`, every carrier of its nodes starting at zero.
+"""
+function add_apparent_mass!(totals, sam, wing_idx)
+    point_idxs = wing_points(sam, wing_idx)
+    for i in point_idxs, (carrier, _) in apparent_mass_carriers(sam, i)
+        get!(totals, carrier, 0.0)
+    end
+    mode = sam.aero[wing_idx]
+    scale = unsteady_aero(mode).apparent_mass
     scale == 0 && return nothing
-    body_dynamics_type(wing) == PARTICLE_DYNAMICS || error(
-        "Wing $(wing.name): apparent_mass acts on the nodes' own acceleration, " *
+    name = sam.definition.wings[wing_idx].name
+    body_idx = wing_body(sam, wing_idx)
+    body_dynamics_type(sam, body_idx) == PARTICLE_DYNAMICS || error(
+        "Wing $name: apparent_mass acts on the nodes' own acceleration, " *
         "which a RIGID_DYNAMICS wing does not integrate.")
-    supports_panel_decomposition(wing.aero) || error(
-        "Wing $(wing.name): apparent_mass needs an aero mode that scatters per " *
-        "panel; $(typeof(wing.aero)) does not.")
-    mass = panel_apparent_mass(wing, rho)
-    for (panel, node, force_weight, _) in
-            aero_scatter_entries(wing.aero, wing, points)
+    supports_panel_decomposition(mode) || error(
+        "Wing $name: apparent_mass needs an aero mode that scatters per " *
+        "panel; $(typeof(mode)) does not.")
+    height = run_value(sam, Val(:bodies), body_idx, Val(:pos_w))[3]
+    mass = panel_apparent_mass(mode, air_density(sam.am, height))
+    for (panel, node, force_weight, _) in aero_scatter_entries(mode, sam, wing_idx)
         node_mass = (scale * force_weight) * mass[panel]
-        for (carrier, share) in apparent_mass_carriers(sys_struct, points[node])
-            carrier.apparent_mass += share * node_mass
+        for (carrier, share) in apparent_mass_carriers(sam, point_idxs[node])
+            totals[carrier] += share * node_mass
         end
     end
     return nothing
 end
 
 """
-    apparent_mass_carriers(sys_struct, point) -> Vector{Tuple{Any, SimFloat}}
+    apparent_mass_carriers(sam, i) -> Vector{Tuple{Tuple{Symbol, Int}, SimFloat}}
 
-Whatever integrates `point`'s translation, with each one's share — the only things
-the air it entrains can slow down. Three cases, and a beam wing has the last two:
+Whatever integrates the translation of point `i` of `sam`, as `(collection, index)`, with
+each one's share — the only things the air it entrains can slow down:
 
 - a free `DYNAMIC` node integrates itself and takes all of it;
 - a node anchored to a rigid body is placed by that body, which takes all of it;
 - a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two
   bodies the tube spans, which split it by where along the element it sits
   (`beam_frac`).
-
-Mass left on a node that integrates nothing would never be felt, so a carrier that
-is not the node itself is the whole reason this lookup exists.
 """
-function apparent_mass_carriers(sys_struct, point)
+function apparent_mass_carriers(sam, i)
+    point = sam.definition.points[i]
     if !isnothing(point.tube)
-        tube = sys_struct.tubes[point.tube]
-        frac = clamp(point.beam_frac, 0.0, 1.0)
-        return [(sys_struct.bodies[tube.bodies[1]], 1.0 - frac),
-                (sys_struct.bodies[tube.bodies[2]], frac)]
+        tube_bodies = sam.definition.tubes[point.tube].bodies
+        frac = clamp(run_value(sam, Val(:points), i, Val(:beam_frac)), 0.0, 1.0)
+        return [((:bodies, Int(tube_bodies[1])), 1.0 - frac),
+                ((:bodies, Int(tube_bodies[2])), frac)]
     end
-    !isnothing(point.body) && return [(sys_struct.bodies[point.body], 1.0)]
-    return [(point, 1.0)]
+    !isnothing(point.body) && return [((:bodies, Int(point.body)), 1.0)]
+    return [((:points, i), 1.0)]
 end
 
 """
-    wagner_reference_frame(wing) -> (x_ref, z_ref, chord_ref)
+    wagner_reference_frame(sam, wing_idx) -> (x_ref, z_ref, chord_ref)
 
-The wing's mean chordwise and normal directions in body frame and its mean chord
-[m], averaged over the frozen VSM mesh. [`wagner_lag_eqs`](@ref) reads its one
-angle of attack against these, so the lag follows the whole wing rather than any
-one panel. Each panel contributes the axes `VortexStepMethod.panel_axes` builds at
-its [`chord_blend_weights!`](@ref) blend weight, which are the axes the panel itself
+The mean chordwise and normal directions in body frame of wing `wing_idx` of `sam` and its
+mean chord [m], averaged over the frozen VSM mesh. [`wagner_lag_eqs`](@ref) reads its
+one angle of attack against these, so the lag follows the whole wing rather than any
+one panel. Each panel contributes the axes `VortexStepMethod.panel_axes` builds at its
+[`chord_blend_weights!`](@ref) blend weight, which are the axes the panel itself
 carries.
 """
-function wagner_reference_frame(wing)
-    refined = wing.vsm_wing.refined_sections
-    n = Int(wing.vsm_wing.n_panels)
-    chord, width = panel_chord_width(wing)
+function wagner_reference_frame(sam, wing_idx)
+    mode = sam.aero[wing_idx]
+    refined = mode.vsm_wing.refined_sections
+    n = Int(mode.vsm_wing.n_panels)
+    chord, width = panel_chord_width(mode)
     weight = chord_blend_weights!(similar(width), width)
     x_ref = zeros(SimFloat, 3)
     z_ref = zeros(SimFloat, 3)
@@ -532,51 +558,49 @@ function wagner_reference_frame(wing)
 end
 
 """
-    wagner_wing_eqs(wing, sec_va, params) -> (eqs, vars, deficiency, initial)
+    wagner_wing_eqs(sam, wing_idx, sec_va, params) -> (eqs, vars, deficiency, initial)
 
-The wing's Wagner lag from its live section inflow, or an empty set when the wing
-carries no lag. Wraps [`wagner_lag_eqs`](@ref) with the mean of `sec_va` as the
-wing's apparent wind and the frozen [`wagner_reference_frame`](@ref) as the angle
+The Wagner lag of wing `wing_idx` of `sam` from its live section inflow, or an empty set
+when the wing carries no lag. Wraps [`wagner_lag_eqs`](@ref) with the mean of `sec_va` as
+the wing's apparent wind and the frozen [`wagner_reference_frame`](@ref) as the angle
 it is measured against, so both particle aero modes build the lag the same way.
 """
-function wagner_wing_eqs(wing, sec_va, params)
-    wagner_enabled(wing) || return (Equation[], Any[], 0.0, Dict())
-    x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
+function wagner_wing_eqs(sam, wing_idx, sec_va, params)
+    wagner_enabled(sam.aero[wing_idx]) || return (Equation[], Any[], 0.0, Dict())
+    x_ref, z_ref, chord_ref = wagner_reference_frame(sam, wing_idx)
     va_ref = sum(sec_va) ./ length(sec_va)
-    return wagner_lag_eqs(wagner_gain_params(params, wing.idx),
-                          wagner_rate_params(params, wing.idx),
+    return wagner_lag_eqs(wagner_gain_params(params, wing_idx),
+                          wagner_rate_params(params, wing_idx),
                           va_ref, x_ref, z_ref, chord_ref)
 end
 
 """
     wagner_gain_params(params, wing_idx)
 
-The wing's registered Wagner gains `(A₁, A₂)`. An ordinary parameter like every other
-tunable scalar, which is what keeps a change of lag out of the model cache key.
+The registered Wagner gains `(A₁, A₂)` of wing `wing_idx`. An ordinary parameter like every
+other tunable scalar, which is what keeps a change of lag out of the model cache key.
 """
-wagner_gain_params(params, wing_idx) =
-    params.wings[wing_idx].aero.unsteady.wagner_gains
+wagner_gain_params(params, wing_idx) = params.wings[wing_idx].aero.unsteady.wagner_gains
 
 """
     wagner_rate_params(params, wing_idx)
 
-The wing's registered Wagner rates `(b₁, b₂)`, tunable in the same way as
+The registered Wagner rates `(b₁, b₂)` of wing `wing_idx`, tunable in the same way as
 [`wagner_gain_params`](@ref).
 """
-wagner_rate_params(params, wing_idx) =
-    params.wings[wing_idx].aero.unsteady.wagner_rates
+wagner_rate_params(params, wing_idx) = params.wings[wing_idx].aero.unsteady.wagner_rates
 
 """
-    wagner_params(wing, params) -> Vector{Any}
+    wagner_params(sam, wing_idx, params) -> Vector{Any}
 
-The lag's parameters for a component's declared parameter list, empty for a wing
-without one. A whole-wing aero component names its parameters explicitly, so reading
-these in [`wagner_wing_eqs`](@ref) is not enough to declare them.
+The lag's parameters of wing `wing_idx` of `sam` for a component's declared parameter list,
+empty for a wing without one. A whole-wing aero component names its parameters
+explicitly, so reading these in [`wagner_wing_eqs`](@ref) is not enough to declare them.
 """
-wagner_params(wing, params) =
-    wagner_enabled(wing) ?
-        Any[wagner_gain_params(params, wing.idx),
-            wagner_rate_params(params, wing.idx)] : Any[]
+wagner_params(sam, wing_idx, params) =
+    wagner_enabled(sam.aero[wing_idx]) ?
+        Any[wagner_gain_params(params, wing_idx),
+            wagner_rate_params(params, wing_idx)] : Any[]
 
 """
     wagner_lag_eqs(gains, rates, va_ref, x_ref, z_ref, chord_ref)
@@ -651,7 +675,7 @@ end
 """
     PanelAeroList(mode)
 
-`mode`'s panels addressed one at a time, reached as `wings[w].aero.panels[i]`. It
+`mode`'s panels addressed one at a time, reached as `wings[wing_idx].aero.panels[i]`. It
 holds the mode rather than its matrices, so a VSM refresh that reallocates them is
 still seen, and nothing is copied.
 """
@@ -674,7 +698,7 @@ end
 """
     PointAeroList(mode)
 
-`mode`'s wing points addressed one at a time, reached as `wings[w].aero.points[i]`,
+`mode`'s wing points addressed one at a time, reached as `wings[wing_idx].aero.points[i]`,
 where `i` is the global point index. The panel counterpart of [`PanelAeroList`](@ref).
 """
 struct PointAeroList{M}
@@ -748,12 +772,12 @@ it — the panel equations, the strut geometry, the wrench — is already shared
 supports_panel_decomposition(::AbstractAeroModel) = false
 
 """
-    aero_inflow_groups(mode, wing, points) -> (groups, section_group)
+    aero_inflow_groups(mode, sam, wing_idx) -> (groups, section_group)
 
-How each refined section's apparent wind and density are averaged over the wing's
-structural points. `groups[g]` is a list of `(point column, weight)` whose weights sum
-to one, and `section_group[s]` names the group refined section `s` reads. Sections
-sharing a group share the one [`AeroInflow`](@ref) that averages it.
+How each refined section's apparent wind and density are averaged over the structural
+points of wing `wing_idx` of `sam`. `groups[g]` is a list of `(point column, weight)` whose
+weights sum to one, and `section_group[s]` names the group refined section `s` reads.
+Sections sharing a group share the one [`AeroInflow`](@ref) that averages it.
 
 The default is one group per refined section, gathered from the same bounding struts
 [`aero_geometry_entries`](@ref) reconstructs that section's corners from, so a
@@ -761,64 +785,65 @@ section's inflow and its geometry read the same points. Overriding this with a
 wing-wide mean drops the rotational part of the velocity field — a rigid rotation
 about the point centroid averages to zero — leaving the panels without rate damping.
 """
-aero_inflow_groups(mode, wing, points) =
-    aero_station_groups(mode, wing, points, strut_inflow_weights)
+aero_inflow_groups(mode, sam, wing_idx) =
+    aero_station_groups(mode, sam, wing_idx, strut_inflow_weights)
 
 """
-    aero_pitch_groups(mode, wing, points) -> (groups, section_group)
+    aero_pitch_groups(mode, sam, wing_idx) -> (groups, section_group)
 
 [`aero_inflow_groups`](@ref) with the trailing minus leading edge weights instead of
 the chordwise blend, so the same gather yields each section's pitch-rate input
 ([`strut_pitch_weights`](@ref)). Only built for a wing with
 [`flow_curvature_enabled`](@ref).
 """
-aero_pitch_groups(mode, wing, points) =
-    aero_station_groups(mode, wing, points, strut_pitch_weights)
+aero_pitch_groups(mode, sam, wing_idx) =
+    aero_station_groups(mode, sam, wing_idx, strut_pitch_weights)
 
 """
-    aero_station_groups(mode, wing, points, station_weights) -> (groups, section_group)
+    aero_station_groups(mode, sam, wing_idx, station_weights) -> (groups, section_group)
 
-One group per refined section, each gathered by `station_weights`. Shared by
-[`aero_inflow_groups`](@ref) and [`aero_pitch_groups`](@ref), which differ only in the
-chordwise weights they ask for.
+One group per refined section of wing `wing_idx` of `sam`, each gathered by
+`station_weights`. Shared by [`aero_inflow_groups`](@ref) and [`aero_pitch_groups`](@ref),
+which differ only in the chordwise weights they ask for.
 """
-function aero_station_groups(mode, wing, points, station_weights)
-    column = aero_section_columns(wing, points)
+function aero_station_groups(mode, sam, wing_idx, station_weights)
+    column = aero_section_columns(sam, wing_idx)
     sections = eachindex(section_interp_caches(mode)[1])
     groups = [station_weights(mode, section, column) for section in sections]
     return groups, collect(sections)
 end
 
 """
-    aero_scatter_entries(mode, wing, points) -> Vector
+    aero_scatter_entries(mode, sam, wing_idx) -> Vector
 
-The linear map from panel loads to point forces as `(panel, point column, force
-weight, couple weight)`: point `k`'s body-frame force gains `force weight ·
-panel_force + couple weight · panel_couple`. The weights are constants of the mesh, so
-the wiring layer carries the whole scatter and no component holds it.
+The linear map from the panel loads of wing `wing_idx` of `sam` to its point forces as
+`(panel, point column, force weight, couple weight)`: point `k`'s body-frame force
+gains `force weight · panel_force + couple weight · panel_couple`. The weights are
+constants of the mesh, so the wiring layer carries the whole scatter and no component
+holds it.
 """
 function aero_scatter_entries end
 
 """
-    aero_point_offset(mode, params, wing_idx, point_idx)
+    aero_point_offset(mode, params, wing_idx, i)
 
-The constant body-frame force a wing point receives on top of the scattered panel
-loads, or `nothing`. [`AeroPressure`](@ref) puts its frozen surface traction here, net
-of the share of each panel's frozen total that the scatter already re-adds.
+The constant body-frame force point `i` of wing `wing_idx` receives on top of the scattered
+panel loads, or `nothing`. [`AeroPressure`](@ref) puts its frozen surface traction here,
+net of the share of each panel's frozen total that the scatter already re-adds.
 """
-aero_point_offset(::AbstractAeroModel, params, wing_idx, point_idx) = nothing
+aero_point_offset(::AbstractAeroModel, params, wing_idx, i) = nothing
 
 """
-    aero_geometry_entries(mode, wing, points) -> Vector
+    aero_geometry_entries(mode, sam, wing_idx) -> Vector
 
-Where each panel's four section corners come from, as `(panel, corner, point column,
-weight)` with `corner` one of `:le_a`, `:te_a`, `:le_b`, `:te_b`. This is
-[`interp_sections`](@ref) split in two: the strut weights the wiring gathers, and the
-frozen billow offset the panel adds as a parameter. Mode-independent — every
+Where each panel's four section corners of wing `wing_idx` of `sam` come from, as `(panel,
+corner, point column, weight)` with `corner` one of `:le_a`, `:te_a`, `:le_b`, `:te_b`.
+This is [`interp_sections`](@ref) split in two: the strut weights the wiring gathers,
+and the frozen billow offset the panel adds as a parameter. Mode-independent — every
 continuous mode reconstructs its sections the same way.
 """
-function aero_geometry_entries(mode, wing, points)
-    column = aero_section_columns(wing, points)
+function aero_geometry_entries(mode, sam, wing_idx)
+    column = aero_section_columns(sam, wing_idx)
     left, weight, _, _ = section_interp_caches(mode)
     entries = Tuple{Int, Symbol, Int, SimFloat}[]
     for panel in 1:(length(left) - 1), (side, section) in ((:a, panel), (:b, panel + 1))
@@ -949,13 +974,13 @@ function store_chord_weights!(chord_weight, body_aero)
 end
 
 """
-    corner_chord_weights(wing) -> Vector{SimFloat}
+    corner_chord_weights(mode) -> Vector{SimFloat}
 
-Every panel's [`chord_blend_weights!`](@ref) over the span widths of its
+Every panel's [`chord_blend_weights!`](@ref) of aero `mode` over the span widths of its
 `corner_points` ([`panel_span_width`](@ref)).
 """
-function corner_chord_weights(wing)
-    width = map(panel_span_width, wing.vsm_aero.panels)
+function corner_chord_weights(mode)
+    width = map(panel_span_width, mode.vsm_aero.panels)
     return chord_blend_weights!(similar(width), width)
 end
 
@@ -1001,18 +1026,18 @@ function store_induced_velocity!(v_ind, body_aero, gamma)
 end
 
 """
-    aero_component(mode, dynamics::WingDynamics, wing, sys_struct; name, params) -> System
+    aero_component(mode, dynamics::WingDynamics, sam, wing_idx; name, params) -> System
 
-Build the aero subsystem for `wing`, selected by dispatch on both the wing's
-`aero` model and its [`WingDynamics`](@ref).
-Returns a `System` exposing the connectors fixed by the dynamics type, all in
-the wing body frame (the wiring layer `aero_eqs!` drives inputs and reads
-outputs; connectors a mode ignores still exist for binding):
-- `RIGID_DYNAMICS` (`num = length(wing.station_idxs)`): in `va[1:3]`,
+Build the aero subsystem of wing `wing_idx` of `sam`, selected by dispatch on both its aero
+`mode` and its [`WingDynamics`](@ref). Returns a `System` exposing the connectors fixed
+by the dynamics type, all in the wing body frame (the wiring layer `aero_eqs!` drives
+inputs and reads outputs; connectors a mode ignores still exist for binding):
+- `RIGID_DYNAMICS` (`num` stations, [`wing_station_idxs`](@ref)): in `va[1:3]`,
   `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, `twist[1:num]`, `twist_vel[1:num]`;
   out `force[1:3]`, `moment[1:3]`, `twist_moment[1:num]`.
-- `PARTICLE_DYNAMICS` (`np = number of wing nodes`): in `point_pos[1:3,1:np]`,
-  `point_vel[1:3,1:np]`, `va[1:3,1:np]`, `rho[1:np]`; out `point_force[1:3,1:np]`.
+- `PARTICLE_DYNAMICS` (`np` wing nodes, [`wing_points`](@ref)): in
+  `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`, `va[1:3,1:np]`, `rho[1:np]`; out
+  `point_force[1:3,1:np]`.
 
 A mode supports a dynamics type by defining the matching method (rigid,
 particle, or both). Add a method on a custom `AbstractAeroModel` subtype to
@@ -1021,15 +1046,15 @@ plug in your own aerodynamics.
 function aero_component end
 
 """
-    validate_aero_component(subsys, wing)
+    validate_aero_component(subsys, sam, wing_idx)
 
-Check the built aero `subsys` exposes the connectors the wiring layer needs for
-the wing's `dynamics_type`; error naming the missing connector otherwise.
+Check the built aero `subsys` of wing `wing_idx` of `sam` exposes the connectors the wiring
+layer needs for its dynamics type; error naming the missing connector otherwise.
 """
-function validate_aero_component(subsys, wing)
-    if body_dynamics_type(wing) == RIGID_DYNAMICS
+function validate_aero_component(subsys, sam, wing_idx)
+    if body_dynamics_type(sam, wing_body(sam, wing_idx)) == RIGID_DYNAMICS
         required = Symbol[:va, :rho, :R_b_w, :omega, :force, :moment]
-        length(wing.station_idxs) > 0 &&
+        isempty(wing_station_idxs(sam, wing_idx)) ||
             append!(required, [:twist, :twist_vel, :twist_moment])
     else
         required = Symbol[:point_pos, :point_vel, :va, :rho, :point_force]
@@ -1037,8 +1062,8 @@ function validate_aero_component(subsys, wing)
     required_str = join(required, ", ")
     for con in required
         hasproperty(subsys, con) || error(
-            "Wing $(wing.name): aero component is missing required " *
-            "connector `$con`. Required: $required_str.")
+            "Wing $(sam.definition.wings[wing_idx].name): aero component is missing " *
+            "required connector `$con`. Required: $required_str.")
     end
     return nothing
 end
@@ -1046,115 +1071,129 @@ end
 # ==================== refresh orchestrator ==================== #
 
 """
-    sync_aero_density!(wing, am)
+    sync_aero_density!(mode, sam, wing_idx)
 
-Set the wing's VSM solver air density to `air_density(am, wing.pos_w[3])`, the same
-altitude-dependent density the symbolic RHS uses to dimensionalize aero forces
-(see `aero_eqs.jl`). Keeps the VSM solve and the model consistent on dynamic
+Set the VSM solver air density of wing `wing_idx` of `sam` to the density at the height of
+its body, the same altitude-dependent density the symbolic RHS uses to dimensionalize aero
+forces (see `aero_eqs.jl`). Keeps the VSM solve and the model consistent on dynamic
 pressure. No-op for non-VSM aero modes.
 """
-function sync_aero_density!(wing, am)
-    wing.aero isa AbstractVSMAero || return nothing
-    wing.vsm_solver.density = air_density(am, wing.pos_w[3])
+sync_aero_density!(::AbstractAeroModel, sam, wing_idx) = nothing
+function sync_aero_density!(mode::AbstractVSMAero, sam, wing_idx)
+    height = run_value(sam, Val(:bodies), wing_body(sam, wing_idx), Val(:pos_w))[3]
+    mode.vsm_solver.density = air_density(sam.am, height)
     return nothing
 end
 
 """
-    point_acceleration_w(point, wing_frame, wing_vel) -> KVec3
+    point_acceleration_w(sam, i, R_b_to_w, wing_vel) -> SVector
 
-A free particle's world-frame acceleration, rebuilt from what the struct already
-carries: its net force per unit mass less the world-frame and body-frame damping.
-The same expression `point_eqs!` binds to `acc`, which is where the monolith's
-fitted wing reads its own `acc_w` from.
+The world-frame acceleration of free point `i` of `sam`, rebuilt from its run: its net
+force per unit mass less the world-frame damping and the body-frame damping against its
+wing's frame `R_b_to_w` moving at `wing_vel`. The same expression `point_eqs!` binds to
+`acc`, which is where the monolith's fitted wing reads its own `acc_w` from.
 """
-function point_acceleration_w(point, wing_frame, wing_vel)
-    damping = collect(point.world_frame_damping) .* collect(point.vel_w) .+
-        body_frame_damp_accel(point.vel_w, point.body_frame_damping, wing_frame,
-                              collect(wing_vel))
-    return collect(point.force) ./ point.total_mass .- damping
+function point_acceleration_w(sam, i, R_b_to_w, wing_vel)
+    vel_w = run_value(sam, Val(:points), i, Val(:vel_w))
+    damping = run_value(sam, Val(:points), i, Val(:world_frame_damping)) .* vel_w .+
+        body_frame_damp_accel(vel_w,
+                              run_value(sam, Val(:points), i, Val(:body_frame_damping)),
+                              R_b_to_w, wing_vel)
+    return run_value(sam, Val(:points), i, Val(:force)) ./
+        run_value(sam, Val(:points), i, Val(:total_mass)) .- damping
 end
 
 """
-    wing_kinematics_from_points!(wing, points, set, am, wind_mode, frame, aero_points;
-                                 base_point=0, stations=nothing)
+    wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_point=0)
 
-Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current point
-positions/velocities, for a backend that does not carry these quantities as state.
-`frame` is the wing's KiteGeometry `WingFrame`, each of whose references is the weighted
-blend of its points. Writes the body frame `R_b_to_w`
-([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
-`ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
-([`point_acceleration_w`](@ref)), the reported scalars
-([`write_wing_scalars!`](@ref)) and each aero point's wind, the wind coming from the
-height profile or, under
-[`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
-owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
+Recompute the kinematic state of `PARTICLE_DYNAMICS` wing `wing_idx` of `sam` from the
+current point positions and velocities, for a backend that does not carry these quantities
+as state. `frame` is the wing's KiteGeometry `WingFrame`, each of whose references is the
+weighted blend of its points. Writes its body's orientation
+([`wing_frame_columns`](@ref)), origin `pos_w`/`vel_w`, the frame's own `ω_b`
+([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
+([`point_acceleration_w`](@ref)), the reported scalars ([`write_wing_scalars!`](@ref))
+and, from the height profile, the wind of the body and of each of `aero_points`; under
+[`PerPointWind`](@ref) those winds are the caller's. The same quantities the monolith's
+`get_all_state` copies out of the integrator.
 """
-function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode,
-        frame, aero_points; base_point = 0, stations = nothing)
+function wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_point=0)
+    body_idx = wing_body(sam, wing_idx)
+    positions, velocities = run_positions(sam), run_velocities(sam)
     (zp1, zp2), (yp1, yp2), origin = frame.z_ref_points, frame.y_ref_points, frame.origin
-    pos_z1 = get_ref_position_from_points(points, zp1)
-    pos_z2 = get_ref_position_from_points(points, zp2)
-    pos_y1 = get_ref_position_from_points(points, yp1)
-    pos_y2 = get_ref_position_from_points(points, yp2)
-    vel_z1 = get_ref_position_from_points(points, zp1; field = :vel_w)
-    vel_z2 = get_ref_position_from_points(points, zp2; field = :vel_w)
-    vel_y1 = get_ref_position_from_points(points, yp1; field = :vel_w)
-    vel_y2 = get_ref_position_from_points(points, yp2; field = :vel_w)
+    pos_z1 = KiteGeometry.ref_position(positions, zp1)
+    pos_z2 = KiteGeometry.ref_position(positions, zp2)
+    pos_y1 = KiteGeometry.ref_position(positions, yp1)
+    pos_y2 = KiteGeometry.ref_position(positions, yp2)
+    rates = (KiteGeometry.ref_position(velocities, zp1),
+             KiteGeometry.ref_position(velocities, zp2),
+             KiteGeometry.ref_position(velocities, yp1),
+             KiteGeometry.ref_position(velocities, yp2))
     x, y, z = wing_frame_columns(pos_z1, pos_z2, pos_y1, pos_y2)
-    R = hcat(x, y, z)
-    wing.R_b_to_w .= R
-    wing.pos_w .= get_ref_position_from_points(points, origin)
-    wing.vel_w .= get_ref_position_from_points(points, origin; field = :vel_w)
+    R_b_to_w = hcat(x, y, z)
+    pos_w = SVec3(KiteGeometry.ref_position(positions, origin))
+    vel_w = SVec3(KiteGeometry.ref_position(velocities, origin))
     axes = (collect(x), collect(y), collect(z))
-    wing.ω_b .= body_frame_omega(axes,
-        wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
-            (vel_z1, vel_z2, vel_y1, vel_y2), axes))
-    fill!(wing.acc_w, 0.0)
-    for (idx, weight) in origin
-        wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w)
+    ω_b = body_frame_omega(axes, wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2, rates,
+                                                  axes))
+    acc_w = zero(SVec3)
+    for (i, weight) in origin
+        acc_w += weight .* point_acceleration_w(sam, i, R_b_to_w, vel_w)
     end
-    profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)
-    isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)
-    for point_idx in aero_points
-        point = points[point_idx]
-        isnothing(profile) || (point.wind_vec .= profile(point.pos_w[3]) .* set.wind_vec)
+    set_run_value!(sam, Val(:bodies), body_idx, Val(:Q_b_to_w),
+                   rotation_matrix_to_quaternion(R_b_to_w))
+    set_run_value!(sam, Val(:bodies), body_idx, Val(:pos_w), pos_w)
+    set_run_value!(sam, Val(:bodies), body_idx, Val(:vel_w), vel_w)
+    set_run_value!(sam, Val(:bodies), body_idx, Val(:ω_b), ω_b)
+    set_run_value!(sam, Val(:bodies), body_idx, Val(:acc_w), acc_w)
+    if !per_point_wind(sam)
+        profile = WindFactor(sam.am, sam.set.profile_law)
+        wind_vec = sam.set.wind_vec
+        set_run_value!(sam, Val(:bodies), body_idx, Val(:wind_vec),
+                       profile(pos_w[3]) .* wind_vec)
+        for i in aero_points
+            height = run_value(sam, Val(:points), i, Val(:pos_w))[3]
+            set_run_value!(sam, Val(:points), i, Val(:wind_vec),
+                           profile(height) .* wind_vec)
+        end
     end
-    write_wing_scalars!(wing, points; base_point, stations)
+    write_wing_scalars!(sam, wing_idx; base_point)
     return nothing
 end
 
 """
-    write_wing_scalars!(wing, points; base_point, alpha_b, stations) -> nothing
+    write_wing_scalars!(sam, wing_idx; base_point=0, alpha_b=zeros(3)) -> nothing
 
-Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
-and angle of attack — from its freshly rebuilt pose,
-via the one definition in [`wing_scalar_kinematics`](@ref).
-
-`turn_acc` follows the `alpha_b` the caller passed.
-`alpha_b` defaults to zero, which is what the monolith binds a fitted wing's to.
+Fill the reported scalars of wing `wing_idx` of `sam` — heading, course, elevation, azimuth,
+angle of attack and `turn_acc` — from the pose and motion of its body, via the one
+definition in [`wing_scalar_kinematics`](@ref). `base_point` is the point its elevation
+and azimuth are measured from, 0 for the origin; `turn_acc` follows the body-frame
+angular acceleration `alpha_b`, zero for a fitted wing as the monolith binds it.
 """
-function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
-                             stations = nothing)
-    rel_pos = base_point == 0 ? collect(wing.pos_w) :
-        collect(wing.pos_w) .- collect(points[base_point].pos_w)
-    twist_offset = isnothing(stations) ? 0.0 :
-        mid_span_twist(i -> stations[i].twist, wing.station_idxs)
-    R_b_to_w = collect(wing.R_b_to_w)
+function write_wing_scalars!(sam, wing_idx; base_point=0, alpha_b=zeros(3))
+    body_idx = wing_body(sam, wing_idx)
+    pos_w = run_value(sam, Val(:bodies), body_idx, Val(:pos_w))
+    rel_pos = collect(base_point == 0 ? pos_w :
+        pos_w - run_value(sam, Val(:points), base_point, Val(:pos_w)))
+    twist_offset = mid_span_twist(
+        station_idx -> run_value(sam, Val(:spanwise_stations), station_idx, Val(:twist)),
+        wing_station_idxs(sam, wing_idx))
+    R_b_to_w = collect(body_rotation(sam, body_idx))
     e_x = R_b_to_w[:, 1]
     scalars = wing_scalar_kinematics(; rel_pos, e_x,
         R_t_to_w = sym_calc_R_t_to_w(rel_pos),
-        R_v_to_w = calc_R_v_to_w(rel_pos, e_x),
-        R_b_to_w, vel = collect(wing.vel_w), acc = collect(wing.acc_w),
-        omega_b = collect(wing.ω_b), alpha_b = collect(alpha_b),
-        va_b = collect(wing.va_b), twist_offset)
-    wing.turn_acc .= scalars.turn_acc
-    index(wing) > getfield(getfield(wing, :state), :n_wings) && return nothing
-    wing.heading = scalars.heading
-    wing.elevation = scalars.elevation
-    wing.azimuth = scalars.azimuth
-    wing.course = scalars.course
-    wing.aoa = scalars.angle_of_attack
+        R_v_to_w = calc_R_v_to_w(rel_pos, e_x), R_b_to_w,
+        vel = collect(run_value(sam, Val(:bodies), body_idx, Val(:vel_w))),
+        acc = collect(run_value(sam, Val(:bodies), body_idx, Val(:acc_w))),
+        omega_b = collect(run_value(sam, Val(:bodies), body_idx, Val(:ω_b))),
+        alpha_b = collect(alpha_b),
+        va_b = collect(run_value(sam, Val(:bodies), body_idx, Val(:va_b))), twist_offset)
+    set_run_value!(sam, Val(:wings), wing_idx, Val(:turn_acc), scalars.turn_acc)
+    set_run_value!(sam, Val(:wings), wing_idx, Val(:heading), scalars.heading)
+    set_run_value!(sam, Val(:wings), wing_idx, Val(:elevation), scalars.elevation)
+    set_run_value!(sam, Val(:wings), wing_idx, Val(:azimuth), scalars.azimuth)
+    set_run_value!(sam, Val(:wings), wing_idx, Val(:course), scalars.course)
+    set_run_value!(sam, Val(:wings), wing_idx, Val(:aoa), scalars.angle_of_attack)
     return nothing
 end
 
@@ -1166,8 +1205,8 @@ Refresh each wing's aerodynamic state, dispatching on the wing's aero mode
 ([`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)), and re-spread
 the entrained air ([`apply_apparent_mass!`](@ref)) at the density it just read. Runs
 on the low-frequency VSM-update schedule (`vsm_interval`), not the compiled RHS. Reads
-per-point apparent wind from the `points` (populated by `update_sys_struct!`,
-which always runs first), so it does not re-extract integrator state.
+the apparent wind of each point from the run (written by `update_run_state!`, which
+always runs first), so it does not re-extract integrator state.
 
 **RIGID_DYNAMICS VSM modes:** compute wind-axis coefficients (CL, CD, CS, CM, cm)
 at the operating point, plus the `ForwardDiff` Jacobian over `[α, β, ω₁, ω₂, ω₃,
@@ -1187,82 +1226,85 @@ point, and the first solve after a [`reinit!`](@ref) must not depend on what ran
 """
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
                        cold_start=false, vsm_warn_on_fail=false)
-    wings = sam.state.wings
-    stations = sam.state.spanwise_stations
-    points = sam.state.points
-
-    length(wings) == 0 && return nothing
-
-    cold_start && foreach(wing -> fill!(circulation(wing), 0.0), wings)
-    for wing in wings
-        sync_aero_density!(wing, sam.am)
-        apply_apparent_mass!(sam.state, wing,
-                             air_density(sam.am, wing.pos_w[3]))
+    isempty(sam.aero) && return nothing
+    if cold_start
+        foreach(wing_idx -> fill!(circulation(sam, wing_idx), 0.0), eachindex(sam.aero))
     end
+    for (wing_idx, mode) in enumerate(sam.aero)
+        sync_aero_density!(mode, sam, wing_idx)
+    end
+    apply_apparent_mass!(sam)
 
-    for wing in wings
-        body_dynamics_type(wing) == RIGID_DYNAMICS || continue
+    particle_wings = Int[]
+    for (wing_idx, mode) in enumerate(sam.aero)
+        if body_dynamics_type(sam, wing_body(sam, wing_idx)) == PARTICLE_DYNAMICS
+            push!(particle_wings, wing_idx)
+            continue
+        end
         try
-            refresh_rigid_aero!(wing.aero, wing, sam.am, stations;
-                                vsm_min_wind)
+            refresh_rigid_aero!(mode, sam, wing_idx; vsm_min_wind)
         catch failure
-            warn_or_rethrow(failure, vsm_warn_on_fail, wing)
+            warn_or_rethrow(failure, vsm_warn_on_fail, sam, wing_idx)
         end
     end
 
-    any(body_dynamics_type(w) === PARTICLE_DYNAMICS for w in wings) ||
-        return nothing
-    va_point_b_vals = Matrix{SimFloat}(undef, 3, length(points))
-    for point in points
-        @views va_point_b_vals[:, point.idx] .= point.va_b
-    end
-    for wing in wings
-        body_dynamics_type(wing) == PARTICLE_DYNAMICS || continue
-        apply_flap_delta!(wing.aero, wing, sam.state)
+    isempty(particle_wings) && return nothing
+    va_point_b = point_apparent_winds(sam)
+    for wing_idx in particle_wings
+        mode = sam.aero[wing_idx]
+        apply_flap_delta!(mode, sam, wing_idx)
         try
-            refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
-                                   vsm_min_wind)
+            refresh_particle_aero!(mode, sam, wing_idx, va_point_b; vsm_min_wind)
         catch failure
-            warn_or_rethrow(failure, vsm_warn_on_fail, wing)
+            warn_or_rethrow(failure, vsm_warn_on_fail, sam, wing_idx)
         end
     end
+    return nothing
+end
 
-    nothing
+"""The apparent wind of every point of `sam` in the body frame of its wing, one column
+per point [m/s], zero for a point of no wing."""
+function point_apparent_winds(sam)
+    va_point_b = Matrix{SimFloat}(undef, 3, length(sam.definition.points))
+    for i in axes(va_point_b, 2)
+        va_point_b[:, i] .= run_value(sam, Val(:points), i, Val(:va_b))
+    end
+    return va_point_b
 end
 
 """
-    warn_or_rethrow(failure, vsm_warn_on_fail, wing)
+    warn_or_rethrow(failure, vsm_warn_on_fail, sam, wing_idx)
 
 Rethrow `failure`, unless it is a `VortexStepMethod.SolveFailure` and
-`vsm_warn_on_fail` is set: then warn instead, and `wing` flies on with the
-circulation, the angles of attack and the frozen forces of its last converged
-solve.
+`vsm_warn_on_fail` is set: then warn instead, and wing `wing_idx` of `sam` flies on with the
+circulation, the angles of attack and the frozen forces of its last converged solve.
 """
-function warn_or_rethrow(failure, vsm_warn_on_fail, wing)
+function warn_or_rethrow(failure, vsm_warn_on_fail, sam, wing_idx)
     (vsm_warn_on_fail && failure isa VortexStepMethod.SolveFailure) ||
         rethrow(failure)
-    @warn "$(nameof(typeof(wing.aero))) on wing $(wing.idx): $(failure.msg) " *
+    @warn "$(nameof(typeof(sam.aero[wing_idx]))) on wing $wing_idx: $(failure.msg) " *
           "Reusing the last converged aero state."
     return nothing
 end
 
 """
-    refresh_rigid_aero!(mode, wing, am, stations; vsm_min_wind=0.5)
+    refresh_rigid_aero!(mode, sam, wing_idx; vsm_min_wind=0.5)
 
-Refresh a `RIGID_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
+Refresh the aero state of `RIGID_DYNAMICS` wing `wing_idx` of `sam`, dispatched on its aero
+`mode`:
 - `AeroNone` / any non-VSM mode → no-op (fallback).
 - `AeroLinearized` → compute the baseline coefficients ([`rigid_aero_baseline!`](@ref))
-  and the `ForwardDiff` Jacobian `d(coeffs)/d(inputs)` into `wing.aero_jac`.
+  and the `ForwardDiff` Jacobian `d(coeffs)/d(inputs)` into the mode's `aero_jac`.
 - `AeroDirect` → compute the baseline coefficients and apply the frozen body-frame
   force/moment; below `vsm_min_wind` everything is zeroed.
 """
-refresh_rigid_aero!(::AbstractAeroModel, wing, am, stations;
-                    vsm_min_wind=0.5) = nothing
+refresh_rigid_aero!(::AbstractAeroModel, sam, wing_idx; vsm_min_wind=0.5) = nothing
 
 """
-    refresh_particle_aero!(mode, wing, points, va_point_b_vals; vsm_min_wind=0.5)
+    refresh_particle_aero!(mode, sam, wing_idx, va_point_b; vsm_min_wind=0.5)
 
-Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
+Refresh the aero state of `PARTICLE_DYNAMICS` wing `wing_idx` of `sam`, dispatched on its
+aero `mode`, `va_point_b` holding each point's body-frame apparent wind as a column:
 - `AeroNone` / any non-VSM mode → no-op (fallback).
 - `AeroDirect` → full nonlinear VSM solve with per-section apparent wind, then
   distribute panel forces onto the wing's structural points
@@ -1270,167 +1312,166 @@ Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
   forces are zeroed.
 - `AeroLinearized` → unsupported (errors).
 """
-refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
-                       vsm_min_wind=0.5) = nothing
+refresh_particle_aero!(::AbstractAeroModel, sam, wing_idx, va_point_b; vsm_min_wind=0.5) =
+    nothing
 
 # ==================== per-wing lifecycle ==================== #
 
 """
-    remake_aero!(mode, wing, set, vsm_set, state)
+    remake_aero!(mode, sam, wing_idx)
 
-Rebuild the mode's VSM objects from `set` and `vsm_set` (the `remake_vsm` path of
-`init!`, after editing settings) and set them up again ([`setup_model_aero!`](@ref)). A
-no-op for a mode without an engine.
+Rebuild the VSM objects of the aero `mode` of wing `wing_idx` of `sam` from its `set` and
+`vsm_set` (the `remake_vsm` path of `init!`, after editing settings) and set them up
+again ([`setup_model_aero!`](@ref)). A no-op for a mode without an engine.
 """
-remake_aero!(::AbstractAeroModel, wing, set, vsm_set, state) = nothing
+remake_aero!(::AbstractAeroModel, sam, wing_idx) = nothing
 
-function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, state)
-    wing.vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
-    wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-    wing.vsm_solver = build_vsm_solver(wing.vsm_aero, vsm_set, body_dynamics_type(wing),
-                                       length(wing.station_idxs))
-    return setup_model_aero!(wing, state)
-end
-
-"""Set a model's VSM `wing` up on its structure: its panels in the body frame, its
-sections on the structure's, the maps between them ([`setup_aero!`](@ref)) and its flap
-stations ([`build_panel_station_map!`](@ref))."""
-function setup_model_aero!(wing, state)
-    mode = wing.aero
-    mode isa AbstractVSMAero || return nothing
-    resize_aero_state!(mode, wing)
-    setup_aero!(mode, wing, state.points, state.spanwise_stations; vsm_set=state.vsm_set)
-    return build_panel_station_map!(mode, wing, state)
+function remake_aero!(mode::AbstractVSMAero, sam, wing_idx)
+    mode.vsm_wing = create_vsm_wing(sam.set, sam.vsm_set; prn=false, sort_sections=false)
+    mode.vsm_aero = VortexStepMethod.BodyAerodynamics([mode.vsm_wing])
+    mode.vsm_solver = build_vsm_solver(mode.vsm_aero, sam.vsm_set,
+                                       body_dynamics_type(sam, wing_body(sam, wing_idx)),
+                                       length(wing_station_idxs(sam, wing_idx)))
+    return setup_model_aero!(sam, wing_idx)
 end
 
 """
-    validate_aero_structure(mode, wing, points; prn=false)
+    setup_model_aero!(sam, wing_idx)
 
-Check structural invariants the mode's compiled equations rely on (run at build).
-Default no-op; VSM `PARTICLE_DYNAMICS` wings verify each unrefined section has its
-LE and TE structural point mapped (interior chord control points are allowed and
-need no mapping).
+Set the aero mode of wing `wing_idx` of `sam` up on its structure, once per engine: size its
+aero state ([`resize_aero_state!`](@ref)), put its panels in the body frame and its
+sections and stations on the structure's ([`setup_aero!`](@ref)), and map its flap
+stations ([`build_panel_station_map!`](@ref)). A no-op for a mode without VSM geometry.
 """
-validate_aero_structure(::AbstractAeroModel, wing, points; prn=false) = nothing
-
-function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
-    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return nothing
-    @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
-
-    n_sections = length(wing.vsm_wing.unrefined_sections)
-    mapped = values(wing.point_to_vsm_point)
-    for section_idx in 1:n_sections, le_or_te in (:LE, :TE)
-        @assert (section_idx, le_or_te) in mapped "PARTICLE_DYNAMICS wing $(wing.idx): section $(section_idx) missing its $(le_or_te) point"
-    end
-
-    n_wing_points = count(p -> p.is_wing_node && p.wing_idx == wing.idx, points)
-    prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(n_wing_points) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
+function setup_model_aero!(sam, wing_idx)
+    mode = sam.aero[wing_idx]
+    resize_aero_state!(mode, sam, wing_idx)
+    setup_aero!(mode, sam, wing_idx)
+    build_panel_station_map!(mode, sam, wing_idx)
     return nothing
 end
 
 """
-    setup_aero!(mode, wing, points, stations; prn=false, vsm_set=nothing)
+    validate_aero_structure(mode, sam, wing_idx; prn=false)
 
-Construction-time aero setup for `wing`, dispatched on its aero `mode` (default
-no-op). VSM modes transform the VSM panels into the body frame and, for
-section-coupled wings, auto-create stations, match aero sections to
-structure, and build the station / structural↔panel mappings. A custom mode
-adds a method to participate in construction without editing the SystemDefinition
-constructor. Runs once the wing's body frame is set.
-`vsm_set` is the model's `VSMSettings`, for a mode that reads how its sections were
-generated rather than only the geometry they produced.
+Check structural invariants the compiled equations of wing `wing_idx` of `sam` rely on under
+its aero `mode` (run at build). Default no-op; VSM `PARTICLE_DYNAMICS` wings verify each
+unrefined section has its LE and TE structural point mapped (interior chord control
+points are allowed and need no mapping).
 """
-setup_aero!(::AbstractAeroModel, wing, points, stations; prn=false,
-            vsm_set=nothing) = nothing
+validate_aero_structure(::AbstractAeroModel, sam, wing_idx; prn=false) = nothing
+
+function validate_aero_structure(mode::AbstractVSMAero, sam, wing_idx; prn=false)
+    body_dynamics_type(sam, wing_body(sam, wing_idx)) == PARTICLE_DYNAMICS || return nothing
+    @assert !isnothing(mode.point_to_vsm_point) "PARTICLE_DYNAMICS wing $wing_idx " *
+        "missing point_to_vsm_point mapping"
+    n_sections = length(mode.vsm_wing.unrefined_sections)
+    mapped = values(mode.point_to_vsm_point)
+    for section_idx in 1:n_sections, le_or_te in (:LE, :TE)
+        @assert (section_idx, le_or_te) in mapped "PARTICLE_DYNAMICS wing $wing_idx: " *
+            "section $section_idx missing its $le_or_te point"
+    end
+    prn && println("✓ PARTICLE_DYNAMICS wing $wing_idx validated: " *
+        "$(length(wing_points(sam, wing_idx))) points, $n_sections sections, " *
+        "$(length(mode.vsm_aero.panels)) panels")
+    return nothing
+end
 
 """
-    transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offset=nothing)
+    setup_aero!(mode, sam, wing_idx; prn=false)
 
-Move the wing's VSM sections/panels from the frame its aero geometry is authored in
-into the body frame, given the body origin `origin` and orientation `R_b_to_mesh` in
-that frame, record both in `T_cad_body` / `R_cad_body`, and reinit the panels. With
-`aero_z_offset` set, also apply the chordwise aero z-offset (RIGID wings); PARTICLE
-wings pass `nothing`. [`setup_aero!`](@ref) passes the wing's pose as authored.
+Construction-time aero setup of wing `wing_idx` of `sam`, dispatched on its aero `mode`
+(default no-op). VSM modes transform the VSM panels into the body frame, match aero
+sections to the structure and map the stations onto them in the engine
+([`compute_spatial_station_mapping!`](@ref), [`compute_station_geometry!`](@ref)), or
+for a `PARTICLE_DYNAMICS` wing build the structural↔panel mapping. A custom mode adds a
+method to participate in construction. A mode that reads how its sections were
+generated finds the model's `VSMSettings` in `sam.vsm_set`.
 """
-function transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offset=nothing)
-    vsm_wing = wing.vsm_wing
-    vsm_wing.T_cad_body .= origin
-    adjust_vsm_panels_to_origin!(vsm_wing, origin)
+setup_aero!(::AbstractAeroModel, sam, wing_idx; prn=false) = nothing
+
+"""
+    transform_vsm_sections_to_body!(mode, sam, wing_idx; aero_z_offset=nothing)
+
+Move the VSM sections/panels of the aero `mode` of wing `wing_idx` of `sam` from the frame
+its aero geometry is authored in into the body frame, given the body origin and orientation
+in that frame (`mesh_origin_b`, `R_b_to_mesh`), record both in `T_cad_body` /
+`R_cad_body`, and reinit the panels. With `aero_z_offset` set, also apply the chordwise
+aero z-offset (RIGID wings); PARTICLE wings pass `nothing`. Not idempotent: an engine is
+transformed once.
+"""
+function transform_vsm_sections_to_body!(mode, sam, wing_idx; aero_z_offset=nothing)
+    (; origin_b, R_b_to_mesh) = wing_mesh_pose(sam, wing_idx)
+    vsm_wing = mode.vsm_wing
+    vsm_wing.T_cad_body .= origin_b
+    adjust_vsm_panels_to_origin!(vsm_wing, origin_b)
     rotate_vsm_sections!(vsm_wing, R_b_to_mesh')
     vsm_wing.R_cad_body .= R_b_to_mesh
     isnothing(aero_z_offset) || apply_aero_z_offset!(vsm_wing, aero_z_offset)
-    check_span_order(wing)
-    VortexStepMethod.reinit!(wing.vsm_aero)
+    check_span_order(mode, sam, wing_idx)
+    VortexStepMethod.reinit!(mode.vsm_aero)
     return nothing
 end
 
-function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
-                     prn=false, vsm_set=nothing)
-    if body_dynamics_type(wing) == RIGID_DYNAMICS
-        transform_vsm_sections_to_body!(wing, wing.mesh_origin_b, wing.R_b_to_mesh;
-                                        aero_z_offset=wing.aero_z_offset)
-
-        if couples_to_sections(mode) && isempty(wing.station_idxs)
-            error("Section-coupled aero on RIGID wing $(wing.idx) requires " *
-                  "explicit stations covering its LE/TE structural " *
-                  "sections; none were declared. Add them to the wing.")
-        end
-        couples_to_sections(mode) &&
-            match_aero_sections_to_structure!(wing, points; stations)
-        isempty(wing.station_idxs) ||
-            compute_spatial_station_mapping!(wing, stations, points)
-        compute_station_geometry!(wing, stations, points)
-    else  # PARTICLE_DYNAMICS
-        isnothing(wing.origin) ||
-            transform_vsm_sections_to_body!(wing, wing.mesh_origin_b, wing.R_b_to_mesh)
-        couples_to_sections(mode) &&
-            match_aero_sections_to_structure!(wing, points; stations)
-        setup_particle_point_mapping!(wing, points, stations)
+function setup_aero!(mode::AbstractVSMAero, sam, wing_idx; prn=false)
+    if body_dynamics_type(sam, wing_body(sam, wing_idx)) == RIGID_DYNAMICS
+        transform_vsm_sections_to_body!(mode, sam, wing_idx;
+                                        aero_z_offset=mode.aero_z_offset)
+        station_idxs = wing_station_idxs(sam, wing_idx)
+        couples_to_sections(mode) && isempty(station_idxs) &&
+            error("Section-coupled aero on RIGID wing $wing_idx requires explicit " *
+                  "stations covering its LE/TE structural sections; none were " *
+                  "declared. Add them to the wing.")
+        couples_to_sections(mode) && match_aero_sections_to_structure!(mode, sam, wing_idx)
+        isempty(station_idxs) || compute_spatial_station_mapping!(sam, wing_idx)
+        compute_station_geometry!(sam, wing_idx)
+        return nothing
     end
+    isnothing(wing_origin(sam, wing_idx)) ||
+        transform_vsm_sections_to_body!(mode, sam, wing_idx)
+    couples_to_sections(mode) && match_aero_sections_to_structure!(mode, sam, wing_idx)
+    setup_particle_point_mapping!(mode, sam, wing_idx)
     return nothing
 end
 
 """
-    resize_aero_state!(mode, wing)
+    resize_aero_state!(mode, sam, wing_idx)
 
-Resize the mode's per-wing aero state after `wing.station_idxs` is
-resolved (name resolution can change the station count the initial
-sizing estimated from `n_unrefined`). Default no-op; VSM modes resize
+Resize the per-wing aero state of the aero `mode` of wing `wing_idx` of `sam` to its
+stations (the engine was sized from `n_unrefined`). Default no-op; VSM modes resize
 `aero_y`/`aero_x`/`aero_jac` for `RIGID_DYNAMICS` wings.
 """
-resize_aero_state!(::AbstractAeroModel, wing) = nothing
+resize_aero_state!(::AbstractAeroModel, sam, wing_idx) = nothing
 
-function resize_aero_state!(mode::AbstractVSMAero, wing)
-    body_dynamics_type(wing) == RIGID_DYNAMICS || return nothing
-    n_stations = length(wing.station_idxs)
+function resize_aero_state!(mode::AbstractVSMAero, sam, wing_idx)
+    body_dynamics_type(sam, wing_body(sam, wing_idx)) == RIGID_DYNAMICS || return nothing
+    n_stations = length(wing_station_idxs(sam, wing_idx))
     num_aero_outputs = 6 + n_stations
     num_aero_inputs = 5 + n_stations
     if length(mode.aero_x) != num_aero_outputs ||
             length(mode.aero_y) != num_aero_inputs
         mode.aero_y = zeros(SimFloat, num_aero_inputs)
         mode.aero_x = zeros(SimFloat, num_aero_outputs)
-        mode.aero_jac = zeros(
-            SimFloat, num_aero_outputs, num_aero_inputs)
+        mode.aero_jac = zeros(SimFloat, num_aero_outputs, num_aero_inputs)
     end
     return nothing
 end
 
 """
-    init_aero_state!(mode, wing, va_b_init)
+    init_aero_state!(mode, sam, wing_idx, va_b)
 
-Initialize the mode's aero state from the initial body-frame apparent wind
-`va_b_init` (runs in `update_sys_struct!`, before the first refresh). Default
-no-op; VSM modes write the operating-point angles α, β into `aero_y`.
+Initialize the aero state of the aero `mode` of wing `wing_idx` of `sam` from its initial
+body-frame apparent wind `va_b` (before the first refresh). Default no-op; VSM modes
+write the operating-point angles α, β into `aero_y`.
 """
-init_aero_state!(::AbstractAeroModel, wing, va_b_init) = nothing
+init_aero_state!(::AbstractAeroModel, sam, wing_idx, va_b) = nothing
 
-function init_aero_state!(mode::AbstractVSMAero, wing, va_b_init)
+function init_aero_state!(mode::AbstractVSMAero, sam, wing_idx, va_b)
     aero_y = mode.aero_y
     length(aero_y) < 2 && return nothing
     aero_y .= 0.0
-    aero_y[1] = atan(va_b_init[3], va_b_init[1])
-    aero_y[2] = atan(va_b_init[2],
-        hypot(va_b_init[1], va_b_init[3]))
+    aero_y[1] = atan(va_b[3], va_b[1])
+    aero_y[2] = atan(va_b[2], hypot(va_b[1], va_b[3]))
     return nothing
 end
 
@@ -1471,11 +1512,11 @@ function build_section_interp(vsm_wing)
     if length(refined) == n_sections
         for s in 1:n_sections
             strut = left[s]
-            w = weight[s]
-            line_le = w .* unrefined[strut].LE_point .+
-                (1.0 - w) .* unrefined[strut + 1].LE_point
-            line_te = w .* unrefined[strut].TE_point .+
-                (1.0 - w) .* unrefined[strut + 1].TE_point
+            share = weight[s]
+            line_le = share .* unrefined[strut].LE_point .+
+                (1.0 - share) .* unrefined[strut + 1].LE_point
+            line_te = share .* unrefined[strut].TE_point .+
+                (1.0 - share) .* unrefined[strut + 1].TE_point
             le_offset[:, s] .= refined[s].LE_point .- line_le
             te_offset[:, s] .= refined[s].TE_point .- line_te
         end
@@ -1494,19 +1535,19 @@ section_interp_caches(mode::AbstractVSMAero) =
      mode.section_le_offset, mode.section_te_offset)
 
 """
-    aero_section_columns(wing, points) -> Dict{Tuple{Int64,Symbol},Int}
+    aero_section_columns(sam, wing_idx) -> Dict{Tuple{Int64,Symbol},Int}
 
-Map `(unrefined_section, :LE/:TE)` to the connector column (position in `points`)
-of the structural station point there, via `wing.point_to_vsm_point`. Interior
-chord control points (absent from the map) are skipped.
+Map `(unrefined_section, :LE/:TE)` of wing `wing_idx` of `sam` to the connector column
+(position in [`wing_points`](@ref)) of the structural station point there, via its engine's
+`point_to_vsm_point`. Interior chord control points (absent from the map) are skipped.
 """
-function aero_section_columns(wing, points)
-    point_to_vsm = wing.point_to_vsm_point
-    isnothing(point_to_vsm) && error(
-        "continuous aero: wing $(wing.name) missing point_to_vsm_point mapping.")
+function aero_section_columns(sam, wing_idx)
+    point_to_vsm = sam.aero[wing_idx].point_to_vsm_point
+    isnothing(point_to_vsm) && error("continuous aero: wing " *
+        "$(sam.definition.wings[wing_idx].name) missing point_to_vsm_point mapping.")
     column = Dict{Tuple{Int64, Symbol}, Int}()
-    for (k, point) in enumerate(points)
-        entry = get(point_to_vsm, point.idx, nothing)
+    for (k, i) in enumerate(wing_points(sam, wing_idx))
+        entry = get(point_to_vsm, i, nothing)
         entry === nothing && continue
         column[entry] = k
     end
@@ -1540,16 +1581,16 @@ function interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
 end
 
 """
-    reconstruct_sections_sym(mode, wing, points, connectors, column)
-        -> (sec_le, sec_te)
+    reconstruct_sections_sym(mode, connectors, column) -> (sec_le, sec_te)
 
-Live symbolic body-frame LE/TE of every refined section: the strut LE/TE connector
-positions (`connectors.point_pos`, derived from world `pos`) interpolated by the
-frozen mesh weights plus the frozen billow offset. Shared by all continuous VSM
-modes so the force model and the plot use identical geometry.
+Live symbolic body-frame LE/TE of every refined section of a wing flown with the
+continuous VSM aero `mode`: the strut LE/TE connector positions (`connectors.point_pos`,
+derived from world `pos`) interpolated by the frozen mesh weights plus the frozen billow
+offset. Shared by all continuous VSM modes so the force model and the plot use identical
+geometry.
 """
-function reconstruct_sections_sym(mode, wing, points, connectors, column)
-    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
+function reconstruct_sections_sym(mode, connectors, column)
+    n_struts = Int(mode.vsm_wing.n_unrefined_sections)
     strut_le = [collect(connectors.point_pos[:, column[(s, :LE)]])
                 for s in 1:n_struts]
     strut_te = [collect(connectors.point_pos[:, column[(s, :TE)]])
@@ -1559,22 +1600,20 @@ function reconstruct_sections_sym(mode, wing, points, connectors, column)
 end
 
 """
-    reconstruct_inflow_sym(mode, wing, connectors, column) -> (sec_va, sec_rho, sec_dva)
+    reconstruct_inflow_sym(mode, connectors, column) -> (sec_va, sec_rho, sec_dva)
 
-Live symbolic body-frame apparent wind and density of every refined section: each
-strut's LE/TE connector values blended at [`COLLOCATION_CHORD_FRAC`](@ref) into one
-strut value, then interpolated by the frozen mesh weights — the same struts and
-weights [`reconstruct_sections_sym`](@ref) builds that section's corners from, so a
-section's inflow and its geometry read the same points. `sec_dva` is the same
-interpolation of each strut's trailing minus leading edge apparent wind, the
-pitch-rate input of [`panel_force_eqs`](@ref); it is `nothing` unless the wing's
-solver asks for the flow curvature term, since building it for every section and
-discarding it is what the default path would otherwise pay. Symbolic twin of
-[`strut_inflow_weights`](@ref) and [`strut_pitch_weights`](@ref). Shared by all
-continuous VSM modes.
+Live symbolic body-frame apparent wind and density of every refined section of a wing
+flown with the continuous VSM aero `mode`: each strut's LE/TE connector values blended
+at [`COLLOCATION_CHORD_FRAC`](@ref) into one strut value, then interpolated by the
+frozen mesh weights — the same struts and weights [`reconstruct_sections_sym`](@ref)
+builds that section's corners from, so a section's inflow and its geometry read the
+same points. `sec_dva` is the same interpolation of each strut's trailing minus leading
+edge apparent wind, the pitch-rate input of [`panel_force_eqs`](@ref); it is `nothing`
+unless the solver asks for the flow curvature term. Symbolic twin of
+[`strut_inflow_weights`](@ref) and [`strut_pitch_weights`](@ref).
 """
-function reconstruct_inflow_sym(mode, wing, connectors, column)
-    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
+function reconstruct_inflow_sym(mode, connectors, column)
+    n_struts = Int(mode.vsm_wing.n_unrefined_sections)
     nose = 1 - COLLOCATION_CHORD_FRAC
     va_at(s, edge) = collect(connectors.va[:, column[(s, edge)]])
     strut_va = [nose * va_at(s, :LE) + COLLOCATION_CHORD_FRAC * va_at(s, :TE)
@@ -1585,145 +1624,151 @@ function reconstruct_inflow_sym(mode, wing, connectors, column)
     left, weight, _, _ = section_interp_caches(mode)
     sec_va = [interp_strut(strut_va, left, weight, s) for s in eachindex(left)]
     sec_rho = [interp_strut(strut_rho, left, weight, s) for s in eachindex(left)]
-    flow_curvature_enabled(wing) || return sec_va, sec_rho, nothing
+    flow_curvature_enabled(mode) || return sec_va, sec_rho, nothing
     strut_dva = [va_at(s, :TE) - va_at(s, :LE) for s in 1:n_struts]
     sec_dva = [interp_strut(strut_dva, left, weight, s) for s in eachindex(left)]
     return sec_va, sec_rho, sec_dva
 end
 
-"""
-    reconstruct_sections_b(mode, wing, points) -> (sec_le, sec_te)
+"""The position of point `i` of `sam` from the origin of the body `body_idx`, in its
+frame of the run [m]."""
+point_position_b(sam, body_idx, i) = body_rotation(sam, body_idx)' *
+    (run_value(sam, Val(:points), i, Val(:pos_w)) -
+     run_value(sam, Val(:bodies), body_idx, Val(:pos_w)))
 
-Numeric body-frame refined-section LE/TE from the live structural `pos_w`, exactly
-as [`reconstruct_sections_sym`](@ref) builds them symbolically. For plotting and
-logging so the drawn panels are the ones the dynamics use.
 """
-function reconstruct_sections_b(mode, wing, points)
-    column = aero_section_columns(wing, points)
-    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
-    rot_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
-    strut_le = [rot_w_to_b * (points[column[(s, :LE)]].pos_w - wing.pos_w)
+    reconstruct_sections_b(mode, sam, wing_idx) -> (sec_le, sec_te)
+
+Numeric body-frame refined-section LE/TE of wing `wing_idx` of `sam` from the live
+structural positions, exactly as [`reconstruct_sections_sym`](@ref) builds them
+symbolically. For plotting and logging so the drawn panels are the ones the dynamics use.
+"""
+function reconstruct_sections_b(mode, sam, wing_idx)
+    column = aero_section_columns(sam, wing_idx)
+    point_idxs = wing_points(sam, wing_idx)
+    body_idx = wing_body(sam, wing_idx)
+    n_struts = Int(mode.vsm_wing.n_unrefined_sections)
+    strut_le = [point_position_b(sam, body_idx, point_idxs[column[(s, :LE)]])
                 for s in 1:n_struts]
-    strut_te = [rot_w_to_b * (points[column[(s, :TE)]].pos_w - wing.pos_w)
+    strut_te = [point_position_b(sam, body_idx, point_idxs[column[(s, :TE)]])
                 for s in 1:n_struts]
     left, weight, le_offset, te_offset = section_interp_caches(mode)
     return interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
 end
 
 """
-    write_live_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx, zoom)
+    write_log_corners!(sys_state, point_idx, corners_b, sam, wing_idx, zoom) -> Int
 
-Log the panel corners the force model reconstructs (strut interpolation + frozen
-billow offset), not the raw VSM mesh, so the plot shows the deforming geometry the
-dynamics use. Shared by the continuous VSM modes.
+Write the body-frame `corners_b` of wing `wing_idx` of `sam`, turned into the world and
+scaled by `zoom`, into `sys_state.X/Y/Z` after `point_idx`; return the last index written.
 """
-function write_live_aero_log_points!(mode, wing, sys_struct, sys_state,
-                                     point_idx, zoom)
-    points = wing_points(sys_struct, wing)
-    sec_le, sec_te = reconstruct_sections_b(mode, wing, points)
-    rot_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    n_panels = length(sec_le) - 1
-    for i in 1:n_panels
-        for corner_b in (sec_le[i], sec_te[i], sec_te[i + 1], sec_le[i + 1])
-            point_idx += 1
-            corner_w = wing.pos_w + rot_b_to_w * corner_b
-            sys_state.X[point_idx] = corner_w[1] * zoom
-            sys_state.Y[point_idx] = corner_w[2] * zoom
-            sys_state.Z[point_idx] = corner_w[3] * zoom
-        end
+function write_log_corners!(sys_state, point_idx, corners_b, sam, wing_idx, zoom)
+    body_idx = wing_body(sam, wing_idx)
+    R_b_to_w = body_rotation(sam, body_idx)
+    pos_w = run_value(sam, Val(:bodies), body_idx, Val(:pos_w))
+    for corner_b in corners_b
+        point_idx += 1
+        corner_w = pos_w + R_b_to_w * corner_b
+        sys_state.X[point_idx] = corner_w[1] * zoom
+        sys_state.Y[point_idx] = corner_w[2] * zoom
+        sys_state.Z[point_idx] = corner_w[3] * zoom
     end
     return point_idx
+end
+
+"""
+    write_live_aero_log_points!(mode, sam, wing_idx, sys_state, point_idx, zoom)
+
+Log the panel corners of wing `wing_idx` of `sam` the force model reconstructs (strut
+interpolation + frozen billow offset), not the raw VSM mesh, so the plot shows the
+deforming geometry the dynamics use. Shared by the continuous VSM modes.
+"""
+function write_live_aero_log_points!(mode, sam, wing_idx, sys_state, point_idx, zoom)
+    sec_le, sec_te = reconstruct_sections_b(mode, sam, wing_idx)
+    corners = (corner for i in 1:(length(sec_le) - 1)
+               for corner in (sec_le[i], sec_te[i], sec_te[i + 1], sec_le[i + 1]))
+    return write_log_corners!(sys_state, point_idx, corners, sam, wing_idx, zoom)
 end
 
 # ==================== logging / visualization hooks ==================== #
 
 """
-    n_aero_log_points(mode, wing) -> Int
+    n_aero_log_points(mode, sys, wing_idx) -> Int
 
-Number of extra `SysState` log slots the mode contributes for `wing`
-(visualization geometry such as panel corners). Default 0; VSM modes log
+Number of extra `SysState` log slots the aero `mode` of wing `wing_idx` of definition `sys`
+contributes (visualization geometry such as panel corners). Default 0; VSM modes log
 4 corners per panel. Must match what [`write_aero_log_points!`](@ref) writes.
 """
-n_aero_log_points(::AbstractAeroModel, wing) = 0
-n_aero_log_points(mode::AbstractVSMAero, wing) =
-    4 * length(mode.vsm_aero.panels)
+n_aero_log_points(::AbstractAeroModel, sys, wing_idx) = 0
+n_aero_log_points(mode::AbstractVSMAero, sys, wing_idx) = 4 * length(mode.vsm_aero.panels)
 
 """
-    write_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx,
-                           zoom) -> Int
+    write_aero_log_points!(mode, sam, wing_idx, sys_state, point_idx, zoom) -> Int
 
-Write the mode's log points (world frame, scaled by `zoom`) into
-`sys_state.X/Y/Z` starting after `point_idx`; return the last index written.
-Default writes nothing; VSM modes write the panel corners, [`AeroPlate`](@ref)
-writes each section's display quad. Flap deflections are logged separately, per
-aero segment, into `sys_state.flap_angle` (see [`write_flap_deflections!`](@ref)).
+Write the log points of the aero `mode` of wing `wing_idx` of `sam` (world frame, scaled by
+`zoom`) into `sys_state.X/Y/Z` starting after `point_idx`; return the last index
+written. Default writes nothing; VSM modes write the panel corners,
+[`AeroPlate`](@ref) writes each section's display quad. Flap deflections are logged
+separately, per station, into `sys_state.flap_angle` (see
+[`write_flap_deflections!`](@ref)).
 """
-write_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
-                       point_idx, zoom) = point_idx
+write_aero_log_points!(::AbstractAeroModel, sam, wing_idx, sys_state, point_idx, zoom) =
+    point_idx
 
-function write_aero_log_points!(mode::AbstractVSMAero, wing, sys_struct,
-                                sys_state, point_idx, zoom)
-    R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    for panel in mode.vsm_aero.panels
-        for j in 1:4
-            point_idx += 1
-            corner_w = wing.pos_w + R_b_to_w * panel.corner_points[:, j]
-            sys_state.X[point_idx] = corner_w[1] * zoom
-            sys_state.Y[point_idx] = corner_w[2] * zoom
-            sys_state.Z[point_idx] = corner_w[3] * zoom
-        end
-    end
-    return point_idx
+function write_aero_log_points!(mode::AbstractVSMAero, sam, wing_idx, sys_state, point_idx,
+                                zoom)
+    corners = (SVec3(panel.corner_points[:, j])
+               for panel in mode.vsm_aero.panels for j in 1:4)
+    return write_log_corners!(sys_state, point_idx, corners, sam, wing_idx, zoom)
 end
 
 """
-    read_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx) -> Int
+    read_aero_log_points!(mode, sam, wing_idx, sys_state, point_idx) -> Int
 
-Inverse of [`write_aero_log_points!`](@ref): restore the mode's state from the
-logged points starting after `point_idx`; return the last index consumed (the
-slots must be skipped even when unused). Default consumes nothing; VSM
-`PARTICLE_DYNAMICS` modes read the panel corners back (rigid wings recompute
-panels from twist instead and only skip their slots). Flap deflections are
-restored separately from `sys_state.flap_angle` (see [`restore_flap_delta!`](@ref)).
+Inverse of [`write_aero_log_points!`](@ref): restore the state of the aero `mode` of
+wing `wing_idx` of `sam` from the logged points starting after `point_idx`; return the last
+index consumed (the slots must be skipped even when unused). Default consumes nothing;
+VSM `PARTICLE_DYNAMICS` modes read the panel corners back (rigid wings recompute panels
+from twist instead and only skip their slots). Flap deflections are restored separately
+from `sys_state.flap_angle` (see [`restore_flap_delta!`](@ref)).
 """
-read_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
-                      point_idx) = point_idx
+read_aero_log_points!(::AbstractAeroModel, sam, wing_idx, sys_state, point_idx) = point_idx
 
-function read_aero_log_points!(mode::AbstractVSMAero, wing, sys_struct,
-                               sys_state, point_idx)
+function read_aero_log_points!(mode::AbstractVSMAero, sam, wing_idx, sys_state, point_idx)
     n_corners = 4 * length(mode.vsm_aero.panels)
-    body_dynamics_type(wing) == RIGID_DYNAMICS && return point_idx + n_corners
-    R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
-    for panel in mode.vsm_aero.panels
-        for j in 1:4
-            point_idx += 1
-            corner_w = [sys_state.X[point_idx], sys_state.Y[point_idx],
-                        sys_state.Z[point_idx]]
-            panel.corner_points[:, j] .= R_w_to_b * (corner_w - wing.pos_w)
-        end
+    body_idx = wing_body(sam, wing_idx)
+    body_dynamics_type(sam, body_idx) == RIGID_DYNAMICS && return point_idx + n_corners
+    R_w_to_b = body_rotation(sam, body_idx)'
+    pos_w = run_value(sam, Val(:bodies), body_idx, Val(:pos_w))
+    for panel in mode.vsm_aero.panels, j in 1:4
+        point_idx += 1
+        corner_w = SVec3(sys_state.X[point_idx], sys_state.Y[point_idx],
+                         sys_state.Z[point_idx])
+        panel.corner_points[:, j] .= R_w_to_b * (corner_w - pos_w)
     end
     return point_idx
 end
 
 """
-    restore_aero_twist!(mode, wing, stations)
+    restore_aero_twist!(mode, sam, wing_idx)
 
-Re-apply the (already restored) station angles to the mode's geometry
-when loading a `SysState` log frame. Default no-op; VSM `RIGID_DYNAMICS`
-modes deform the unrefined sections and reinit the panels.
+Re-apply the (already restored) station twists of wing `wing_idx` of `sam` to the geometry
+of its aero `mode` when loading a `SysState` log frame. Default no-op; VSM
+`RIGID_DYNAMICS` modes deform the unrefined sections and reinit the panels.
 """
-restore_aero_twist!(::AbstractAeroModel, wing, stations) = nothing
+restore_aero_twist!(::AbstractAeroModel, sam, wing_idx) = nothing
 
-function restore_aero_twist!(mode::AbstractVSMAero, wing, stations)
-    body_dynamics_type(wing) == RIGID_DYNAMICS || return nothing
-    isempty(wing.station_idxs) && return nothing
+function restore_aero_twist!(mode::AbstractVSMAero, sam, wing_idx)
+    body_dynamics_type(sam, wing_body(sam, wing_idx)) == RIGID_DYNAMICS || return nothing
+    station_idxs = wing_station_idxs(sam, wing_idx)
+    isempty(station_idxs) && return nothing
     vsm = mode.vsm_wing
     isempty(vsm.non_deformed_sections) && return nothing
     theta = zeros(Float64, vsm.n_unrefined_sections)
-    for station_idx in wing.station_idxs
-        for section_idx in
-                stations[station_idx].unrefined_section_idxs
-            theta[section_idx] = stations[station_idx].twist
+    for (k, station_idx) in enumerate(station_idxs)
+        twist = run_value(sam, Val(:spanwise_stations), station_idx, Val(:twist))
+        for section_idx in mode.engine.station_sections[k]
+            theta[section_idx] = twist
         end
     end
     VortexStepMethod.unrefined_deform!(vsm, theta)
@@ -1732,58 +1777,58 @@ function restore_aero_twist!(mode::AbstractVSMAero, wing, stations)
 end
 
 """
-    n_flap_deflections(sys_struct) -> Int
+    n_flap_deflections(sys) -> Int
 
-Number of aero segments logged in `SysState.flap_angle`: one flap deflection δ
-per station. Sets the `D` type parameter of the model's `SysState`.
+Number of stations logged in `SysState.flap_angle` for a run of definition `sys`: one
+flap deflection δ per station. Sets the `D` type parameter of the run's `SysState`.
 """
-n_flap_deflections(sys_struct) = length(sys_struct.spanwise_stations)
+n_flap_deflections(sys) = length(sys.spanwise_stations)
 
 """
-    write_flap_deflections!(sys_state, sys_struct)
+    write_flap_deflections!(sys_state, sam)
 
-Write each station's flap deflection δ [rad] into `sys_state.flap_angle`
-(indexed by station `idx`, via [`station_deltas`](@ref)). No-op when
-the state carries no flap slots (`D == 0`).
+Write each station's flap deflection δ [rad] of the run `sam` into
+`sys_state.flap_angle`, by station index, via [`station_deltas`](@ref). No-op when the
+state carries no flap slots (`D == 0`).
 """
-function write_flap_deflections!(sys_state, sys_struct)
+function write_flap_deflections!(sys_state, sam)
     isempty(sys_state.flap_angle) && return nothing
-    sys_state.flap_angle .= station_deltas(sys_struct)
+    sys_state.flap_angle .= station_deltas(sam)
     return nothing
 end
 
 """
-    restore_flap_delta!(mode, wing, sys_state)
+    restore_flap_delta!(mode, sam, wing_idx, sys_state)
 
-Restore each VSM panel's flap deflection `δ` from `sys_state.flap_angle` (mapped
-through the panel→station index) when loading a `SysState` frame, so a
-replayed frame shows the logged flap state. Default no-op; [`AeroPressure`](@ref)
-restores its `PARTICLE_DYNAMICS` panels.
+Restore each VSM panel's flap deflection `δ` of wing `wing_idx` of `sam` from
+`sys_state.flap_angle` (mapped through the panel→station index) when loading a
+`SysState` frame, so a replayed frame shows the logged flap state. Default no-op;
+[`AeroPressure`](@ref) restores its `PARTICLE_DYNAMICS` panels.
 """
-restore_flap_delta!(::AbstractAeroModel, wing, sys_state) = nothing
+restore_flap_delta!(::AbstractAeroModel, sam, wing_idx, sys_state) = nothing
 
 """
-    restore_live_shape!(mode, wing, points)
+    restore_live_shape!(mode, sam, wing_idx)
 
-Re-derive the mode's live airfoil shapes from a replayed log frame's structure.
-Default no-op; [`AeroPressure`](@ref) rebuilds them when it is on live polars.
+Re-derive the live airfoil shapes of the aero `mode` of wing `wing_idx` of `sam` from a
+replayed log frame's structure. Default no-op; [`AeroPressure`](@ref) rebuilds them
+when it is on live polars.
 """
-restore_live_shape!(::AbstractAeroModel, wing, points) = nothing
+restore_live_shape!(::AbstractAeroModel, sam, wing_idx) = nothing
 
 # ==================== shared VSM numerics ==================== #
 
 """
-    circulation(wing) -> AbstractVector
+    circulation(sam, wing_idx) -> AbstractVector
 
-`wing`'s circulation per VSM panel [m²/s], its slice of its run's `SysState`
-`gamma_distribution`: the aerodynamic state its solves start from and leave, all zero
-before the first.
+The circulation of wing `wing_idx` of `sam` per VSM panel [m²/s], its slice of the run's
+`SysState` `gamma_distribution`: the aerodynamic state its solves start from and leave,
+all zero before the first.
 """
-function circulation(wing)
-    modes = getfield(run_state(wing), :aero)
-    start = sum(n_vsm_panels, view(modes, 1:(index(wing) - 1)); init=0)
-    panels = start .+ (1:n_vsm_panels(modes[index(wing)]))
-    return view(sysstate(wing).gamma_distribution, panels)
+function circulation(sam, wing_idx)
+    start = sum(n_vsm_panels(sam.aero[other]) for other in 1:(wing_idx - 1); init=0)
+    panels = start .+ (1:n_vsm_panels(sam.aero[wing_idx]))
+    return view(sam.sysstate.gamma_distribution, panels)
 end
 
 """The number of VSM panels of aero `mode`, none without an engine."""
@@ -1795,13 +1840,14 @@ initial distribution where it is all zero."""
 circulation_start(gamma) = all(iszero, gamma) ? nothing : copy(gamma)
 
 """
-    solve_circulation!(wing, solver, body_aero; moment_frac=0.1)
+    solve_circulation!(sam, wing_idx, solver, body_aero; moment_frac=0.1)
 
-Solve `wing`'s VSM `solver` on `body_aero` from its [`circulation`](@ref)
-([`safe_vsm_solve!`](@ref)) and keep the converged circulation there.
+Solve the VSM `solver` of wing `wing_idx` of `sam` on `body_aero` from its
+[`circulation`](@ref) ([`safe_vsm_solve!`](@ref)) and keep the converged circulation
+there.
 """
-function solve_circulation!(wing, solver, body_aero; moment_frac=0.1)
-    gamma = circulation(wing)
+function solve_circulation!(sam, wing_idx, solver, body_aero; moment_frac=0.1)
+    gamma = circulation(sam, wing_idx)
     safe_vsm_solve!(solver, body_aero, circulation_start(gamma); moment_frac)
     gamma .= solver.sol.gamma_distribution
     return nothing
@@ -1838,114 +1884,109 @@ function safe_vsm_solve!(solver, body_aero, gamma_init; moment_frac=0.1)
 end
 
 """
-    solve_and_freeze_circulation!(mode, wing)
+    solve_and_freeze_circulation!(mode, sam, wing_idx)
 
-Solve and freeze the per-refined-panel induced velocity into `mode.v_ind` and the
-chord blend weights into `mode.chord_weight`, shared by the continuous VSM modes.
-The solve starts from the wing's [`circulation`](@ref) and throws on a failure before
-anything frozen is written ([`solve_circulation!`](@ref)).
+Solve wing `wing_idx` of `sam` and freeze the per-refined-panel induced velocity into
+`mode.v_ind` and the chord blend weights into `mode.chord_weight`, shared by the
+continuous VSM modes. The solve starts from the wing's [`circulation`](@ref) and throws
+on a failure before anything frozen is written ([`solve_circulation!`](@ref)).
 """
-function solve_and_freeze_circulation!(mode, wing)
-    solver = wing.vsm_solver
-    body_aero = wing.vsm_aero
-    solve_circulation!(wing, solver, body_aero)
+function solve_and_freeze_circulation!(mode, sam, wing_idx)
+    solver = mode.vsm_solver
+    body_aero = mode.vsm_aero
+    solve_circulation!(sam, wing_idx, solver, body_aero)
     store_induced_velocity!(mode.v_ind, body_aero, solver.lr.gamma_new)
     store_chord_weights!(mode.chord_weight, body_aero)
     return nothing
 end
 
 """
-    set_particle_panel_va!(wing, va_point_b_vals)
+    set_particle_panel_va!(mode, sam, wing_idx, va_point_b)
 
-Set the per-panel apparent wind on the wing's VSM `BodyAerodynamics` from the
-per-point body-frame apparent wind: each section's `va` is the mean of its
-LE/TE point values, refined panels take their parent section's value. Falls
-back to the wing-level `va_b` when the structural↔panel mapping is missing.
+Set the per-panel apparent wind on the VSM `BodyAerodynamics` of wing `wing_idx` of `sam`
+from the body-frame apparent wind of each point, a column of `va_point_b`: each section's
+`va` is the mean of its LE/TE point values, refined panels take their parent section's
+value. Falls back to the wing's own apparent wind for a section, or the whole wing, the
+structural↔panel mapping does not reach.
 """
-function set_particle_panel_va!(wing, va_point_b_vals)
-    if isnothing(wing.point_to_vsm_point)
-        set_va!(wing.vsm_aero, wing.va_b)
+function set_particle_panel_va!(mode, sam, wing_idx, va_point_b)
+    va_b = collect(wing_apparent_wind(sam, wing_idx))
+    if isnothing(mode.point_to_vsm_point)
+        set_va!(mode.vsm_aero, va_b)
         return nothing
     end
-    n_sections = length(wing.vsm_wing.unrefined_sections)
-    section_va = Vector{Vector{Float64}}(undef, n_sections)
-
+    n_sections = length(mode.vsm_wing.unrefined_sections)
     vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
-    for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+    for (point_idx, (section_idx, le_or_te)) in mode.point_to_vsm_point
         vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
     end
-
+    section_va = Vector{Vector{Float64}}(undef, n_sections)
     for section_idx in 1:n_sections
-        le_pi = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
-        te_pi = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
-        if !isnothing(le_pi) && !isnothing(te_pi)
-            va_le = va_point_b_vals[:, le_pi]
-            va_te = va_point_b_vals[:, te_pi]
-            section_va[section_idx] = 0.5 * (va_le + va_te)
-        else
-            section_va[section_idx] = wing.va_b
-        end
+        le_idx = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
+        te_idx = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
+        section_va[section_idx] = isnothing(le_idx) || isnothing(te_idx) ? va_b :
+            0.5 * (va_point_b[:, le_idx] + va_point_b[:, te_idx])
     end
-
-    n_panels = length(wing.vsm_aero.panels)
+    n_panels = length(mode.vsm_aero.panels)
     va_dist = zeros(n_panels, 3)
-    mapping = wing.vsm_wing.refined_panel_mapping
-    for rpi in 1:n_panels
-        va_dist[rpi, :] .= section_va[mapping[rpi]]
+    mapping = mode.vsm_wing.refined_panel_mapping
+    for panel_idx in 1:n_panels
+        va_dist[panel_idx, :] .= section_va[mapping[panel_idx]]
     end
-    set_va!(wing.vsm_aero, va_dist)
+    set_va!(mode.vsm_aero, va_dist)
     return nothing
 end
 
 """
-    set_refined_panel_va!(mode, wing, points, va_point_b_vals)
+    set_refined_panel_va!(mode, sam, wing_idx, va_point_b)
 
-Per-panel apparent wind for the continuous VSM modes: refined sections from
-[`strut_inflow_weights`](@ref) (numeric twin of [`reconstruct_inflow_sym`](@ref)),
-each panel the mean of its two bounding sections. Matches the inflow the symbolic
-RHS uses, so the frozen circulation belongs to it. Falls back to `va_b` without a
+Per-panel apparent wind of wing `wing_idx` of `sam` for the continuous VSM modes: refined
+sections from [`strut_inflow_weights`](@ref) (numeric twin of
+[`reconstruct_inflow_sym`](@ref)) over the columns of `va_point_b`, each panel the mean
+of its two bounding sections. Matches the inflow the symbolic RHS uses, so the frozen
+circulation belongs to it. Falls back to the wing's own apparent wind without a
 structural↔panel mapping.
 """
-function set_refined_panel_va!(mode, wing, points, va_point_b_vals)
-    if isnothing(wing.point_to_vsm_point)
-        set_va!(wing.vsm_aero, wing.va_b)
+function set_refined_panel_va!(mode, sam, wing_idx, va_point_b)
+    if isnothing(mode.point_to_vsm_point)
+        set_va!(mode.vsm_aero, collect(wing_apparent_wind(sam, wing_idx)))
         return nothing
     end
-    column = aero_section_columns(wing, points)
+    column = aero_section_columns(sam, wing_idx)
+    point_idxs = wing_points(sam, wing_idx)
     section_va = [
-        sum(weight .* view(va_point_b_vals, :, points[col].idx)
+        sum(weight .* view(va_point_b, :, point_idxs[col])
             for (col, weight) in strut_inflow_weights(mode, section, column))
         for section in eachindex(section_interp_caches(mode)[1])
     ]
-    n_panels = length(wing.vsm_aero.panels)
+    n_panels = length(mode.vsm_aero.panels)
     va_dist = zeros(SimFloat, n_panels, 3)
     for panel in 1:n_panels
         va_dist[panel, :] .= 0.5 .* (section_va[panel] .+ section_va[panel + 1])
     end
-    set_va!(wing.vsm_aero, va_dist)
+    set_va!(mode.vsm_aero, va_dist)
     return nothing
 end
 
 """
-    vsm_solve_objects(wing, ::Type{T}, shadow_ref) -> (body_aero, solver, wing)
+    vsm_solve_objects(mode, ::Type{T}, shadow_ref) -> (body_aero, solver, vsm_wing)
 
 The VSM solve objects [`vsm_aero_coeffs`](@ref) runs on, selected by the input
-eltype `T`. A value pass (`Float64`) uses the wing's real objects. A `ForwardDiff`
-pass feeds `Dual` numbers through the solve to get the Jacobian, but the real
-objects' buffers are `Float64` and can't hold Duals — so for a `Dual` eltype we
+eltype `T`. A value pass (`Float64`) uses the real objects of aero `mode`. A
+`ForwardDiff` pass feeds `Dual` numbers through the solve to get the Jacobian, but the
+real objects' buffers are `Float64` and can't hold Duals — so for a `Dual` eltype we
 solve on a `Dual`-typed "shadow" of the solver/aero. The shadow is expensive, so
 it is built lazily and cached in `shadow_ref`, keyed by the `Dual` eltype (rebuilt
 if it changes); `use_gamma_prev` warm-starts each perturbed solve from the
 previous circulation.
 """
-vsm_solve_objects(wing, ::Type{Float64}, shadow_ref) =
-    (wing.vsm_aero, wing.vsm_solver, wing.vsm_wing)
+vsm_solve_objects(mode, ::Type{Float64}, shadow_ref) =
+    (mode.vsm_aero, mode.vsm_solver, mode.vsm_wing)
 
-function vsm_solve_objects(wing, ::Type{T}, shadow_ref) where {T}
+function vsm_solve_objects(mode, ::Type{T}, shadow_ref) where {T}
     shadow = shadow_ref[]
     if shadow === nothing || eltype(shadow[1]._va) !== T
-        shadow = VortexStepMethod.make_dual_shadow(
-            wing.vsm_solver, wing.vsm_aero, T)
+        shadow = VortexStepMethod.make_dual_shadow(mode.vsm_solver, mode.vsm_aero, T)
         shadow[2].use_gamma_prev = true
         shadow_ref[] = shadow
     end
@@ -1954,23 +1995,24 @@ function vsm_solve_objects(wing, ::Type{T}, shadow_ref) where {T}
 end
 
 """
-    vsm_aero_coeffs(wing, y, va_mag, n_unrefined, n_stations,
-                     station_idxs, stations, moment_frac, shadow_ref;
-                     gamma_init=nothing) -> Vector
+    vsm_aero_coeffs(mode, y, va_mag, moment_frac, shadow_ref; gamma_init=nothing)
+        -> Vector
 
-Run one VSM solve at operating-point input `y = [α, β, ω₁, ω₂, ω₃, θ_twist…]` and
-return the wind-axis coefficient vector `[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`.
+Run one VSM solve of a wing flown with the VSM aero `mode` at operating-point input
+`y = [α, β, ω₁, ω₂, ω₃, θ_twist…]` and return the wind-axis coefficient vector
+`[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`, one twist and one `cm` per station, mapped
+onto the sections and panels of the engine's `station_sections` and `station_panels`.
 `ForwardDiff.Dual`-aware via `vsm_solve_objects`: for a Dual eltype it solves on a
 cached dual shadow of the VSM solver, so the same routine yields the Jacobian
 under AD.
 """
-function vsm_aero_coeffs(wing, y::AbstractVector{T},
-        va_mag, n_unrefined, n_stations,
-        station_idxs, stations, moment_frac,
-        shadow_ref::Ref;
-        gamma_init=nothing) where {T}
-
-    body_aero_c, solver_c, wing_c = vsm_solve_objects(wing, T, shadow_ref)
+function vsm_aero_coeffs(mode, y::AbstractVector{T}, va_mag, moment_frac,
+                         shadow_ref::Ref; gamma_init=nothing) where {T}
+    body_aero_c, solver_c, wing_c = vsm_solve_objects(mode, T, shadow_ref)
+    station_sections = mode.engine.station_sections
+    station_panels = mode.engine.station_panels
+    n_stations = length(station_sections)
+    n_unrefined = mode.vsm_wing.n_unrefined_sections
 
     α = y[1]
     β = y[2]
@@ -1983,19 +2025,14 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
                                va_mag * sβ,
                                va_mag * sα * cβ)
 
-    # Per-station → per-section twist
     theta = zeros(T, n_unrefined)
-    for (station_index, gidx) in enumerate(station_idxs)
-        for unrefined_index in stations[gidx].unrefined_section_idxs
-            theta[unrefined_index] = y[5 + station_index]
-        end
+    for (k, sections) in enumerate(station_sections), section_idx in sections
+        theta[section_idx] = y[5 + k]
     end
 
     if n_unrefined > 0
-        VortexStepMethod.unrefined_deform!(
-            wing_c, theta; smooth=false)
-        VortexStepMethod.reinit!(
-            body_aero_c; init_aero=false)
+        VortexStepMethod.unrefined_deform!(wing_c, theta; smooth=false)
+        VortexStepMethod.reinit!(body_aero_c; init_aero=false)
     end
     set_va!(body_aero_c, va_b_local, ω)
     safe_vsm_solve!(solver_c, body_aero_c, gamma_init; moment_frac)
@@ -2018,64 +2055,50 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     x[4] = cm_body[1]
     x[5] = cm_body[2]
     x[6] = cm_body[3]
-    for (station_index, gidx) in enumerate(station_idxs)
-        x[6 + station_index] = sum(
-            moment_coeff_dist[panel_idx]
-            for panel_idx in stations[gidx].panel_idxs;
-            init = zero(T))
+    for (k, panels) in enumerate(station_panels)
+        x[6 + k] = sum(moment_coeff_dist[panel_idx] for panel_idx in panels;
+                       init=zero(T))
     end
     return x
 end
 
 """
-    rigid_aero_baseline!(wing, stations; vsm_min_wind=0.5)
+    rigid_aero_baseline!(mode, sam, wing_idx; vsm_min_wind=0.5)
 
-Compute the operating point and baseline wind-axis coefficients for one wing:
-writes `wing.aero_y` / `wing.aero_x`.
-Returns the context (`va_mag`, section counts, `moment_frac`, `shadow_ref`, `y0`)
-the mode-specific reduction (`refresh_rigid_aero!`) needs for the Jacobian.
+Compute the operating point and baseline wind-axis coefficients of wing `wing_idx` of `sam`
+under its VSM aero `mode`: writes the mode's `aero_y` / `aero_x`. Returns the context
+(`va_mag`, `moment_frac`, `shadow_ref`, `y0`) the mode-specific reduction
+(`refresh_rigid_aero!`) needs for the Jacobian.
 """
-function rigid_aero_baseline!(wing, stations;
-                              vsm_min_wind=0.5)
-    va_b = wing.va_b
-    va_mag_actual = norm(va_b)
-    omega_b = wing.ω_b
-
-    station_idxs = wing.station_idxs
-    n_stations = length(station_idxs)
-    n_unrefined = wing.vsm_wing.n_unrefined_sections
-
+function rigid_aero_baseline!(mode, sam, wing_idx; vsm_min_wind=0.5)
+    body_idx = wing_body(sam, wing_idx)
+    va_b = run_value(sam, Val(:bodies), body_idx, Val(:va_b))
+    omega_b = run_value(sam, Val(:bodies), body_idx, Val(:ω_b))
+    station_idxs = wing_station_idxs(sam, wing_idx)
     moment_frac = isempty(station_idxs) ? 0.25 :
-        stations[first(station_idxs)].moment_frac
+        run_value(sam, Val(:spanwise_stations), first(station_idxs), Val(:moment_frac))
 
-    va_mag = max(va_mag_actual, vsm_min_wind)
+    va_mag = max(norm(va_b), vsm_min_wind)
     alpha_0 = atan(va_b[3], va_b[1])
     beta_0 = atan(va_b[2], hypot(va_b[1], va_b[3]))
-    if !isfinite(alpha_0)
-        alpha_0 = 0.0
-    end
-    if !isfinite(beta_0)
-        beta_0 = 0.0
-    end
+    isfinite(alpha_0) || (alpha_0 = 0.0)
+    isfinite(beta_0) || (beta_0 = 0.0)
 
     # Operating-point input vector y₀ = [α, β, ω, θ_station]
-    y0 = wing.aero_y
+    y0 = mode.aero_y
     y0[1] = alpha_0
     y0[2] = beta_0
     y0[3] = omega_b[1]
     y0[4] = omega_b[2]
     y0[5] = omega_b[3]
-    for (station_index, gidx) in enumerate(station_idxs)
-        y0[5 + station_index] = stations[gidx].twist
+    for (k, station_idx) in enumerate(station_idxs)
+        y0[5 + k] = run_value(sam, Val(:spanwise_stations), station_idx, Val(:twist))
     end
 
     shadow_ref = Ref{Any}(nothing)
-    gamma = circulation(wing)
-    wing.aero_x .= vsm_aero_coeffs(wing, y0, va_mag, n_unrefined, n_stations,
-        station_idxs, stations, moment_frac, shadow_ref;
-        gamma_init=circulation_start(gamma))
-    gamma .= wing.vsm_solver.sol.gamma_distribution
-
-    return (; va_mag, n_unrefined, n_stations,
-            station_idxs, moment_frac, shadow_ref, y0)
+    gamma = circulation(sam, wing_idx)
+    mode.aero_x .= vsm_aero_coeffs(mode, y0, va_mag, moment_frac, shadow_ref;
+                                   gamma_init=circulation_start(gamma))
+    gamma .= mode.vsm_solver.sol.gamma_distribution
+    return (; va_mag, moment_frac, shadow_ref, y0)
 end

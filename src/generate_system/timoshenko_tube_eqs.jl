@@ -9,22 +9,23 @@
 # joined by these forms a beam.
 
 """
-    timoshenko_rigidity(tube, params, field, arg)
+    timoshenko_rigidity(model, params, field, arg)
 
-Effective rigidity for one [`TimoshenkoTube`](@ref) mode, read as a flat
+Effective rigidity for one mode of the [`TimoshenkoTube`](@ref) `model` of a run, read as
+a flat
 parameter: a `Real` rigidity is a numeric scalar param used directly; a callable
 is a callable param evaluated at the mode's strain/curvature `arg`. `field` is one
 of `:EA`, `:GA`, `:GJ`, `:EIy`, `:EIz`.
 """
-function timoshenko_rigidity(tube, params, field::Symbol, arg)
-    rigidity = getproperty(params.tubes[tube.idx].model, field)
-    return getfield(tube.model, field) isa Real ? rigidity : rigidity(arg)
+function timoshenko_rigidity(model, params, field::Symbol, arg)
+    rigidity = getproperty(params.tubes[model.idx].model, field)
+    return getfield(model, field) isa Real ? rigidity : rigidity(arg)
 end
 
 """
-    timoshenko_tube_eqs!(eqs, tubes, params; kwargs...)
+    timoshenko_tube_eqs!(sam, eqs, params; kwargs...)
 
-For each tube of `tubes` simulated as a [`TimoshenkoTube`](@ref), build a
+For each tube of the run `sam` simulated as a [`TimoshenkoTube`](@ref), build a
 corotational element frame, extract the small per-node deformations (axial stretch,
 chord-relative rotations) relative to the rest geometry, evaluate the consistent
 Timoshenko stiffness (axial, torsion, and two bending planes with the shear
@@ -35,11 +36,12 @@ wrench — equal and opposite, transported to each COM — into
 Damping resists the axial stretch rate and the relative node spin.
 """
 function timoshenko_tube_eqs!(
-    eqs, tubes, params;
+    sam, eqs, params;
     body_force, body_moment,
     body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
 )
-    beam_tubes = filter(tube -> tube.model isa TimoshenkoTube, tubes)
+    beam_tubes = filter(model -> model isa TimoshenkoTube,
+                        [tube_model(sam, i) for i in eachindex(sam.definition.tubes)])
     isempty(beam_tubes) && return eqs
 
     @variables begin
@@ -53,12 +55,11 @@ function timoshenko_tube_eqs!(
         timoshenko_theta_b(t)[1:3, eachindex(beam_tubes)]
     end
 
-    for (j, tube) in enumerate(beam_tubes)
-        a = tube.bodies[1]
-        b = tube.bodies[2]
+    for (j, model) in enumerate(beam_tubes)
+        a, b = sam.definition.tubes[model.idx].bodies
         R_a = collect(body_R_b_to_w[:, :, a])
         R_b = collect(body_R_b_to_w[:, :, b])
-        ex = timoshenko_element_wrench(tube, params;
+        ex = timoshenko_element_wrench(model, params;
             frame = timoshenko_frame[:, :, j],
             theta_a = timoshenko_theta_a[:, j], theta_b = timoshenko_theta_b[:, j],
             force_a = timoshenko_force_a_w[:, j], force_b = timoshenko_force_b_w[:, j],

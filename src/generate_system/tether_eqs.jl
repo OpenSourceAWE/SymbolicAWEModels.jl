@@ -10,7 +10,7 @@ Generate equations for tether stretched length and average spring force.
 
 # Arguments
 - `eqs`: Accumulating equation vector.
-- `tethers`: Collection of Tether objects.
+- `tethers`: The tether rows of the definition.
 - `len`: Symbolic segment length variable.
 - `spring_force`: Symbolic segment spring force variable.
 
@@ -22,7 +22,7 @@ function tether_eqs!(eqs, tethers; len, spring_force)
         stretched_len(t)[eachindex(tethers)]
         tether_spring_force(t)[eachindex(tethers)]
     end
-    for tether in tethers
+    for (i, tether) in enumerate(tethers)
         slen = zero(Num)
         tforce = zero(Num)
         for segment_idx in tether.segments
@@ -32,8 +32,8 @@ function tether_eqs!(eqs, tethers; len, spring_force)
         tforce /= length(tether.segments)
         eqs = [
             eqs
-            stretched_len[tether.idx] ~ slen
-            tether_spring_force[tether.idx] ~ tforce
+            stretched_len[i] ~ slen
+            tether_spring_force[i] ~ tforce
         ]
     end
     return eqs

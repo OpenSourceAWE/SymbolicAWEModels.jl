@@ -102,7 +102,8 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
         zeros(SimFloat, num_aero_inputs),
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        nothing, nothing, SimFloat(aero_scale_chord), SimFloat(aero_z_offset), unsteady)
+        nothing, nothing, SimFloat(aero_scale_chord), SimFloat(aero_z_offset), unsteady,
+        KVec3[], KVec3[], KVec3[], Vector{Int}[], Vector{Int}[], SimFloat[])
 end
 
 # ==================== HELPER FUNCTIONS ==================== #

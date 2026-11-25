@@ -72,25 +72,26 @@ function chord_frame_coordinates(panel, chord_weight, pos_b)
 end
 
 """
-    station_control_points(stations, points, wing) -> Vector{Vector{Int64}}
+    station_control_points(sam, wing_idx) -> Vector{Vector{Int64}}
 
-The wing's control points grouped into the spanwise stations the structure declares.
-A station already names the points of one station — its leading edge, its trailing
-edge and the control points between them — so the grouping is read rather than inferred
-from geometry or from the beam graph, and it holds for a wing with no beam joints at all.
+The control points of wing `wing_idx` of `sam` grouped into the spanwise stations the
+structure declares. A station already names the points of one station — its leading edge,
+its trailing edge and the control points between them — so the grouping is read rather than
+inferred from geometry or from the beam graph, and it holds for a wing with no beam
+joints at all.
 
-Ownership is taken from the points rather than from the surface's `wing_idx`, which a
-geometry that never names a wing leaves at zero. A surface names its leading and
-trailing edge as well as the control points running between them, and the first and last
-of those often sit on the very same nodes, so coincident points are kept once: they are
-one place on the chord, and a fit handed the same station twice has no answer.
+Ownership is taken from the points rather than from the station's `wing`. A station
+names its leading and trailing edge as well as the control points running between them,
+and the first and last of those often sit on the very same nodes, so coincident points
+are kept once: they are one place on the chord, and a fit handed the same station twice
+has no answer.
 """
-function station_control_points(stations, points, wing)
-    owned = [surface.points for surface in stations
-             if length(surface.points) >= 2 &&
-                all(points[i].wing_idx == wing.idx for i in surface.points)]
-    return [unique(idx -> round.(points[idx].pos_ENU; digits = 9), group)
-            for group in owned]
+function station_control_points(sam, wing_idx)
+    points = sam.definition.points
+    owned = [station.points for station in sam.definition.spanwise_stations
+             if length(station.points) >= 2 &&
+                all(point_wing(sam, i) == wing_idx for i in station.points)]
+    return [unique(i -> round.(points[i].pos_ENU; digits = 9), group) for group in owned]
 end
 
 """
@@ -125,30 +126,31 @@ function panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
 end
 
 """
-    live_polar_settings(wing, vsm_set) -> LivePolarSettings
+    live_polar_settings(sam, wing_idx) -> LivePolarSettings
 
-The live-polar sampling `wing`'s VSM settings ask for: the `airfoil:` block of the
-`vsm_set` wing of the same name, or of the first wing when no name matches, which is
-the single-wing case every VSM-backed kite is built as. Without a `vsm_set` the
+The live-polar sampling the VSM settings of `sam` ask of wing `wing_idx`: the `airfoil:`
+block of the `vsm_set` wing of the same name, or of the first wing when no name matches,
+which is the single-wing case every VSM-backed kite is built as. Without a `vsm_set` the
 package defaults stand.
 """
-function live_polar_settings(wing, vsm_set)
-    isnothing(vsm_set) && return AirfoilAero.LivePolarSettings()
-    isempty(vsm_set.wings) && return AirfoilAero.LivePolarSettings()
-    match = findfirst(w -> w.name == wing.name, vsm_set.wings)
-    return AirfoilAero.LivePolarSettings(
-        vsm_set.wings[something(match, 1)].airfoil)
+function live_polar_settings(sam, wing_idx)
+    vsm_set = sam.vsm_set
+    (isnothing(vsm_set) || isempty(vsm_set.wings)) &&
+        return AirfoilAero.LivePolarSettings()
+    name = sam.definition.wings[wing_idx].name
+    match = findfirst(wing_settings -> wing_settings.name == name, vsm_set.wings)
+    return AirfoilAero.LivePolarSettings(vsm_set.wings[something(match, 1)].airfoil)
 end
 
 """
-    build_live_polars!(mode::AeroPressure, wing, points, stations; vsm_set=nothing,
-                       settings=live_polar_settings(wing, vsm_set))
+    build_live_polars!(mode::AeroPressure, sam, wing_idx;
+                       settings=live_polar_settings(sam, wing_idx))
 
-Build the wing's [`LivePolarState`](@ref) from the reference geometry: fit each panel's
-undeformed Kulfan parameters off its surface contour, take the spanwise stations the
-wing declares, and record where each of their control points sits in that station's
-chord frame. Run after [`build_station_point_map!`](@ref), which binds each panel to
-one of those same stations, and while the mesh still stands on the undeformed
+Build the [`LivePolarState`](@ref) of wing `wing_idx` of `sam` from the reference geometry:
+fit each panel's undeformed Kulfan parameters off its surface contour, take the spanwise
+stations the wing declares, and record where each of their control points sits in that
+station's chord frame. Run after [`build_station_point_map!`](@ref), which binds each
+panel to one of those same stations, and while the mesh still stands on the undeformed
 structure — the offsets stored here are the zero the live deformation is measured
 against.
 
@@ -158,28 +160,29 @@ panels is what keeps the deformation smooth across the span: a panel between two
 has no structural points of its own, and binding it to a single station would make the
 deformation a staircase.
 """
-function build_live_polars!(mode::AeroPressure, wing, points, stations;
-                            vsm_set=nothing,
-                            settings=live_polar_settings(wing, vsm_set))
-    panels = wing.vsm_aero.panels
+function build_live_polars!(mode::AeroPressure, sam, wing_idx;
+                            settings=live_polar_settings(sam, wing_idx))
+    name = sam.definition.wings[wing_idx].name
+    panels = mode.vsm_aero.panels
     source = AirfoilAero.LivePolars(AirfoilAero.panel_kulfan_parameters(panels);
                                     settings)
     n_panels = length(panels)
-    body_of(idx) = initial_body_position(wing, points[idx])
+    body_idx = wing_body(sam, wing_idx)
+    body_of(i) = initial_body_position(sam, body_idx, sam.definition.points[i].pos_ENU)
 
-    control = station_control_points(stations, points, wing)
+    control = station_control_points(sam, wing_idx)
     n_stations = length(control)
     n_stations >= 2 || error(
-        "AeroPressure wing $(wing.name): live polars need at least two spanwise " *
+        "AeroPressure wing $name: live polars need at least two spanwise " *
         "stations; this wing declares $n_stations.")
     panel_blend = mode.panel_blend
     length(panel_blend) == n_panels || error(
-        "AeroPressure wing $(wing.name): the station blend has $(length(panel_blend)) " *
+        "AeroPressure wing $name: the station blend has $(length(panel_blend)) " *
         "entries for $n_panels panels; run build_station_point_map! first.")
     centre = [lo + weight for (lo, _, weight) in panel_blend]
     station_panel = [argmin(abs.(centre .- s)) for s in 1:n_stations]
 
-    chord_weight = corner_chord_weights(wing)
+    chord_weight = corner_chord_weights(mode)
     control_offset = Vector{Vector{SimFloat}}(undef, n_stations)
     for (station, group) in enumerate(control)
         panel = panels[station_panel[station]]
@@ -193,7 +196,7 @@ function build_live_polars!(mode::AeroPressure, wing, points, stations;
         "Live polars see no chordwise deformation: every station names at most two " *
         "points, which are the chord ends the frame is built on. Add chordwise " *
         "control points to the wing, or the polars only track α and Reynolds.",
-        wing=wing.name)
+        wing=name)
     n_basis = length(source.basis.x)
     contour = [VortexStepMethod.section_surface(panel.section_aero, 0.0, 0.0)
                for panel in panels]
@@ -212,31 +215,31 @@ function build_live_polars!(mode::AeroPressure, wing, points, stations;
 end
 
 """
-    update_live_deflection!(mode::AeroPressure, wing, points)
+    update_live_deflection!(mode::AeroPressure, sam, wing_idx)
 
-Refresh every spanwise station's camber increment from the deformed structure, then
-interpolate those increments onto the panels. Each control point contributes its current
-offset off its station's deformed chord line minus its reference offset, placed at its
-current chord fraction; the chord's own rotation and stretch are already absorbed by the
-frame, which the mesh rebuild took from the deformed leading and trailing edges. What
-travels spanwise is the increment, not the airfoil, so a panel between two stations keeps
-its own base fit. Fills `mode.live.deflection`, ready for [`refit_live_polars!`](@ref).
+Refresh every spanwise station's camber increment of wing `wing_idx` of `sam` from the
+deformed structure, then interpolate those increments onto the panels. Each control point
+contributes its current offset off its station's deformed chord line minus its
+reference offset, placed at its current chord fraction; the chord's own rotation and
+stretch are already absorbed by the frame, which the mesh rebuild took from the deformed
+leading and trailing edges. What travels spanwise is the increment, not the airfoil, so
+a panel between two stations keeps its own base fit. Fills `mode.live.deflection`, ready
+for [`refit_live_polars!`](@ref).
 """
-function update_live_deflection!(mode::AeroPressure, wing, points)
+function update_live_deflection!(mode::AeroPressure, sam, wing_idx)
     state = mode.live::LivePolarState
-    panels = wing.vsm_aero.panels
-    rot_body_to_world = wing.R_b_to_w::Matrix{SimFloat}
-    origin = SVector(wing.pos_w)
-    chord_weight = corner_chord_weights(wing)
+    panels = mode.vsm_aero.panels
+    body_idx = wing_body(sam, wing_idx)
+    chord_weight = corner_chord_weights(mode)
     for station in eachindex(state.control_point)
         assigned = state.control_point[station]
         panel = panels[state.station_panel[station]]
         weight = chord_weight[state.station_panel[station]]
         fractions = Vector{SimFloat}(undef, length(assigned))
         deflections = Vector{SimFloat}(undef, length(assigned))
-        for (k, idx) in enumerate(assigned)
-            pos_b = rot_body_to_world' * (points[idx].pos_w - origin)
-            fraction, offset = chord_frame_coordinates(panel, weight, pos_b)
+        for (k, i) in enumerate(assigned)
+            fraction, offset = chord_frame_coordinates(panel, weight,
+                                                       point_position_b(sam, body_idx, i))
             fractions[k] = fraction
             deflections[k] = offset - state.control_offset[station][k]
         end
@@ -252,72 +255,77 @@ function update_live_deflection!(mode::AeroPressure, wing, points)
 end
 
 """
-    panel_reynolds(wing) -> Vector{SimFloat}
+    panel_reynolds(mode) -> Vector{SimFloat}
 
-Reynolds number of every panel, from the solver's air properties and the panel's own
-apparent wind and chord.
+Reynolds number of every panel of VSM aero `mode`, from the solver's air properties and
+the panel's own apparent wind and chord.
 """
-panel_reynolds(wing) = [wing.vsm_solver.density * norm(panel.va_vec) * panel.chord /
-                        wing.vsm_solver.mu for panel in wing.vsm_aero.panels]
+panel_reynolds(mode) = [mode.vsm_solver.density * norm(panel.va_vec) * panel.chord /
+                        mode.vsm_solver.mu for panel in mode.vsm_aero.panels]
 
 """
-    refit_live_polars!(mode::AeroPressure, wing, alpha) -> Float64
+    refit_live_polars!(mode::AeroPressure, wing_idx, alpha) -> Float64
 
-Regenerate every panel's polar at the stored deformation and write it into the
-panel's own table about `alpha` [rad] per panel. Reynolds is per panel from the
+Regenerate every panel's polar of wing `wing_idx` at the stored deformation and write it
+into the panel's own table about `alpha` [rad] per panel. Reynolds is per panel from the
 solver's air properties and the panel's own apparent wind and chord. Returns the
 lowest NeuralFoil analysis confidence over the wing; warns once below `0.5`, which
 means a deformed section has left the region the network was trained on.
 """
-function refit_live_polars!(mode::AeroPressure, wing, alpha)
+function refit_live_polars!(mode::AeroPressure, wing_idx, alpha)
     state = mode.live::LivePolarState
-    confidence = AirfoilAero.refresh_live_polars!(state.source, wing.vsm_aero.panels,
-        alpha, panel_reynolds(wing); deflection=state.deflection)
+    confidence = AirfoilAero.refresh_live_polars!(state.source, mode.vsm_aero.panels,
+        alpha, panel_reynolds(mode); deflection=state.deflection)
     confidence < 0.5 && @warn("Live polar off the trained shape range",
-        wing=wing.idx, confidence, maxlog=1)
+        wing=wing_idx, confidence, maxlog=1)
     return confidence
 end
 
 """
-    live_polar_alpha(wing) -> Vector{SimFloat}
+    live_polar_alpha(mode) -> Vector{SimFloat}
 
-The angles of attack [rad] to sample each panel's polar about: the previous solve's
-converged `lr.alpha_dist`, or, before there is one, each panel's geometric angle from
-its own apparent wind. Sampling the first solve of a run about zero would hand it
-polars that say nothing at the real angle.
+The angles of attack [rad] to sample each panel's polar of VSM aero `mode` about: the
+previous solve's converged `lr.alpha_dist`, or, before there is one, each panel's
+geometric angle from its own apparent wind. Sampling the first solve of a run about zero
+would hand it polars that say nothing at the real angle.
 """
-function live_polar_alpha(wing)
-    alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
+function live_polar_alpha(mode)
+    alpha = collect(SimFloat, mode.vsm_solver.lr.alpha_dist)
     all(iszero, alpha) || return alpha
     return [SimFloat(VortexStepMethod.calculate_relative_alpha_and_relative_velocity(
                 panel, zeros(SimFloat, 3))[1])
-            for panel in wing.vsm_aero.panels]
+            for panel in mode.vsm_aero.panels]
 end
 
 """
-    check_live_polar(mode::AeroPressure, wing; panel_idx=nothing) -> NamedTuple
+    check_live_polar(sam, wing_idx; panel_idx=nothing) -> NamedTuple
 
-XFoil against the live polar one panel is flying, at the state the model is in now: the
-panel's own deformed shape, its converged angle of attack and its Reynolds. `panel_idx`
-defaults to the panel NeuralFoil is least confident about, which is the one worth
-asking about. See `AirfoilAero.compare_live_polar` for what comes back.
+XFoil against the live polar one panel of wing `wing_idx` of `sam` is flying, at the state
+the model is in now: the panel's own deformed shape, its converged angle of attack and its
+Reynolds. `panel_idx` defaults to the panel NeuralFoil is least confident about, which
+is the one worth asking about. See `AirfoilAero.compare_live_polar` for what comes back.
 
 The `Live polar off the trained shape range` warning says the network is extrapolating.
 This says whether the extrapolation is any good, which the confidence cannot: it scores
 the input shape, not the answer. One viscous solve, so it is cheap enough to call from
 the REPL mid-run and far too slow to call every step.
 """
-function check_live_polar(mode::AeroPressure, wing; panel_idx=nothing)
-    mode.live_polars || error(
-        "check_live_polar: wing $(wing.idx) is not flying live polars.")
+check_live_polar(sam::SymbolicAWEModel, wing_idx; panel_idx=nothing) =
+    check_live_polar(sam.aero[wing_idx], wing_idx; panel_idx)
+
+check_live_polar(::AbstractAeroModel, wing_idx; panel_idx=nothing) =
+    error("check_live_polar: wing $wing_idx is not flying live polars.")
+
+function check_live_polar(mode::AeroPressure, wing_idx; panel_idx=nothing)
+    mode.live_polars || error("check_live_polar: wing $wing_idx is not flying live polars.")
     state = mode.live::LivePolarState
     idx = isnothing(panel_idx) ? argmin(state.source.confidence) : panel_idx
-    return AirfoilAero.compare_live_polar(state.source, wing.vsm_aero.panels[idx], idx,
-        wing.vsm_solver.lr.alpha_dist[idx], panel_reynolds(wing)[idx])
+    return AirfoilAero.compare_live_polar(state.source, mode.vsm_aero.panels[idx], idx,
+        mode.vsm_solver.lr.alpha_dist[idx], panel_reynolds(mode)[idx])
 end
 
 """
-    refresh_live_pressure!(mode::AeroPressure, wing)
+    refresh_live_pressure!(mode::AeroPressure)
 
 Regenerate the surface traction pattern from the deformed shape at the converged angle
 of attack: the contour offset by the deformation's own camber increment, `Cp` from one
@@ -336,16 +344,16 @@ evaluated. The nodes move but their assignment to structural points does not: th
 is baked into the generated equations, which is what keeps the scatter continuous when
 the section deforms.
 """
-function refresh_live_pressure!(mode::AeroPressure, wing)
+function refresh_live_pressure!(mode::AeroPressure)
     state = mode.live::LivePolarState
-    reynolds = panel_reynolds(wing)
+    reynolds = panel_reynolds(mode)
     AirfoilAero.live_shape_offset!(state.contour_y, state.source, state.contour_shape)
     for i in eachindex(state.contour_y)
         state.contour_y[i] .+= state.contour_y_ref[i]
     end
     AirfoilAero.refresh_live_pressure!(state.contour_cp, state.source,
         state.contour_x, state.contour_y, state.leading_edge,
-        collect(SimFloat, wing.vsm_solver.lr.alpha_dist), reynolds)
+        collect(SimFloat, mode.vsm_solver.lr.alpha_dist), reynolds)
     AirfoilAero.live_surface_friction!(state.contour_cf, state.contour_x, reynolds)
     return nothing
 end
@@ -368,9 +376,9 @@ surface_pattern(mode::AeroPressure, panel, panel_idx, alpha) =
     end
 
 """
-    solve_with_live_polars!(mode::AeroPressure, wing, points)
+    solve_with_live_polars!(mode::AeroPressure, sam, wing_idx)
 
-Solve the wing with polars regenerated from its current shape, sampled about
+Solve wing `wing_idx` of `sam` with polars regenerated from its current shape, sampled about
 [`live_polar_alpha`](@ref). One sampling and one solve: a sampled polar holds its
 last value past either end rather than extrapolating, so a solve landing outside the
 sampled range reads a bounded answer instead of a runaway one and needs no refit to
@@ -380,35 +388,35 @@ past the range — there the panel's polar is flat and no longer tracks the shap
 The traction pattern is regenerated from the same deformed shapes once the solve has
 converged, so the forces and their placement both follow the deformation.
 """
-function solve_with_live_polars!(mode::AeroPressure, wing, points)
+function solve_with_live_polars!(mode::AeroPressure, sam, wing_idx)
     state = mode.live::LivePolarState
-    update_live_deflection!(mode, wing, points)
-    refit_live_polars!(mode, wing, live_polar_alpha(wing))
-    solve_and_freeze_circulation!(mode, wing)
-    refresh_live_pressure!(mode, wing)
+    update_live_deflection!(mode, sam, wing_idx)
+    refit_live_polars!(mode, wing_idx, live_polar_alpha(mode))
+    solve_and_freeze_circulation!(mode, sam, wing_idx)
+    refresh_live_pressure!(mode)
     drift = AirfoilAero.polar_drift(state.source,
-        collect(SimFloat, wing.vsm_solver.lr.alpha_dist))
+        collect(SimFloat, mode.vsm_solver.lr.alpha_dist))
     drift > 1.0 && @warn("Live polars solved past the sampled range; those panels " *
-        "are flying the last sampled value", wing=wing.idx,
+        "are flying the last sampled value", wing=wing_idx,
         drift=round(drift; digits=2), maxlog=1)
     return nothing
 end
 
 """
-    restore_live_shape!(mode::AeroPressure, wing, points)
+    restore_live_shape!(mode::AeroPressure, sam, wing_idx)
 
-Re-derive every panel's deformed airfoil from a replayed log frame, so the shape a
-plot draws is the one that frame's structure gives rather than the one the last live
-solve left on the panels. Only the shape is rebuilt: a replayed frame is never solved,
-so its polars would say nothing and the network pass they cost would buy nothing.
-No-op unless the wing is actually on live polars.
+Re-derive every panel's deformed airfoil of wing `wing_idx` of `sam` from a replayed log
+frame, so the shape a plot draws is the one that frame's structure gives rather than the
+one the last live solve left on the panels. Only the shape is rebuilt: a replayed frame
+is never solved, so its polars would say nothing and the network pass they cost would
+buy nothing. No-op unless the wing is actually on live polars.
 """
-function restore_live_shape!(mode::AeroPressure, wing, points)
+function restore_live_shape!(mode::AeroPressure, sam, wing_idx)
     mode.live_polars || return nothing
     state = mode.live
     isnothing(state) && return nothing
-    update_live_deflection!(mode, wing, points)
-    AirfoilAero.apply_live_shapes!(state.source, wing.vsm_aero.panels;
+    update_live_deflection!(mode, sam, wing_idx)
+    AirfoilAero.apply_live_shapes!(state.source, mode.vsm_aero.panels;
                                    deflection=state.deflection)
     return nothing
 end

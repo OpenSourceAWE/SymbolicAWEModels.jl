@@ -43,16 +43,17 @@ using KiteUtils
 using LinearAlgebra
 
 """
-    particle_force_scale(wing)
+    particle_force_scale(sam, wing)
 
-Multiplier applied to distributed `PARTICLE_DYNAMICS` point forces relative to
-the raw VSM solution (`1 + aero_scale_chord`, falling back to the package
-default). `RIGID_DYNAMICS` uses the body force directly, so its scale is 1.
+Multiplier applied to distributed `PARTICLE_DYNAMICS` point forces of wing `wing` of
+`sam` relative to the raw VSM solution (`1 + aero_scale_chord`, falling back to the
+package default). `RIGID_DYNAMICS` uses the body force directly, so its scale is 1.
 """
-function particle_force_scale(wing)
-    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return 1.0
-    return 1.0 + (isfinite(wing.aero_scale_chord) ?
-        wing.aero_scale_chord : AERO_SCALE_CHORD)
+function particle_force_scale(sam, wing)
+    run_value(sam, :wings, wing, :dynamics_type) == PARTICLE_DYNAMICS || return 1.0
+    mode = sam.aero[wing]
+    return 1.0 + (isfinite(mode.aero_scale_chord) ?
+        mode.aero_scale_chord : AERO_SCALE_CHORD)
 end
 
 """
@@ -64,20 +65,22 @@ the model produces them. Both dynamics types expose the wing-level aggregates:
 distributed point forces and their `r x F` (see `aero_eqs.jl`).
 """
 model_force_moment(sam, wing) =
-    (Vector(wing.aero_force_b), Vector(wing.aero_moment_b))
+    (Vector(run_value(sam, :wings, wing, :aero_force_b)),
+     Vector(run_value(sam, :wings, wing, :aero_moment_b)))
 
 """
-    vsm_reference_force_moment(wing)
+    vsm_reference_force_moment(sam, wing)
 
 Full nonlinear VSM `solve!` on the wing's current panel geometry; returns the
 total body-frame force and moment about the reference point (= body origin),
 each pre-scaled by `particle_force_scale` so it is directly comparable to the
 model output.
 """
-function vsm_reference_force_moment(wing)
-    VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
-    scale = particle_force_scale(wing)
-    sol = wing.vsm_solver.sol
+function vsm_reference_force_moment(sam, wing)
+    mode = sam.aero[wing]
+    VortexStepMethod.solve!(mode.vsm_solver, mode.vsm_aero)
+    scale = particle_force_scale(sam, wing)
+    sol = mode.vsm_solver.sol
     return scale .* Vector(sol.force), scale .* Vector(sol.moment)
 end
 
@@ -95,7 +98,7 @@ Set the main transform (elevation, azimuth, heading) and wind speed from a
 `(elevation, azimuth, heading, v_wind)` tuple, then re-init the model. Used to
 drive a controlled rigid pose without running the ODE. `twist` prescribes the
 station angles, so the pose is held in a deformed state. It is applied
-*before* `init!`: `update_sys_struct!` writes `twist` back from the model every
+*before* `init!`: `update_run_state!` writes `twist` back from the model every
 step, so a value set afterwards is overwritten and never reaches the dynamics.
 """
 function apply_pose!(sam, set, pose; twist=nothing)
@@ -108,7 +111,7 @@ function apply_pose!(sam, set, pose; twist=nothing)
     transform.azimuth_vel = 0.0
     place!(sam)
     set.v_wind = v_wind
-    isnothing(twist) || set_twist!(sam.state, twist)
+    isnothing(twist) || set_twist!(sam, twist)
     init!(sam; prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
     return nothing
@@ -224,8 +227,8 @@ aero_poses = [
                 name="aero_modes_$(idx)", set)
             aero = Dict(wing.name => case.make() for wing in sys.wings)
             sam = SymbolicAWEModel(set, sys; transforms, vsm_set=case.vsm_set, aero)
-            wing = sam.state.bodies[1]
-            @test body_dynamics_type(wing) == case.dynamics
+            wing = 1
+            @test run_value(sam, :wings, wing, :dynamics_type) == case.dynamics
             test_init!(sam)
 
             @testset "pose sweep" begin
@@ -247,7 +250,7 @@ aero_poses = [
                         continue
                     end
 
-                    force_ref, moment_ref = vsm_reference_force_moment(wing)
+                    force_ref, moment_ref = vsm_reference_force_moment(sam, wing)
                     @test norm(force_ref) > 1.0
                     relF = rel_error(force, force_ref)
                     max_relF = max(max_relF, relF)
@@ -260,8 +263,9 @@ aero_poses = [
 
                     # Drag, lift and side each within their own budget: |F| is
                     # lift-dominated, so its norm cannot see a drag error.
-                    split = wind_frame_force(force, wing.va_b)
-                    split_ref = wind_frame_force(force_ref, wing.va_b)
+                    va_b = run_value(sam, :wings, wing, :va_b)
+                    split = wind_frame_force(force, va_b)
+                    split_ref = wind_frame_force(force_ref, va_b)
                     drag_err = abs(split.drag - split_ref.drag) /
                         abs(split_ref.drag)
                     lift_err = abs(split.lift - split_ref.lift) /
@@ -330,7 +334,7 @@ aero_poses = [
             # converges and `max_iterations` bounds what the failure costs.
             case.reference == :vsm &&
             @testset "failed solve warns and is reused" begin
-                solver = wing.vsm_solver
+                solver = sam.aero[wing].vsm_solver
                 rtol, max_iterations = solver.rtol, solver.max_iterations
                 gamma = copy(solver.sol.gamma_distribution)
                 alpha = copy(solver.lr.alpha_dist)
@@ -361,14 +365,14 @@ aero_poses = [
             # last held.
             case.reference == :vsm &&
             @testset "circulation is the SysState's gamma_distribution" begin
-                gamma = copy(sam.state.sysstate.gamma_distribution)
+                gamma = copy(sam.sysstate.gamma_distribution)
                 @test any(!iszero, gamma)
                 refresh_aero!(sam)
-                refreshed = copy(sam.state.sysstate.gamma_distribution)
-                copyto!(sam.state.sysstate.gamma_distribution, gamma)
-                fill!(wing.vsm_solver.sol.gamma_distribution, 1.0)
+                refreshed = copy(sam.sysstate.gamma_distribution)
+                copyto!(sam.sysstate.gamma_distribution, gamma)
+                fill!(sam.aero[wing].vsm_solver.sol.gamma_distribution, 1.0)
                 refresh_aero!(sam)
-                @test sam.state.sysstate.gamma_distribution ≈ refreshed rtol=1e-12
+                @test sam.sysstate.gamma_distribution ≈ refreshed rtol=1e-12
             end
 
             # A KINEMATIC wing's body frame is fitted from reference points, so
@@ -379,20 +383,21 @@ aero_poses = [
                 @testset "particle wing ω_b" begin
                     apply_pose!(sam, set, aero_poses[1])
                     settle_aero!(sam; steps=10)
-                    rot_before = copy(wing.R_b_to_w)
+                    rot_before = copy(run_value(sam, :wings, wing, :R_b_to_w))
                     next_step!(sam; dt=1e-4, vsm_interval=1)
-                    rot_after = copy(wing.R_b_to_w)
+                    rot_after = copy(run_value(sam, :wings, wing, :R_b_to_w))
                     spin = ((rot_after .- rot_before) ./ 1e-4) * rot_after'
                     omega_w = 0.5 .* [spin[3, 2] - spin[2, 3],
                                       spin[1, 3] - spin[3, 1],
                                       spin[2, 1] - spin[1, 2]]
                     omega_measured = rot_after' * omega_w
                     @test norm(omega_measured) > 1e-3
-                    @test norm(wing.ω_b) > 1e-3
-                    @test isapprox(wing.ω_b, omega_measured;
+                    @test norm(run_value(sam, :wings, wing, :ω_b)) > 1e-3
+                    ω_b = run_value(sam, :wings, wing, :ω_b)
+                    @test isapprox(ω_b, omega_measured;
                         atol=0.05 * norm(omega_measured) + 1e-4)
                     println("  [$(case.name)] ω_b=",
-                        "$(round(norm(wing.ω_b); sigdigits=3)) vs measured ",
+                        "$(round(norm(ω_b); sigdigits=3)) vs measured ",
                         "$(round(norm(omega_measured); sigdigits=3)) rad/s")
                 end
             end
@@ -410,12 +415,12 @@ aero_poses = [
             case.dynamics == PARTICLE_DYNAMICS &&
             @testset "yaw antisymmetry" begin
                 apply_pose!(sam, set, aero_poses[1])
-                pin_wing_nodes!(sam.state, wing)
-                base_pos = wing_node_positions(sam.state, wing)
+                pin_wing_nodes!(sam, wing)
+                base_pos = wing_node_positions(sam, wing)
                 @test !isempty(base_pos)
 
                 function held(delta)
-                    deform_trailing_edge!(sam.state, wing, base_pos, delta)
+                    deform_trailing_edge!(sam, wing, base_pos, delta)
                     init!(sam; prn=false)
                     next_step!(sam; dt=1e-5, vsm_interval=1)
                     return model_force_moment(sam, wing)
@@ -423,7 +428,7 @@ aero_poses = [
                 force_pos, moment_pos = held(0.05)
                 _, moment_neg = held(-0.05)
                 _, moment_flat = held(0.0)
-                pin_wing_nodes!(sam.state, wing, false)
+                pin_wing_nodes!(sam, wing, false)
 
                 @test abs(moment_pos[3]) > 1e-3 * norm(force_pos)
                 @test abs(moment_flat[3]) < 0.25 * abs(moment_pos[3])
@@ -445,10 +450,10 @@ aero_poses = [
                 force, moment = model_force_moment(sam, wing)
                 @test all(isfinite, force)
                 # The refresh set the per-panel inflow, so this is matched.
-                force_ref, moment_ref = vsm_reference_force_moment(wing)
+                force_ref, moment_ref = vsm_reference_force_moment(sam, wing)
                 relF = rel_error(force, force_ref)
-                split = wind_frame_force(force, wing.va_b)
-                split_ref = wind_frame_force(force_ref, wing.va_b)
+                split = wind_frame_force(force, run_value(sam, :wings, wing, :va_b))
+                split_ref = wind_frame_force(force_ref, run_value(sam, :wings, wing, :va_b))
                 drag_err = abs(split.drag - split_ref.drag) / abs(split_ref.drag)
                 @test relF < case.motion_rtol
                 @test drag_err < case.motion_drag_rtol

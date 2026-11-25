@@ -4,9 +4,9 @@
 # Body loads assembly + integration overrides; delegates to `rigid_body_eqs!`.
 
 """
-    body_eqs!(eqs, defaults, bodies, params, initial; kwargs...)
+    body_eqs!(sam, eqs, defaults, params, initial; kwargs...)
 
-Generate the differential equations for each plain `Body` (no aero). Loads are
+Generate the differential equations for each body of the run `sam`. Loads are
 the accumulated tube wrench (`body_force`/`body_moment`, filled by the tube equations)
 plus gravity (`-g·total_mass` at the COM) and the external wrench (`ext_force_w` world,
 `ext_force_b`/`ext_moment_b` body). `STATIC` bodies are frozen; `fix_sphere`
@@ -14,14 +14,13 @@ confines the COM to a sphere about the world origin; `damping` is per-axis
 angular damping.
 """
 function body_eqs!(
-    eqs, defaults, bodies, params, initial;
+    sam, eqs, defaults, params, initial;
     body_force, body_moment,
     body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
     body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
     body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
 )
-    for rigid_body in bodies
-        idx = rigid_body.idx
+    for (idx, rigid_body) in enumerate(sam.definition.bodies)
         # Bind body-frame outputs for every body (mtkcompile may integrate them, not principal).
         defaults = [
             defaults
@@ -32,7 +31,7 @@ function body_eqs!(
         # KINEMATIC bodies (particle wings) are pose-fitted by wing_eqs!, not here.
         # Their slaved COM can still survive as a tearing iteration variable, so it
         # needs a u0 guess (build_initializeprob=false runs no DAE init to fill it).
-        if body_type(rigid_body) == KINEMATIC
+        if body_type(sam, idx) == KINEMATIC
             defaults = [
                 defaults
                 bind_initial!(initial.bodies[idx].com_w, collect(body_com_w[:, idx]))
@@ -51,12 +50,12 @@ function body_eqs!(
         moment_w = collect(body_moment[:, idx]) .+
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
-        parent = rigid_body.wing
+        parent = isnothing(rigid_body.wing) ? nothing : wing_body(sam, rigid_body.wing)
         (; ω_kinematic, d_ω_p, d_com_w, d_com_vel) = body_integration(
             params, idx, body_com_w[:, idx], body_com_vel[:, idx],
             body_ω_p[:, idx], body_α_p[:, idx], body_com_acc[:, idx],
             collect(body_R_p_to_w[:, :, idx]);
-            frozen=(body_type(rigid_body) == STATIC),
+            frozen=(body_type(sam, idx) == STATIC),
             wing_frame = isnothing(parent) ? nothing :
                 collect(body_R_b_to_w[:, :, parent]),
             wing_vel = isnothing(parent) ? nothing : body_com_vel[:, parent])
@@ -67,7 +66,7 @@ function body_eqs!(
             inertia_p=params.bodies[idx].inertia_principal, mass,
             apparent_mass=params.bodies[idx].apparent_mass,
             R_b_to_p=params.bodies[idx].R_b_to_p,
-            com_offset_b=params.bodies[idx].com_offset_b,
+            com_offset_b=params.bodies[idx].total_com_offset_b,
             com_w=body_com_w, com_vel=body_com_vel,
             Q_p_to_w=body_Q_p_to_w, ω_p=body_ω_p,
             com_acc=body_com_acc, α_p=body_α_p, R_p_to_w=body_R_p_to_w,

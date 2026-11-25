@@ -69,7 +69,8 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export system_definition, SystemState
+export system_definition
+export run_value, set_run_value!
 export PointModel, StationModel, SegmentSpring, PulleyModel, WinchModel, WingModel,
        BodyModel
 export TimoshenkoTubeModel, ElasticTubeModel
@@ -113,9 +114,6 @@ export set_unstretched_length!
 export reset_to_initial_pose!
 export remake_wing_aero!
 export init_wind!
-export init_sys_struct!
-export update_mass_properties!
-export init_rest_geometry!, init_derived_properties!
 export segment_stretch_stats
 export calc_steady_torque
 
@@ -218,6 +216,7 @@ include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
+include("system_structure/utilities.jl")
 include("model_management.jl")
 include("definition_loader.jl")
 include("linearize.jl")

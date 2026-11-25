@@ -267,16 +267,17 @@ system:
         @test length(sys.segments) == 1
         @test haskey(sys.segments, :test_segment)
 
-        segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
-        @test segment.rest_length == 10.0
-        @test segment.unit_stiffness == 1000.0
-        @test segment.unit_damping == 10.0
-        @test segment.diameter == 0.005  # 5mm in meters
-        @test segment.compression_frac == 0.1
+        run = SymbolicAWEModel(set, sys)
+        segment(quantity) = run_value(run, :segments, :test_segment, quantity)
+        @test segment(:rest_length) == 10.0
+        @test segment(:unit_stiffness) == 1000.0
+        @test segment(:unit_damping) == 10.0
+        @test segment(:diameter) == 0.005  # 5mm in meters
+        @test segment(:compression_frac) == 0.1
 
-        println("\n  ====== Loaded segment: rest_length=$(segment.rest_length)m, " *
-                "unit_stiffness=$(segment.unit_stiffness)N, " *
-                "unit_damping=$(segment.unit_damping)N·s ======\n")
+        println("\n  ====== Loaded segment: rest_length=$(segment(:rest_length))m, " *
+                "unit_stiffness=$(segment(:unit_stiffness))N, " *
+                "unit_damping=$(segment(:unit_damping))N·s ======\n")
     end
 
     @testset "Compression softens stiffness, and damping on request" begin
@@ -335,7 +336,7 @@ system:
         test_init!(sam)
 
         # Record initial position
-        initial_z = sam.state.points[:mass_point].pos_w[3]
+        initial_z = run_value(sam, :points, :mass_point, :pos_w)[3]
 
         # Run simulation for 1 second
         dt = 0.01
@@ -345,7 +346,7 @@ system:
         end
 
         # Position should be unchanged
-        final_z = sam.state.points[:mass_point].pos_w[3]
+        final_z = run_value(sam, :points, :mass_point, :pos_w)[3]
         @test abs(final_z - initial_z) < 0.001  # Should not move more than 1mm
 
         println("\n  ====== Position drift: $(round(abs(final_z - initial_z)*1000, digits=3)) mm (limit: 1 mm) ======\n")
@@ -364,8 +365,8 @@ system:
             name="segment_test", set=set)
 
         # Verify the properties were loaded
-        run_segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
-        @test run_segment.unit_damping == 100.0
+        @test run_value(SymbolicAWEModel(set, sys), :segments, :test_segment,
+                        :unit_damping) == 100.0
         @test sys.points[:mass_point].extra_mass == 5.0
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -378,12 +379,13 @@ system:
         unit_damping = 100.0
 
         # Calculate expected total mass: extra_mass + half segment mass
-        segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
-        half_segment_mass = 0.5 * segment.density * π * (segment.diameter / 2)^2 * l0
+        density = run_value(sam, :segments, :test_segment, :density)
+        diameter = run_value(sam, :segments, :test_segment, :diameter)
+        half_segment_mass = 0.5 * density * π * (diameter / 2)^2 * l0
         expected_total_mass = sys.points[:mass_point].extra_mass + half_segment_mass
 
         # Verify total_mass is correctly computed
-        m = sam.state.points[:mass_point].total_mass
+        m = run_value(sam, :points, :mass_point, :total_mass)
         @test m ≈ expected_total_mass rtol=0.01
 
         # Expected equilibrium stretch, accounting for k = unit_stiffness / len
@@ -417,7 +419,7 @@ system:
 
         for i in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
-            push!(z_history, sam.state.points[:mass_point].pos_w[3])
+            push!(z_history, run_value(sam, :points, :mass_point, :pos_w)[3])
             push!(t_history, i * dt)
         end
 
@@ -479,12 +481,13 @@ system:
 
         sys, transforms = load_authoring(yaml_horiz_drag_path;
             name="segment_test", set=set)
-        segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
-        L = segment.rest_length  # 10.0 m
-        d = segment.diameter  # 0.004 m (4mm)
+        segment(quantity) =
+            run_value(SymbolicAWEModel(set, sys), :segments, :horiz_segment, quantity)
+        L = segment(:rest_length)  # 10.0 m
+        d = segment(:diameter)  # 0.004 m (4mm)
 
         # Segment mass from material density
-        rho_tether = segment.density  # 724 kg/m^3
+        rho_tether = segment(:density)  # 724 kg/m^3
         segment_mass = rho_tether * π * (d/2)^2 * L
         m_total = segment_mass
         cd = set.cd_tether  # 0.958
@@ -505,8 +508,8 @@ system:
         end
 
         # Check segment stays horizontal (both points at same height)
-        final_z_left = sam.state.points[:point_left].pos_w[3]
-        final_z_right = sam.state.points[:point_right].pos_w[3]
+        final_z_left = run_value(sam, :points, :point_left, :pos_w)[3]
+        final_z_right = run_value(sam, :points, :point_right, :pos_w)[3]
         @test abs(final_z_left - final_z_right) < 0.01  # Within 1cm
 
         # Calculate air density at final height using same model as simulation
@@ -518,8 +521,8 @@ system:
         v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
 
         # Check terminal velocity (downward)
-        vz_left = sam.state.points[:point_left].vel_w[3]
-        vz_right = sam.state.points[:point_right].vel_w[3]
+        vz_left = run_value(sam, :points, :point_left, :vel_w)[3]
+        vz_right = run_value(sam, :points, :point_right, :vel_w)[3]
         avg_vz = (vz_left + vz_right) / 2
 
         @test avg_vz < 0  # Moving downward
@@ -529,17 +532,17 @@ system:
 
         # Verify drag_force field: each point gets half the
         # segment drag. At terminal velocity total drag = m*g.
-        pl = sam.state.points[:point_left]
-        pr = sam.state.points[:point_right]
-        total_drag = pl.drag_force + pr.drag_force
+        drag_left = run_value(sam, :points, :point_left, :drag_force)
+        drag_right = run_value(sam, :points, :point_right, :drag_force)
+        total_drag = drag_left + drag_right
         @test norm(total_drag) ≈ m_total * set.g_earth rtol=0.01
         # Both halves should be roughly equal
-        @test norm(pl.drag_force) ≈ norm(pr.drag_force) rtol=0.05
+        @test norm(drag_left) ≈ norm(drag_right) rtol=0.05
         # Drag should point upward (opposing downward fall)
         @test total_drag[3] > 0
         # Points have zero area so drag is purely from segment
-        @test pl.area == 0.0
-        @test pl.drag_coeff == 0.0
+        @test run_value(sam, :points, :point_left, :area) == 0.0
+        @test run_value(sam, :points, :point_left, :drag_coeff) == 0.0
     end
 
     # ========================================================================
@@ -561,8 +564,8 @@ system:
         test_init!(sam)
 
         # Record initial positions
-        initial_z_top = sam.state.points[:point_top].pos_w[3]
-        initial_z_bottom = sam.state.points[:point_bottom].pos_w[3]
+        initial_z_top = run_value(sam, :points, :point_top, :pos_w)[3]
+        initial_z_bottom = run_value(sam, :points, :point_bottom, :pos_w)[3]
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
@@ -573,8 +576,8 @@ system:
         end
 
         # Check segment stays vertical (points at same height difference)
-        final_z_top = sam.state.points[:point_top].pos_w[3]
-        final_z_bottom = sam.state.points[:point_bottom].pos_w[3]
+        final_z_top = run_value(sam, :points, :point_top, :pos_w)[3]
+        final_z_bottom = run_value(sam, :points, :point_bottom, :pos_w)[3]
         height_diff_initial = initial_z_top - initial_z_bottom
         height_diff_final = final_z_top - final_z_bottom
         @test abs(height_diff_final - height_diff_initial) < 0.1  # Within 10cm
@@ -586,8 +589,8 @@ system:
         # Check terminal velocity matches wind velocity
         # Wind blows in x direction (upwind_dir = -90 means wind from +x)
         # At steady state, segment velocity = wind velocity
-        vx_top = sam.state.points[:point_top].vel_w[1]
-        vx_bottom = sam.state.points[:point_bottom].vel_w[1]
+        vx_top = run_value(sam, :points, :point_top, :vel_w)[1]
+        vx_bottom = run_value(sam, :points, :point_bottom, :vel_w)[1]
         avg_vx = (vx_top + vx_bottom) / 2
 
         # Wind direction: upwind_dir = -90 deg means wind blows in x direction
@@ -610,12 +613,13 @@ system:
         # Get segment properties
         sys, transforms = load_authoring(yaml_high_alt_path;
             name="segment_test", set=set)
-        segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
-        L = segment.rest_length  # 10.0 m
-        d = segment.diameter  # 0.004 m (4mm)
+        segment(quantity) =
+            run_value(SymbolicAWEModel(set, sys), :segments, :horiz_segment, quantity)
+        L = segment(:rest_length)  # 10.0 m
+        d = segment(:diameter)  # 0.004 m (4mm)
 
         # Segment mass from material density
-        rho_tether = segment.density
+        rho_tether = segment(:density)
         segment_mass = rho_tether * π * (d/2)^2 * L
         m_total = segment_mass
         cd = set.cd_tether
@@ -632,8 +636,8 @@ system:
         end
 
         # Get final state
-        final_z_left = sam.state.points[:point_left].pos_w[3]
-        final_z_right = sam.state.points[:point_right].pos_w[3]
+        final_z_left = run_value(sam, :points, :point_left, :pos_w)[3]
+        final_z_right = run_value(sam, :points, :point_right, :pos_w)[3]
         final_height = (final_z_left + final_z_right) / 2
 
         # Height should still be positive (above sea level)
@@ -654,8 +658,8 @@ system:
         @test v_terminal_altitude > v_terminal_sea_level
 
         # Check actual terminal velocity matches expected
-        vz_left = sam.state.points[:point_left].vel_w[3]
-        vz_right = sam.state.points[:point_right].vel_w[3]
+        vz_left = run_value(sam, :points, :point_left, :vel_w)[3]
+        vz_right = run_value(sam, :points, :point_right, :vel_w)[3]
         avg_vz = (vz_left + vz_right) / 2
 
         @test avg_vz < 0  # Moving downward
@@ -675,13 +679,11 @@ system:
         sys, transforms = load_authoring(yaml_material_density_path;
             name="segment_test", set=set)
 
-        segments = SymbolicAWEModels.SystemState(sys; set).segments
-        seg_dyneema = segments[:seg_dyneema]
-        seg_steel = segments[:seg_steel]
+        run = SymbolicAWEModel(set, sys)
 
         # Each segment carries its material's density, not the global rho_tether
-        @test seg_dyneema.density ≈ 724.0
-        @test seg_steel.density ≈ 7800.0
+        @test run_value(run, :segments, :seg_dyneema, :density) ≈ 724.0
+        @test run_value(run, :segments, :seg_steel, :density) ≈ 7800.0
         @test set.rho_tether == 724.0
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -690,12 +692,12 @@ system:
         # total_mass of each hanging point = half the connected segment mass,
         # computed with the per-segment density
         l0 = 10.0
-        area = π * (seg_dyneema.diameter / 2)^2
+        area = π * (run_value(run, :segments, :seg_dyneema, :diameter) / 2)^2
         expected_dyneema = 0.5 * 724.0 * area * l0
         expected_steel = 0.5 * 7800.0 * area * l0
 
-        m_dyneema = sam.state.points[:mass_dyneema].total_mass
-        m_steel = sam.state.points[:mass_steel].total_mass
+        m_dyneema = run_value(sam, :points, :mass_dyneema, :total_mass)
+        m_steel = run_value(sam, :points, :mass_steel, :total_mass)
         @test m_dyneema ≈ expected_dyneema rtol=0.01
         @test m_steel ≈ expected_steel rtol=0.01
         @test m_steel / m_dyneema ≈ 7800.0 / 724.0 rtol=0.01
@@ -715,7 +717,7 @@ system:
         for _ in 1:5
             next_step!(sam; dt=0.05, vsm_interval=0)
         end
-        simulated = [segment.force for segment in sam.state.segments]
+        simulated = copy(sam.sysstate.spring_force)
         @test all(>(0), simulated)   # the mass hangs on the segment
 
         logger = Logger(sam, 1)
@@ -723,10 +725,10 @@ system:
         save_log(logger, "segment_force_roundtrip", false; path=tmpdir)
         lg = load_log("segment_force_roundtrip"; path=tmpdir)
 
-        replayed = SystemState(first(load_authoring(yaml_path;
+        replayed = SymbolicAWEModel(set, first(load_authoring(yaml_path;
             name="segment_test", set=set)))
         update_from_sysstate!(replayed, lg.syslog[1])
-        @test [segment.force for segment in replayed.segments] ≈ simulated rtol=1e-5
+        @test replayed.sysstate.spring_force ≈ simulated rtol=1e-5
     end
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
@@ -734,8 +736,7 @@ end
 
 @testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
     sys, set, vsm_set = load_2plate_particle_sys("2plate_segment_role")
-    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
-    roles = Dict(segment.name => segment_role(state, segment) for segment in state.segments)
+    roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
     @test roles[:strut_left] == roles[:diag_1] == :wing
     @test roles[:le_left] == roles[:kcu_steering_right] == :free
     @test roles[:main_tether_seg_1] == roles[:main_tether_seg_6] == :winched_tether
@@ -758,8 +759,7 @@ end
     winches = [Winch(; name=:winch, tethers=[:main_tether], winch_point=:ground)]
     sys = system_definition("segment_role_tethers", set; points, segments, materials,
                           tethers, winches)
-    state = SymbolicAWEModels.SystemState(sys; set)
-    @test [segment_role(state, segment) for segment in state.segments] ==
+    @test [segment_role(sys, segment) for segment in sys.segments] ==
           [:winched_tether, :unwinched_tether, :free]
 end
 nothing

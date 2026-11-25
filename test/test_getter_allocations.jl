@@ -4,8 +4,8 @@
 # test_getter_allocations.jl - state extraction allocation tests
 #
 # The monolithic in-place getter (`get_all_state`) writes the integrator state
-# into the SystemDefinition fields with zero allocations. This test asserts that
-# `update_sys_struct!` (and the getter it calls) allocate nothing per step.
+# into the run's SysState with zero allocations. This test asserts that
+# `update_run_state!` (and the getter it calls) allocate nothing per step.
 #
 # The model below carries no wing, which for a long time made this file blind to
 # the read-back path most kites actually take: reading `sys.wings` rebuilt its
@@ -80,12 +80,12 @@ environment:
 """
 
 "Measure allocations of one in-place getter call (typed function barrier)."
-measure_getter_alloc(getter, integ, sys_struct) =
-    @allocated getter(integ, sys_struct)
+measure_getter_alloc(getter, integ, sam) =
+    @allocated getter(integ, sam)
 
-"Measure allocations of one `update_sys_struct!` call (typed function barrier)."
-measure_update_alloc(prob, integ, sys_struct) =
-    @allocated SymbolicAWEModels.update_sys_struct!(prob, integ, sys_struct)
+"Measure allocations of one `update_run_state!` call (typed function barrier)."
+measure_update_alloc(prob, integ, sam) =
+    @allocated SymbolicAWEModels.update_run_state!(prob, integ, sam)
 
 """
 Measure allocations of one `sync_params!` call (typed function barrier).
@@ -95,8 +95,8 @@ the struct, this carries the struct's parameters back in, and `next_step!` runs 
 twice a step. Its readers are closures of many types, so without grouping them by
 type it costs a dynamic dispatch and a boxed return per parameter.
 """
-measure_sync_alloc(prob, integ, sys_struct) =
-    @allocated SymbolicAWEModels.sync_params!(prob.param_sync, integ, sys_struct)
+measure_sync_alloc(prob, integ, sam) =
+    @allocated SymbolicAWEModels.sync_params!(prob.param_sync, integ, sam)
 
 """
     SYNC_ALLOC_BUDGET
@@ -130,18 +130,17 @@ SYNC_ALLOC_BUDGET = Dict(:KernelBackend => 0, :MonolithBackend => 256)
 
         prob = sam.prob
         integ = sam.integrator
-        sys_struct = sam.state
         getter = prob.get_all_state
 
         # warm up, then assert zero allocation
-        measure_getter_alloc(getter, integ, sys_struct)
-        measure_update_alloc(prob, integ, sys_struct)
-        measure_sync_alloc(prob, integ, sys_struct)
+        measure_getter_alloc(getter, integ, sam)
+        measure_update_alloc(prob, integ, sam)
+        measure_sync_alloc(prob, integ, sam)
 
         @testset "$(nameof(typeof(backend)))" begin
-            @test measure_getter_alloc(getter, integ, sys_struct) == 0
-            @test measure_update_alloc(prob, integ, sys_struct) == 0
-            allocated = measure_sync_alloc(prob, integ, sys_struct)
+            @test measure_getter_alloc(getter, integ, sam) == 0
+            @test measure_update_alloc(prob, integ, sam) == 0
+            allocated = measure_sync_alloc(prob, integ, sam)
             @test allocated <= SYNC_ALLOC_BUDGET[nameof(typeof(backend))]
             allocated <= SYNC_ALLOC_BUDGET[nameof(typeof(backend))] ||
                 println("sync_params! allocated $allocated B, over the " *
@@ -153,7 +152,7 @@ end
 """
     WING_ALLOC_BUDGET
 
-What one `update_sys_struct!` may allocate on a model that carries a wing, by
+What one `update_run_state!` may allocate on a model that carries a wing, by
 backend. Zero is out of reach on that path for now: a fitted wing's pose is rebuilt
 by `wing_kinematics_from_points!` and its scalars by `write_wing_scalars!`, both of
 which work in freshly allocated vectors, and `quaternion_to_rotation_matrix` returning
@@ -183,14 +182,14 @@ WING_ALLOC_BUDGET = Dict(:KernelBackend => 22_000, :MonolithBackend => 4_000)
             init!(sam; prn=false, remake=true)
             next_step!(sam; dt=0.05, vsm_interval=0)
 
-            prob, integ, sys_struct = sam.prob, sam.integrator, sam.state
-            measure_update_alloc(prob, integ, sys_struct)
+            prob, integ = sam.prob, sam.integrator
+            measure_update_alloc(prob, integ, sam)
 
             @testset "$name wing / $backend_name" begin
-                allocated = measure_update_alloc(prob, integ, sys_struct)
+                allocated = measure_update_alloc(prob, integ, sam)
                 @test allocated <= WING_ALLOC_BUDGET[backend_name]
                 allocated <= WING_ALLOC_BUDGET[backend_name] ||
-                    println("update_sys_struct! allocated $allocated B, " *
+                    println("update_run_state! allocated $allocated B, " *
                             "over the $(WING_ALLOC_BUDGET[backend_name]) B budget")
             end
         end

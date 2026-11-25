@@ -6,9 +6,10 @@
 """
     build_prob!(::KernelBackend, sam; sparse=false, analytic_jacobian=true, prn=true)
 
-Assemble `sam.state` into a [`KernelModel`](@ref) and wrap its right-hand side as an
-`ODEProblem`. The problem's parameter object is our own flat buffer plus the
-callable store, so `sync_params!` writes struct fields straight into it. `sparse`
+Assemble the run `sam` into a [`KernelModel`](@ref) and wrap its right-hand side as an
+`ODEProblem`, dropping the integrator of any earlier problem. The problem's parameter
+object is our own flat buffer plus the callable store, so `sync_params!` writes the
+run's values straight into it. `sparse`
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
 Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
 [`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
@@ -21,6 +22,7 @@ being `AutoSpecialize`.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
                      prn = true)
+    sam.integrator = nothing
     time = @elapsed model = assemble(sam; verbose = prn)
     if prn
         println("\tAssembled $(length(model.system.kernels)) kernels over " *
@@ -40,13 +42,13 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
             rhs; mass_matrix = model.system.mass_matrix,
             jac_prototype = prototype, jac = jacobian),
         model.u0, (0.0, step), model.params)
-    sync_run_params!(model.param_sync, problem, sam.state)
+    sync_run_params!(model.param_sync, problem, sam)
     isnothing(jacobian) || check_jacobian_finite(jacobian, problem.u0, problem.p)
     sam.prob = ProbWithAttributes(; prob = problem,
         param_sync = model.param_sync, initial_sync = KernelInitialSync(model),
-        set_set_values = KernelControlSetter(model, sam.state),
+        set_set_values = KernelControlSetter(model, sam),
         get_set_values = nothing, get_aero_input = nothing,
-        get_all_state = KernelStateGetter(model, rhs, sam.state))
+        get_all_state = KernelStateGetter(model, rhs, sam))
     return true
 end
 
@@ -73,26 +75,29 @@ end
 """
     init_backend!(::KernelBackend, sam, solver; kwargs...)
 
-Full `init!` path for the [`KernelBackend`](@ref): refresh the `SystemDefinition`,
-assemble the problem from it, and build the integrator. The assembled problem is
-serialized to `get_model_name`'s bin and read back on the next `init!` of the same
-structure, exactly as the monolith's is — the kernels' `mtkcompile` is the slow
-part and it is what the bin saves. `remake` forces a rebuild, `reload` re-reads the
-bin over an in-memory build. The struct's positions and rest lengths are pushed
-onto a reused problem by [`KernelInitialSync`](@ref), so a bin stays valid across
-them; a parameter no registry reader syncs keeps the value the struct had when the
-bin was built, as on the monolith.
+Full `init!` path for the [`KernelBackend`](@ref): refresh the run's aero and wind,
+assemble the problem from the run, and build the integrator with [`reinit!`](@ref),
+dropping one of a problem no longer in use. The assembled problem is serialized to
+`get_model_name`'s bin and read back on the next `init!` of the same structure,
+exactly as the monolith's is — the kernels' `mtkcompile` is the slow part and it is
+what the bin saves. `remake` forces a rebuild, `reload` re-reads the bin over an
+in-memory build. The run's positions and rest lengths are pushed onto a reused
+problem by [`KernelInitialSync`](@ref), so a bin stays valid across them; a parameter
+no registry reader syncs keeps the value the run had when the bin was built, as on
+the monolith.
 """
 function init_backend!(::KernelBackend, sam, solver;
         adaptive = true, prn = true, remake_vsm = false,
         reset_integrator = true, vsm_min_wind = 0.5, lin_vsm = true,
         sparse = false, analytic_jacobian = true, remake = false, reload = false)
-    model_name = get_model_name(sam.set, sam.state; sparse, analytic_jacobian,
-                                backend = KernelBackend())
+    model_name = get_model_name(sam; sparse, analytic_jacobian)
     model_path = joinpath(KiteUtils.get_data_path(), model_name)
     prn && @info "Model bin name: $model_name"
+    previous = sam.prob
     loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
-    init_sys_struct!(sam.state, sam.set; remake_vsm, prn)
+    sam.prob === previous || (sam.integrator = nothing)
+    remake_vsm && remake_wing_aero!(sam)
+    init_wind!(sam)
     if loaded && !isnothing(sam.prob)
         prn && @info "Reusing the assembled model, so no kernel is compiled here."
     else

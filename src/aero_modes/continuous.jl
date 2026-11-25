@@ -129,22 +129,20 @@ function build_mesh_maps!(mode::ContinuousAero)
 end
 
 """
-    setup_aero!(mode::ContinuousAero, wing, points, stations; prn=false,
-                vsm_set=nothing)
+    setup_aero!(mode::ContinuousAero, sam, wing_idx; prn=false)
 
-The generic VSM particle setup plus the [`ContinuousAero`](@ref) mesh maps
-([`build_mesh_maps!`](@ref)).
+The generic VSM particle setup of wing `wing_idx` of `sam` plus the [`ContinuousAero`](@ref)
+mesh maps ([`build_mesh_maps!`](@ref)).
 """
-function setup_aero!(mode::ContinuousAero, wing, points, stations;
-                     prn=false, vsm_set=nothing)
-    body_dynamics_type(wing) == PARTICLE_DYNAMICS || error(
-        "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
-        "$(wing.name) is $(body_dynamics_type(wing)).")
-    invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, stations; prn, vsm_set)
+function setup_aero!(mode::ContinuousAero, sam, wing_idx; prn=false)
+    name = sam.definition.wings[wing_idx].name
+    dynamics_type = body_dynamics_type(sam, wing_body(sam, wing_idx))
+    dynamics_type == PARTICLE_DYNAMICS || error("ContinuousAero supports " *
+        "PARTICLE_DYNAMICS wings only; wing $name is $dynamics_type.")
+    invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any}, mode, sam, wing_idx; prn)
     mode.vsm_wing.spanwise_distribution == VortexStepMethod.BILLOWING || error(
         "ContinuousAero requires the BILLOWING spanwise distribution so the " *
-        "refined panels carry the canopy billow shape; wing $(wing.name) uses " *
+        "refined panels carry the canopy billow shape; wing $name uses " *
         "$(mode.vsm_wing.spanwise_distribution). Set " *
         "spanwise_panel_distribution: BILLOWING in the VSM settings.")
     build_mesh_maps!(mode)
@@ -154,11 +152,11 @@ end
 # ==================== equation builder ==================== #
 
 """
-    aero_component(mode::ContinuousAero, ::ParticleDynamics, wing, sys_struct; name)
+    aero_component(mode::ContinuousAero, ::ParticleDynamics, sam, wing_idx; name, params)
 
-Symbolic per-refined-panel re-expression of `VortexStepMethod.calc_forces!` on
-the `PARTICLE_DYNAMICS` connector contract. Refined-section positions,
-apparent wind, and density are interpolated from the live strut points with
+Symbolic per-refined-panel re-expression of `VortexStepMethod.calc_forces!` for wing
+`wing_idx` of `sam` on the `PARTICLE_DYNAMICS` connector contract. Refined-section
+positions, apparent wind, and density are interpolated from the live strut points with
 the frozen mesh weights; per panel, the axes, chord, width, effective angle of
 attack (live apparent wind + frozen induced velocity), polar coefficients, and
 lift/drag directions are symbolic variables of the component (observable
@@ -166,36 +164,33 @@ through the integrator, e.g. `aero_1.alpha`). Each panel force acts on the
 quarter-chord line (75 % LE / 25 % TE) with the pitching moment as an LE/TE
 force couple, distributed to the bounding struts by the mesh weights.
 """
-function aero_component(mode::ContinuousAero, ::ParticleDynamics, wing, sys_struct;
+function aero_component(mode::ContinuousAero, ::ParticleDynamics, sam, wing_idx;
                         name, params=nothing)
-    wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind
     chord_w = params.wings[wing_idx].aero.chord_weight
     cl = params.wings[wing_idx].aero.cl   # callable flat params: `cl(panel_idx, α)`
     cd = params.wings[wing_idx].aero.cd
     cm = params.wings[wing_idx].aero.cm
 
-    points = wing_points(sys_struct, wing)
-    num_points = length(points)
+    num_points = length(wing_points(sam, wing_idx))
     connectors = particle_aero_connectors(num_points)
 
-    column = aero_section_columns(wing, points)
-    n_panels = Int(wing.vsm_wing.n_panels)
+    column = aero_section_columns(sam, wing_idx)
+    n_panels = Int(mode.vsm_wing.n_panels)
     left = mode.section_left_strut
     lweight = mode.section_left_weight
     length(left) == n_panels + 1 || error(
-        "ContinuousAero: mesh maps not built for wing $(wing.name).")
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
-    scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
-        wing.aero_scale_chord : AERO_SCALE_CHORD)
+        "ContinuousAero: mesh maps not built for wing " *
+        "$(sam.definition.wings[wing_idx].name).")
+    spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
+    scale = 1.0 + (isfinite(mode.aero_scale_chord) ?
+        mode.aero_scale_chord : AERO_SCALE_CHORD)
 
-    sec_le, sec_te =
-        reconstruct_sections_sym(mode, wing, points, connectors, column)
-    sec_va, sec_rho, sec_dva =
-        reconstruct_inflow_sym(mode, wing, connectors, column)
+    sec_le, sec_te = reconstruct_sections_sym(mode, connectors, column)
+    sec_va, sec_rho, sec_dva = reconstruct_inflow_sym(mode, connectors, column)
 
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
-        wagner_wing_eqs(wing, sec_va, params)
+        wagner_wing_eqs(sam, wing_idx, sec_va, params)
     eqs, panel_vars, panel_force, panel_couple, curvature_couple, slots =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
             cl, cd, cm, spanwise, scale; sec_dva, deficiency)
@@ -210,13 +205,14 @@ function aero_component(mode::ContinuousAero, ::ParticleDynamics, wing, sys_stru
         couple = scatter_couple(mode, slots, i, nothing)
         force_le = 0.75 * force + couple
         force_te = 0.25 * force - couple
-        for s in (i, i + 1), (strut, w) in
-                ((left[s], lweight[s]), (left[s] + 1, 1.0 - lweight[s]))
-            w == 0.0 && continue
+        for section in (i, i + 1), (strut, share) in
+                ((left[section], lweight[section]),
+                 (left[section] + 1, 1.0 - lweight[section]))
+            share == 0.0 && continue
             kle = column[(strut, :LE)]
             kte = column[(strut, :TE)]
-            point_force[kle] = point_force[kle] + (0.5 * w) * force_le
-            point_force[kte] = point_force[kte] + (0.5 * w) * force_te
+            point_force[kle] = point_force[kle] + (0.5 * share) * force_le
+            point_force[kte] = point_force[kte] + (0.5 * share) * force_te
         end
     end
 
@@ -224,8 +220,7 @@ function aero_component(mode::ContinuousAero, ::ParticleDynamics, wing, sys_stru
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
     return System(eqs, t, vars,
-                  [Any[vind_p, chord_w, cl, cd, cm];
-                   wagner_params(wing, params)];
+                  [Any[vind_p, chord_w, cl, cd, cm]; wagner_params(sam, wing_idx, params)];
                   name, initial_conditions=wagner_defaults)
 end
 
@@ -234,15 +229,15 @@ end
 supports_panel_decomposition(::ContinuousAero) = true
 
 """
-    aero_scatter_entries(mode::ContinuousAero, wing, points)
+    aero_scatter_entries(mode::ContinuousAero, sam, wing_idx)
 
-The strut couple: each panel's force acts on the quarter-chord line, so its bounding
-sections' struts take `0.75·force + couple` at the LE station and `0.25·force −
-couple` at the TE station, halved between the two sections and split by the mesh
-weights.
+The strut couple of wing `wing_idx` of `sam`: each panel's force acts on the quarter-chord
+line, so its bounding sections' struts take `0.75·force + couple` at the LE station and
+`0.25·force − couple` at the TE station, halved between the two sections and split by
+the mesh weights.
 """
-function aero_scatter_entries(mode::ContinuousAero, wing, points)
-    column = aero_section_columns(wing, points)
+function aero_scatter_entries(mode::ContinuousAero, sam, wing_idx)
+    column = aero_section_columns(sam, wing_idx)
     left, weight, _, _ = section_interp_caches(mode)
     totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
     for panel in 1:(length(left) - 1), section in (panel, panel + 1)
@@ -261,31 +256,28 @@ end
 # ==================== refresh ==================== #
 
 """
-    refresh_particle_aero!(::ContinuousAero, wing, points, va_point_b_vals;
+    refresh_particle_aero!(mode::ContinuousAero, sam, wing_idx, va_point_b;
                            vsm_min_wind=0.5)
 
-Refresh: update the VSM geometry from the structure, set the per-panel apparent wind
-([`set_refined_panel_va!`](@ref)), solve and freeze the induced velocity. The forces
-are re-derived symbolically each RHS step; `calc_forces!` runs only so `sol`
-(`alpha_dist`, `f_body_3D`) is not left stale. Below `vsm_min_wind` the induced
+Refresh of wing `wing_idx` of `sam`: update the VSM geometry from the structure, set the
+per-panel apparent wind ([`set_refined_panel_va!`](@ref)), solve and freeze the induced
+velocity. The forces are re-derived symbolically each RHS step; `calc_forces!` runs only
+so `sol` (`alpha_dist`, `f_body_3D`) is not left stale. Below `vsm_min_wind` the induced
 velocity is zeroed.
 """
-function refresh_particle_aero!(mode::ContinuousAero, wing, points,
-                                va_point_b_vals; vsm_min_wind=0.5)
-    if norm(wing.va_b) < vsm_min_wind
+function refresh_particle_aero!(mode::ContinuousAero, sam, wing_idx, va_point_b;
+                                vsm_min_wind=0.5)
+    if norm(wing_apparent_wind(sam, wing_idx)) < vsm_min_wind
         fill!(mode.v_ind, 0.0)
         return nothing
     end
-
-    update_vsm_wing_from_structure!(wing, points)
-    set_refined_panel_va!(mode, wing, points, va_point_b_vals)
-    solve_and_freeze_circulation!(mode, wing)
+    update_vsm_wing_from_structure!(mode, sam, wing_idx)
+    set_refined_panel_va!(mode, sam, wing_idx, va_point_b)
+    solve_and_freeze_circulation!(mode, sam, wing_idx)
     return nothing
 end
 
 # ==================== visualization ==================== #
 
-write_aero_log_points!(mode::ContinuousAero, wing, sys_struct, sys_state,
-                       point_idx, zoom) =
-    write_live_aero_log_points!(mode, wing, sys_struct, sys_state,
-                                point_idx, zoom)
+write_aero_log_points!(mode::ContinuousAero, sam, wing_idx, sys_state, point_idx, zoom) =
+    write_live_aero_log_points!(mode, sam, wing_idx, sys_state, point_idx, zoom)

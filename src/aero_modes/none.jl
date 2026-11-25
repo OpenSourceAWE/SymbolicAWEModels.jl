@@ -11,35 +11,33 @@ rigid/kinematic body. Needs no VSM geometry and carries no state.
 """
 struct AeroNone <: AbstractAeroModel end
 
-"""Whether body record `body` flies with aerodynamics: a plain body and a wing flown with
-`AeroNone` do not."""
-has_aero(body) = !(body.aero isa AeroNone)
+"""Whether a wing flown with aero `mode` has aerodynamics: one flown with `AeroNone` has
+not."""
+has_aero(::AbstractAeroModel) = true
+has_aero(::AeroNone) = false
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::Type{AeroNone}) = "none"
 
 """
-    aero_component(::AeroNone, ::ParticleDynamics, wing, sys_struct; name)
+    aero_component(::AeroNone, ::ParticleDynamics, sam, wing_idx; name)
 
-Zero per-point forces (particle connector contract). AeroNone supports both wing
-dynamics via one method each.
+Zero per-point forces on the nodes of wing `wing_idx` of `sam` (particle connector
+contract). AeroNone supports both wing dynamics via one method each.
 """
-function aero_component(::AeroNone, ::ParticleDynamics, wing, sys_struct;
-                        name, params=nothing)
-    num_points = length(wing_points(sys_struct, wing))
-    connectors = particle_aero_connectors(num_points)
+function aero_component(::AeroNone, ::ParticleDynamics, sam, wing_idx; name, params=nothing)
+    connectors = particle_aero_connectors(length(wing_points(sam, wing_idx)))
     eqs = vec(collect(connectors.point_force)) .~ 0
     return System(eqs, t, particle_unknowns(connectors), []; name)
 end
 
 """
-    aero_component(::AeroNone, ::RigidDynamics, wing, sys_struct; name)
+    aero_component(::AeroNone, ::RigidDynamics, sam, wing_idx; name)
 
-Zero lumped force/moment (rigid connector contract).
+Zero lumped force/moment of wing `wing_idx` of `sam` (rigid connector contract).
 """
-function aero_component(::AeroNone, ::RigidDynamics, wing, sys_struct;
-                        name, params=nothing)
-    num_stations = length(wing.station_idxs)
+function aero_component(::AeroNone, ::RigidDynamics, sam, wing_idx; name, params=nothing)
+    num_stations = length(wing_station_idxs(sam, wing_idx))
     connectors = rigid_aero_connectors(num_stations)
     eqs = [collect(connectors.force) .~ 0
            collect(connectors.moment) .~ 0]

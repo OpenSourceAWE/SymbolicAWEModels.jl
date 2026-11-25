@@ -5,236 +5,147 @@
     const AERO_SCALE_CHORD = 0.0
 
 Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings; effective
-multiplier is `1 + (wing.aero_scale_chord or this default)`.
+multiplier is `1 + aero_scale_chord`, the engine's or else this default.
 """
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing, wing_points; stations=nothing, wing_station_idxs=nothing)
+    identify_wing_segments(sam, wing_idx) -> Vector{Tuple{Int64, Int64}}
 
-Identify wing segments (LE/TE pairs) from `wing`'s nodes.
-
-When `stations` and `wing_station_idxs` are provided, uses station `point_idxs`
-to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
-section. Falls back to a consecutive-pair heuristic (sorted by point index)
-when stations are unavailable.
-
-In both paths a chord check swaps LE/TE if needed: the LE has the smaller body-frame
-x in the wing's initial pose ([`initial_chord_position`](@ref)).
-
-# Arguments
-- `wing_points::AbstractVector`: wing nodes for a wing.
-
-# Keyword Arguments
-- `stations::Union{Nothing, AbstractVector{Station}}`: All stations in the
-  system (indexed by `wing_station_idxs`).
-- `wing_station_idxs::Union{Nothing, AbstractVector{<:Integer}}`:
-  Indices into `stations` belonging to this wing.
-
-# Returns
-- `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
+The `(le_point_idx, te_point_idx)` pair of each section of wing `wing_idx` of `sam`:
+of each of its stations' points, the one with the smallest and the one with the largest
+body-frame x in the wing's initial pose ([`initial_chord_position`](@ref)). A wing
+without stations pairs its nodes ([`wing_points`](@ref)) two by two in point order, the
+LE again the one with the smaller x.
 """
-function identify_wing_segments(
-    wing,
-    wing_points::AbstractVector;
-    stations::AbstractVector=KiteGeometry.SpanwiseStation[],
-    wing_station_idxs::AbstractVector{<:Integer}=Int[]
-)
-    use_stations = !isempty(stations) &&
-        !isempty(wing_station_idxs)
-
-    if use_stations
+function identify_wing_segments(sam, wing_idx)
+    body_idx = wing_body(sam, wing_idx)
+    points = sam.definition.points
+    chord_position(i) = initial_chord_position(sam, body_idx, points[i].pos_ENU)
+    station_idxs = wing_station_idxs(sam, wing_idx)
+    if !isempty(station_idxs)
         segments = Tuple{Int64, Int64}[]
-        for g_idx in wing_station_idxs
-            station = stations[g_idx]
+        for station_idx in station_idxs
+            station = sam.definition.spanwise_stations[station_idx]
             length(station.points) >= 2 || error(
-                "Station $(station.name): need at least " *
-                "2 point_idxs (LE/TE), got " *
+                "Station $(station.name): need at least 2 point_idxs (LE/TE), got " *
                 "$(length(station.points))")
-            station = [wing_points[findfirst(p -> p.idx == idx, wing_points)]
-                       for idx in station.points]
-            le_point = argmin(p -> initial_chord_position(wing, p), station)
-            te_point = argmax(p -> initial_chord_position(wing, p), station)
-            push!(segments, (le_point.idx, te_point.idx))
+            push!(segments, (argmin(chord_position, station.points),
+                             argmax(chord_position, station.points)))
         end
         return segments
     end
 
-    # Fallback: consecutive-pair heuristic
-    sorted_points = sort(wing_points, by=p->p.idx)
-
-    n_points = length(sorted_points)
-    @assert n_points % 2 == 0 (
-        "Wing must have even number of points " *
-        "(LE/TE pairs)")
-
-    n_segments = n_points ÷ 2
+    point_idxs = wing_points(sam, wing_idx)
+    @assert iseven(length(point_idxs)) "Wing must have even number of points (LE/TE pairs)"
     segments = Tuple{Int64, Int64}[]
-
-    for i in 1:n_segments
-        le_idx = 2*i - 1
-        te_idx = 2*i
-        le_point = sorted_points[le_idx]
-        te_point = sorted_points[te_idx]
-
-        if initial_chord_position(wing, le_point) < initial_chord_position(wing, te_point)
-            push!(segments, (le_point.idx, te_point.idx))
-        else
-            push!(segments, (te_point.idx, le_point.idx))
-        end
+    for k in 1:2:length(point_idxs)
+        le_idx, te_idx = point_idxs[k], point_idxs[k + 1]
+        chord_position(le_idx) < chord_position(te_idx) ?
+            push!(segments, (le_idx, te_idx)) : push!(segments, (te_idx, le_idx))
     end
-
     return segments
 end
 
 """
-    check_span_order(wing)
+    check_span_order(mode, sam, wing_idx)
 
-Error unless the wing's unrefined VSM sections run from +y to -y: the first section's
-leading edge lies further along `spanwise_direction` than the last one's.
+Error unless the unrefined VSM sections of the aero `mode` of wing `wing_idx` of `sam`
+run from +y to -y: the first section's leading edge lies further along
+`spanwise_direction` than the last one's.
 """
-function check_span_order(wing)
-    sections = wing.vsm_wing.unrefined_sections
+function check_span_order(mode, sam, wing_idx)
+    sections = mode.vsm_wing.unrefined_sections
     span = first(sections).LE_point - last(sections).LE_point
-    dot(span, wing.vsm_wing.spanwise_direction) >= 0 || error(
-        "Wing $(wing.name): its aerodynamic sections run from -y to +y. " *
-        "Order the sections and the structural stations from +y to -y.")
+    dot(span, mode.vsm_wing.spanwise_direction) >= 0 || error(
+        "Wing $(sam.definition.wings[wing_idx].name): its aerodynamic sections run " *
+        "from -y to +y. Order the sections and the structural stations from +y to -y.")
     return nothing
 end
 
 """
-    match_aero_sections_to_structure!(wing, points; stations)
+    match_aero_sections_to_structure!(mode, sam, wing_idx)
 
-Reconcile a wing's aerodynamic sections with its structural geometry.
+Reconcile the aerodynamic sections of the aero `mode` of wing `wing_idx` of `sam` with
+its structural geometry.
 
-RIGID_DYNAMICS wings own their aero panel geometry (mesh- or
-YAML-defined) and keep it; only the station→section mapping
-(`wing.wing_segments`) is recorded. PARTICLE_DYNAMICS wings deform with
-their structural points, so each unrefined section is rebuilt onto its
-structural LE/TE pair: a 1:1 copy when counts match, otherwise
-`use_prior_polar` and existing `refined_sections` are required to
-preserve polars.
-
-# Keyword Arguments
-- `stations::AbstractVector`: Stations used for LE/TE identification
-  via [`identify_wing_segments`](@ref).
+RIGID_DYNAMICS wings own their aero panel geometry (mesh- or YAML-defined) and keep it;
+only the station→section mapping (`wing_segments`) is recorded. PARTICLE_DYNAMICS wings
+deform with their structural points, so each unrefined section is rebuilt onto its
+structural LE/TE pair ([`identify_wing_segments`](@ref)): a 1:1 copy when counts match,
+otherwise `use_prior_polar` and existing `refined_sections` are required to preserve
+polars.
 """
-function match_aero_sections_to_structure!(
-    wing,
-    points::AbstractVector;
-    stations::AbstractVector=KiteGeometry.SpanwiseStation[]
-)
-    wing_points = [
-        p for p in points if
-        p.is_wing_node && p.wing_idx == wing.idx
-    ]
-
-    if body_dynamics_type(wing) == RIGID_DYNAMICS
-        wing.wing_segments = identify_wing_segments(
-            wing, wing_points; stations=stations,
-            wing_station_idxs=wing.station_idxs)
+function match_aero_sections_to_structure!(mode, sam, wing_idx)
+    body_idx = wing_body(sam, wing_idx)
+    if body_dynamics_type(sam, body_idx) == RIGID_DYNAMICS
+        mode.wing_segments = identify_wing_segments(sam, wing_idx)
         return nothing
     end
 
-    wing_station_idxs = wing.station_idxs
-    has_stations = !isempty(stations) &&
-        !isempty(wing_station_idxs)
-
-    if has_stations
-        n_struct_sections = length(wing_station_idxs)
-        for g_idx in wing_station_idxs
-            station = stations[g_idx]
+    station_idxs = wing_station_idxs(sam, wing_idx)
+    if isempty(station_idxs)
+        n_points = length(wing_points(sam, wing_idx))
+        n_points % 2 == 0 || error(
+            "Wing $wing_idx: no stations and odd number of wing nodes ($n_points). " *
+            "Define stations to specify LE/TE pairs.")
+        n_struct_sections = n_points ÷ 2
+    else
+        n_struct_sections = length(station_idxs)
+        for station_idx in station_idxs
+            station = sam.definition.spanwise_stations[station_idx]
             length(station.points) >= 2 || error(
-                "PARTICLE_DYNAMICS wing $(wing.idx): station " *
-                "$(station.name) needs at least 2 points " *
-                "(LE = point_idxs[1], TE = point_idxs[end]), got " *
+                "PARTICLE_DYNAMICS wing $wing_idx: station $(station.name) needs at " *
+                "least 2 points (LE = point_idxs[1], TE = point_idxs[end]), got " *
                 "$(length(station.points))")
         end
-    else
-        n_points = length(wing_points)
-        n_points % 2 == 0 || error(
-            "Wing $(wing.idx): no stations and odd " *
-            "number of wing nodes " *
-            "($(n_points)). Define stations to " *
-            "specify LE/TE pairs.")
-        n_struct_sections = n_points ÷ 2
     end
 
-    n_aero_sections =
-        length(wing.vsm_wing.unrefined_sections)
+    vsm_wing = mode.vsm_wing
+    n_aero_sections = length(vsm_wing.unrefined_sections)
     counts_differ = n_struct_sections != n_aero_sections
-
     if counts_differ
-        wing.vsm_wing.use_prior_polar || error(
-            "Wing $(wing.idx): structural sections " *
-            "($(n_struct_sections)) do not match " *
-            "aerodynamic sections " *
-            "($(n_aero_sections)). Set " *
-            "use_prior_polar=true to rebuild " *
-            "unrefined sections from structural " *
-            "geometry."
-        )
-
-        isempty(wing.vsm_wing.refined_sections) &&
-            error(
-                "Wing $(wing.idx): cannot rebuild " *
-                "unrefined sections because no " *
-                "refined sections exist to " *
-                "preserve polars from."
-            )
+        vsm_wing.use_prior_polar || error(
+            "Wing $wing_idx: structural sections ($n_struct_sections) do not match " *
+            "aerodynamic sections ($n_aero_sections). Set use_prior_polar=true to " *
+            "rebuild unrefined sections from structural geometry.")
+        isempty(vsm_wing.refined_sections) && error(
+            "Wing $wing_idx: cannot rebuild unrefined sections because no refined " *
+            "sections exist to preserve polars from.")
     end
 
-    wing_segments = identify_wing_segments(
-        wing, wing_points; stations=stations,
-        wing_station_idxs=wing_station_idxs)
-    wing.wing_segments = wing_segments
+    wing_segments = identify_wing_segments(sam, wing_idx)
+    mode.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
-        "Wing $(wing.idx): failed to identify " *
-        "structural LE/TE pairs."
-    )
+        "Wing $wing_idx: failed to identify structural LE/TE pairs.")
 
-    original_sections = wing.vsm_wing.unrefined_sections
+    original_sections = vsm_wing.unrefined_sections
     n_original = length(original_sections)
-    n_original > 0 || error(
-        "Wing $(wing.idx): aerodynamic geometry " *
-        "has zero unrefined sections."
-    )
-    new_sections = Vector{VortexStepMethod.Section}(
-        undef, n_struct_sections)
-
+    n_original > 0 || error("Wing $wing_idx: aerodynamic geometry has zero unrefined " *
+                            "sections.")
+    new_sections = Vector{VortexStepMethod.Section}(undef, n_struct_sections)
+    points = sam.definition.points
     for (i, (le_idx, te_idx)) in enumerate(wing_segments)
         source_idx = if counts_differ
             n_struct_sections == 1 ? 1 :
-                round(Int,
-                    1 + (i - 1) * (n_original - 1) /
-                    (n_struct_sections - 1))
+                round(Int, 1 + (i - 1) * (n_original - 1) / (n_struct_sections - 1))
         else
-            i  # 1:1 copy when counts match
+            i
         end
         source_section = original_sections[source_idx]
-
-        le_body = initial_body_position(wing, points[le_idx])
-        te_body = initial_body_position(wing, points[te_idx])
-
+        le_body = initial_body_position(sam, body_idx, points[le_idx].pos_ENU)
+        te_body = initial_body_position(sam, body_idx, points[te_idx].pos_ENU)
         section = VortexStepMethod.Section()
-        VortexStepMethod.reinit!(
-            section, le_body, te_body,
-            source_section.aero_model,
-            source_section.aero_data,
-            source_section.section_aero
-        )
+        VortexStepMethod.reinit!(section, le_body, te_body, source_section.aero_model,
+                                 source_section.aero_data, source_section.section_aero)
         new_sections[i] = section
     end
 
-    wing.vsm_wing.unrefined_sections = new_sections
-    wing.vsm_wing.n_unrefined_sections =
-        Int16(n_struct_sections)
-    check_span_order(wing)
-
-    refine!(wing.vsm_wing;
-        recompute_mapping=true, sort_sections=false)
-    VortexStepMethod.reinit!(wing.vsm_aero)
-
+    vsm_wing.unrefined_sections = new_sections
+    vsm_wing.n_unrefined_sections = Int16(n_struct_sections)
+    check_span_order(mode, sam, wing_idx)
+    refine!(vsm_wing; recompute_mapping=true, sort_sections=false)
+    VortexStepMethod.reinit!(mode.vsm_aero)
     return nothing
 end
 
@@ -326,209 +237,141 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
 end
 
 """
-    distribute_panel_forces_to_points!(wing, points::AbstractVector)
+    vsm_point_to_struct(mode, wing_idx) -> Dict{Tuple{Int64, Symbol}, Int64}
 
-Distribute VSM forces to structural points using refined panel forces.
-
-After the VSM solve, each refined panel's body-frame force/moment is split into
-corner-node forces ([`compute_aerostruc_loads`](@ref), moment-preserving about the
-chosen reference) and accumulated on the structural LE/TE points of its parent
-section, which `refined_panel_mapping` names (1:1).
-
-# Arguments
-- `wing::BodyState`: Wing with PARTICLE_DYNAMICS type and solved VSM state
-- `points::AbstractVector`: All structural points (filtered to this wing's nodes)
+The structural point of each `(section_idx, :LE/:TE)` of the VSM sections of the aero
+`mode` of `PARTICLE_DYNAMICS` wing `wing_idx`: the inverse of its `point_to_vsm_point`.
 """
-function distribute_panel_forces_to_points!(wing, points::AbstractVector)
-    @assert(body_dynamics_type(wing) == PARTICLE_DYNAMICS,
-            "Can only distribute forces for PARTICLE_DYNAMICS wings")
-
-    sol = wing.vsm_solver.sol
-    panels = wing.vsm_aero.panels
-    panel_to_section = wing.vsm_wing.refined_panel_mapping
-    f_body = sol.f_body_3D
-    m_body = sol.m_body_3D
-
-    # Initialize all wing-node forces to zero
-    for point in points
-        if point.is_wing_node && point.wing_idx == wing.idx
-            point.aero_force .= 0.0
-        end
-    end
-
-    # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx
+function vsm_point_to_struct(mode, wing_idx)
     point_to_vsm_point =
-        wing.point_to_vsm_point::Union{Nothing,
-            Dict{Int64, Tuple{Int64, Symbol}}}
+        mode.point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     isnothing(point_to_vsm_point) && error(
-        "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping")
-    point_to_vsm_point =
-        point_to_vsm_point::Dict{Int64,
-            Tuple{Int64, Symbol}}
-    vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
-    for (point_idx, (section_idx, le_or_te)) in point_to_vsm_point
-        vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
-    end
+        "PARTICLE_DYNAMICS wing $wing_idx missing point_to_vsm_point mapping")
+    return Dict{Tuple{Int64, Symbol}, Int64}(
+        key => point_idx for (point_idx, key) in point_to_vsm_point)
+end
 
-    # Determine offset of this wing's panels in the solver arrays
-    start_idx = 1
-    if hasproperty(wing.vsm_solver, :body_aero)
-        for other_wing in wing.vsm_solver.body_aero.wings
-            other_wing === wing && break
-            start_idx += length(other_wing.vsm_aero.panels)
-        end
-    end
+"""
+    distribute_panel_forces_to_points!(mode, sam, wing_idx)
 
-    # For each refined panel, split force/moment to LE/TE of its parent section
-    R_b_to_w = wing.R_b_to_w
-    n_panels_wing = length(panels)
-    for local_panel_idx in 1:n_panels_wing
-        panel_idx = start_idx + local_panel_idx - 1
-        panel = panels[local_panel_idx]
-        scale = 1.0 + (isfinite(wing.aero_scale_chord) ? wing.aero_scale_chord : AERO_SCALE_CHORD)
-        panel_force = scale .* SVector{3}(f_body[:, panel_idx])
-        panel_moment = scale .* SVector{3}(m_body[:, panel_idx])
+Distribute the VSM forces of `PARTICLE_DYNAMICS` wing `wing_idx` of `sam` to its
+structural points' `aero_force`, from the refined panel forces of its solved aero
+`mode`. Each refined panel's body-frame force/moment is split into corner-node forces
+([`compute_aerostruc_loads`](@ref), moment-preserving about the chosen reference) and
+accumulated on the structural LE/TE points of its parent section, which
+`refined_panel_mapping` names (1:1); the wing's other nodes get none.
+"""
+function distribute_panel_forces_to_points!(mode, sam, wing_idx)
+    body_idx = wing_body(sam, wing_idx)
+    @assert(body_dynamics_type(sam, body_idx) == PARTICLE_DYNAMICS,
+            "Can only distribute forces for PARTICLE_DYNAMICS wings")
+    sol = mode.vsm_solver.sol
+    panels = mode.vsm_aero.panels
+    panel_to_section = mode.vsm_wing.refined_panel_mapping
+    to_struct = vsm_point_to_struct(mode, wing_idx)
+    R_b_to_w = body_rotation(sam, body_idx)
+    scale = 1.0 + (isfinite(mode.aero_scale_chord) ? mode.aero_scale_chord :
+                   AERO_SCALE_CHORD)
 
-        section_idx = panel_to_section[local_panel_idx]
-
-        le_key = (Int64(section_idx), :LE)
-        te_key = (Int64(section_idx), :TE)
-        haskey(vsm_point_to_struct, le_key) || continue
-        haskey(vsm_point_to_struct, te_key) || continue
-
+    forces = Dict(i => zero(SVec3) for i in wing_points(sam, wing_idx))
+    for (panel_idx, panel) in enumerate(panels)
+        section_idx = Int64(panel_to_section[panel_idx])
+        le_key, te_key = (section_idx, :LE), (section_idx, :TE)
+        (haskey(to_struct, le_key) && haskey(to_struct, te_key)) || continue
+        panel_force = scale .* SVector{3}(sol.f_body_3D[:, panel_idx])
+        panel_moment = scale .* SVector{3}(sol.m_body_3D[:, panel_idx])
         F_le_left, F_le_right, F_te_right, F_te_left, _ =
             compute_aerostruc_loads(panel, panel_force, panel_moment)
-        F_le = F_le_left + F_le_right
-        F_te = F_te_left + F_te_right
-
-        points[vsm_point_to_struct[le_key]].aero_force .+= R_b_to_w * F_le
-        points[vsm_point_to_struct[te_key]].aero_force .+= R_b_to_w * F_te
+        le_idx, te_idx = to_struct[le_key], to_struct[te_key]
+        forces[le_idx] = get(forces, le_idx, zero(SVec3)) +
+            R_b_to_w * (F_le_left + F_le_right)
+        forces[te_idx] = get(forces, te_idx, zero(SVec3)) +
+            R_b_to_w * (F_te_left + F_te_right)
     end
-
+    for (i, force) in forces
+        set_run_value!(sam, Val(:points), i, Val(:aero_force), force)
+    end
     return nothing
 end
 
 """
-    update_vsm_wing_from_structure!(wing, points::AbstractVector)
+    update_vsm_wing_from_structure!(mode, sam, wing_idx)
 
-Update VSM section points (LE/TE) directly from structural point positions, closing
-the two-way coupling structural deformation → VSM sections → aero forces.
-
-Each structural wing node maps 1:1 onto a VSM section point through
-`wing.point_to_vsm_point`, and writes it its body-frame position
-`pos_b = R_b_to_w' * (pos_w - origin)`.
-
-# Notes
-- Section points are stored in body frame coordinates
-- `wing.R_b_to_w` and `wing.pos_w` are updated each timestep from structural geometry (symbolic equations)
-- To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
-
-# Arguments
-- `wing::BodyState`: Wing with PARTICLE_DYNAMICS type
-- `points::AbstractVector`: All structural points (filtered to this wing's nodes)
+Update the VSM section points (LE/TE) of the aero `mode` of `PARTICLE_DYNAMICS` wing
+`wing_idx` of `sam` from the positions of its structural points, closing the two-way
+coupling structural deformation → VSM sections → aero forces. Each structural wing node
+maps 1:1 onto a VSM section point through the engine's `point_to_vsm_point`, and writes
+it its position in the wing's body frame, `R_b_to_w' * (pos_w - origin)`.
 """
-function update_vsm_wing_from_structure!(wing, points::AbstractVector)
-    @assert(body_dynamics_type(wing) == PARTICLE_DYNAMICS,
+function update_vsm_wing_from_structure!(mode, sam, wing_idx)
+    body_idx = wing_body(sam, wing_idx)
+    @assert(body_dynamics_type(sam, body_idx) == PARTICLE_DYNAMICS,
             "Can only update wing geometry for PARTICLE_DYNAMICS wings")
-
-    # R_b_to_w and origin are updated during simulation from structural geometry.
-    R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    origin = SVector(wing.pos_w)
-
-    # Update each VSM section point directly from its corresponding structural point
     point_to_vsm_point =
-        wing.point_to_vsm_point::Union{Nothing,
-            Dict{Int64, Tuple{Int64, Symbol}}}
+        mode.point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     isnothing(point_to_vsm_point) && error(
-        "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping")
-    point_to_vsm_point =
-        point_to_vsm_point::Dict{Int64,
-            Tuple{Int64, Symbol}}
+        "PARTICLE_DYNAMICS wing $wing_idx missing point_to_vsm_point mapping")
     for (point_idx, (section_idx, le_or_te)) in point_to_vsm_point
-        point = points[point_idx]
-
-        # Calculate current position in body frame
-        pos_b = R_b_to_w' * (point.pos_w - origin)
-
-        # Get the section
-        section = wing.vsm_wing.unrefined_sections[section_idx]
-
-        # Set section point directly to body frame position
-        if le_or_te == :LE
-            section.LE_point .= pos_b
-        else  # :TE
-            section.TE_point .= pos_b
-        end
+        pos_b = point_position_b(sam, body_idx, point_idx)
+        section = mode.vsm_wing.unrefined_sections[section_idx]
+        le_or_te == :LE ? (section.LE_point .= pos_b) : (section.TE_point .= pos_b)
     end
-
-    check_span_order(wing)
-    refine!(wing.vsm_wing; recompute_mapping=false, sort_sections=false)
-    VortexStepMethod.reinit!(wing.vsm_aero)
-    # Do NOT reinit! the wing; body_aero reinit! updates panels in refresh_aero!.
+    check_span_order(mode, sam, wing_idx)
+    refine!(mode.vsm_wing; recompute_mapping=false, sort_sections=false)
+    VortexStepMethod.reinit!(mode.vsm_aero)
     return nothing
 end
 
 """
-    compute_station_geometry!(wing, stations, points)
+    compute_station_geometry!(sam, wing_idx)
 
-For each of `wing`'s stations with an unset chord, derive its leading-edge
-position, chord vector, and spanwise airfoil axis from the nearest VSM refined
-section (body frame). Fills the chord for any station left unset.
+For each station of wing `wing_idx` of `sam` whose row gives no chord, take its leading edge
+from the body origin, chord vector and spanwise axis from the nearest VSM refined
+section, body frame, into the wing's engine (`station_le_b`, `station_chord`,
+`station_y_airf`); zero for the others.
 """
-function compute_station_geometry!(wing, stations, points)
-    for station_idx in wing.station_idxs
-        station = stations[station_idx]
-        iszero(station.chord) || continue
-        center = zeros(3)
-        for pt_idx in station.points
-            center .+= initial_body_position(wing, points[pt_idx])
-        end
-        center ./= length(station.points)
-
-        sections = wing.vsm_wing.refined_sections
-        n_sec = length(sections)
-        offset_vec = [0.0, 0.0, wing.aero_z_offset]
-        ksec = argmin([
-            norm(center -
-                ((Vector(section.LE_point) +
-                  Vector(section.TE_point)) / 2 .- offset_vec))
-            for section in sections])
+function compute_station_geometry!(sam, wing_idx)
+    engine = sam.aero[wing_idx].engine
+    station_idxs = wing_station_idxs(sam, wing_idx)
+    engine.station_le_b = [zero(KVec3) for _ in station_idxs]
+    engine.station_chord = [zero(KVec3) for _ in station_idxs]
+    engine.station_y_airf = [zero(KVec3) for _ in station_idxs]
+    sections = engine.vsm_wing.refined_sections
+    n_sec = length(sections)
+    offset_vec = [0.0, 0.0, engine.aero_z_offset]
+    for (k, station_idx) in enumerate(station_idxs)
+        isnothing(sam.definition.spanwise_stations[station_idx].chord) || continue
+        center = station_center_b(sam, wing_idx, station_idx)
+        ksec = argmin([norm(center - ((Vector(section.LE_point) +
+                                       Vector(section.TE_point)) / 2 .- offset_vec))
+                       for section in sections])
         le_sec = Vector(sections[ksec].LE_point)
         te_sec = Vector(sections[ksec].TE_point)
         span_dir = zeros(3)
-        ksec > 1 && (span_dir += normalize(
-            Vector(sections[ksec - 1].LE_point) - le_sec))
-        ksec < n_sec && (span_dir += normalize(
-            le_sec - Vector(sections[ksec + 1].LE_point)))
-
-        station.le_pos .= le_sec - wing.com_offset_b
-        station.chord .= te_sec - le_sec
-        station.y_airf .= normalize(span_dir)
+        ksec > 1 && (span_dir += normalize(Vector(sections[ksec - 1].LE_point) - le_sec))
+        ksec < n_sec &&
+            (span_dir += normalize(le_sec - Vector(sections[ksec + 1].LE_point)))
+        engine.station_le_b[k] .= le_sec
+        engine.station_chord[k] .= te_sec - le_sec
+        engine.station_y_airf[k] .= normalize(span_dir)
     end
     return nothing
 end
 
 """
-    setup_particle_point_mapping!(wing, points, stations)
+    setup_particle_point_mapping!(mode, sam, wing_idx)
 
-For a VSM `PARTICLE_DYNAMICS` `wing`, build the structural↔panel point mapping and
-LE/TE `wing_segments` if not already set. Errors if the required body-frame
-`z_ref_points`/`y_ref_points` are missing.
+Build the structural↔panel point mapping and LE/TE `wing_segments` of the VSM aero
+`mode` of `PARTICLE_DYNAMICS` wing `wing_idx` of `sam` where not already set. Errors if
+the wing's frame reference points are missing.
 """
-function setup_particle_point_mapping!(wing, points, stations)
-    wing_point_idxs = findall(
-        point -> point.is_wing_node && point.wing_idx == wing.idx, points)
-    wing_pts = [points[idx] for idx in wing_point_idxs]
-    if isnothing(wing.wing_segments)
-        wing.wing_segments = identify_wing_segments(wing, wing_pts;
-            stations=stations,
-            wing_station_idxs=wing.station_idxs)
-    end
-    if isnothing(wing.point_to_vsm_point)
-        wing.point_to_vsm_point =
-            build_point_to_vsm_point_mapping(wing.wing_segments)
-    end
-    isnothing(wing.wing_frame) && error("PARTICLE_DYNAMICS wing '$(wing.name)': " *
-        "z_ref_points and y_ref_points must be specified")
+function setup_particle_point_mapping!(mode, sam, wing_idx)
+    isnothing(mode.wing_segments) &&
+        (mode.wing_segments = identify_wing_segments(sam, wing_idx))
+    isnothing(mode.point_to_vsm_point) &&
+        (mode.point_to_vsm_point = build_point_to_vsm_point_mapping(mode.wing_segments))
+    isnothing(wing_frame(sam, wing_idx)) && error("PARTICLE_DYNAMICS wing " *
+        "'$(sam.definition.wings[wing_idx].name)': z_ref_points and y_ref_points must " *
+        "be specified")
     return nothing
 end

@@ -14,72 +14,45 @@ function segment_initial_length(segment, points)
     return norm(point1.pos_ENU - point2.pos_ENU)
 end
 
-"""
-    segment_world_length(segment, points)
-
-Compute segment length from endpoint `pos_w` positions.
-"""
-function segment_world_length(segment, points)
-    point1 = points[segment.points[1]]
-    point2 = points[segment.points[2]]
-    return norm(point1.pos_w - point2.pos_w)
-end
-
-
-
-
 # ==================== VALIDATION ==================== #
 
 """
-    validate_sys_struct(sys_struct::SystemDefinition)
+    validate_run(sam)
 
-Error on values that break a run and warn on suspicious ones: NaN or non-positive point and
-wing mass, wing and winch inertia, NaN positions, rigid wings without stations, non-positive
-`drum_radius` or `gear_ratio`, segment `diameter` outside (0, 1) m, non-positive
-`rest_length` or stiffness, negative damping, zero pulley `sum_len`, unequal station
-`moment_frac`.
+Error on values of the run `sam` that break it and warn on suspicious ones: NaN or
+non-positive point and wing mass, wing and winch inertia, NaN positions, rigid wings
+without stations, non-positive `drum_radius` or `gear_ratio`, segment `diameter` outside
+(0, 1) m, non-positive `rest_length` or stiffness, negative damping, zero pulley
+`sum_len`, unequal station `moment_frac`.
 """
-function validate_sys_struct(sys_struct)
-    (; points, segments, pulleys, wings, winches) = sys_struct
-    stations = sys_struct.spanwise_stations
+function validate_run(sam)
+    sys = sam.definition
+    value(collection, i, quantity) = run_value(sam, Val(collection), i, Val(quantity))
 
-    # ==================== POINT VALIDATIONS ==================== #
-    for point in points
-        # Check for NaN extra_mass
-        if isnan(point.extra_mass)
-            error("Point $(point.name) has NaN extra_mass")
-        end
-
-        # Warn about negative extra_mass (physically nonsensical but still works)
-        if point.extra_mass < 0
-            @warn "Point $(point.name) has negative extra_mass $(point.extra_mass) kg. " *
-                  "This is physically nonsensical."
-        end
-
+    for (i, point) in enumerate(sys.points)
+        extra_mass = value(:points, i, :extra_mass)
+        isnan(extra_mass) && error("Point $(point.name) has NaN extra_mass")
+        extra_mass < 0 && @warn "Point $(point.name) has negative extra_mass " *
+            "$extra_mass kg. This is physically nonsensical."
         # Check mass before NaN position: NaN pos is often caused by zero mass.
-        if point_type(point) == DYNAMIC && point.total_mass <= 0
-            error("Point $(point.name) has non-positive total_mass ($(point.total_mass)). " *
+        total_mass = point_total_mass(sam, i)
+        if point_type(point) == DYNAMIC && total_mass <= 0
+            error("Point $(point.name) has non-positive total_mass ($total_mass). " *
                   "This will cause division by zero in acceleration calculations.")
         end
-
-        # Check for NaN position (often a symptom of zero mass)
-        if any(isnan.(point.pos_w))
-            error("Point $(point.name) has NaN position: pos_w = $(point.pos_w)")
-        end
+        pos_w = value(:points, i, :pos_w)
+        any(isnan, pos_w) && error("Point $(point.name) has NaN position: pos_w = $pos_w")
     end
 
-    # ==================== WING VALIDATIONS ==================== #
-    for wing in wings
-        # Check mass/inertia before NaN position: NaN pos is often caused by zero mass.
-        if wing.total_mass <= 0
-            error("Wing $(wing.name) has non-positive total_mass ($(wing.total_mass)). " *
+    for (w, wing) in enumerate(sys.wings)
+        b = wing_body(sam, w)
+        mass = body_mass_properties(sam, b)
+        if mass.total_mass <= 0
+            error("Wing $(wing.name) has non-positive total_mass ($(mass.total_mass)). " *
                   "This will cause division by zero in acceleration calculations.")
         end
-
-        if body_dynamics_type(wing) == RIGID_DYNAMICS
-            I_b = wing.inertia_principal
-
-            # Check for zero or suspiciously small inertia (before NaN checks)
+        if body_dynamics_type(sam, b) == RIGID_DYNAMICS
+            I_b = mass.inertia_principal
             for i in 1:3
                 if I_b[i] ≈ 0.0
                     error("Wing $(wing.name) has zero inertia component " *
@@ -90,144 +63,111 @@ function validate_sys_struct(sys_struct)
                           "I_b[$i] = $(I_b[i]) kg⋅m², may cause numerical issues"
                 end
             end
-
-            # Check for NaN inertia
-            if any(isnan.(I_b))
-                error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
-            end
-
+            any(isnan, I_b) && error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             # AeroNone does not couple to sections, so missing stations is fine.
-            if isempty(wing.station_idxs) &&
-               couples_to_sections(wing.aero)
-                @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
-                    " has no stations"
-            end
+            isempty(wing_station_idxs(sam, w)) && couples_to_sections(sam.aero[w]) &&
+                @warn "Wing $(wing.name) (RIGID_DYNAMICS) has no stations"
         end
-
-        # Check for NaN position (often a symptom of zero mass/inertia)
-        if any(isnan.(wing.pos_w))
-            error("Wing $(wing.name) has NaN position: pos_w = $(wing.pos_w)")
-        end
+        pos_w = value(:bodies, b, :pos_w)
+        any(isnan, pos_w) && error("Wing $(wing.name) has NaN position: pos_w = $pos_w")
     end
 
-    # ==================== WINCH VALIDATIONS ==================== #
-    for winch in winches
-        # Check for NaN inertia
-        if isnan(winch.inertia_total)
-            error("Winch $(winch.name) has NaN inertia_total")
-        end
-
-        # Check for zero or negative inertia
-        if winch.inertia_total ≈ 0.0
+    for (i, winch) in enumerate(sys.winches)
+        inertia_total = value(:winches, i, :inertia_total)
+        isnan(inertia_total) && error("Winch $(winch.name) has NaN inertia_total")
+        if inertia_total ≈ 0.0
             error("Winch $(winch.name) has zero inertia_total. " *
                   "All winches must have non-zero inertia.")
-        elseif winch.inertia_total < 0
+        elseif inertia_total < 0
             error("Winch $(winch.name) has negative inertia_total " *
-                  "$(winch.inertia_total) kg⋅m². Inertia must be positive.")
-        elseif winch.inertia_total < 1e-6
+                  "$inertia_total kg⋅m². Inertia must be positive.")
+        elseif inertia_total < 1e-6
             @warn "Winch $(winch.name) has very small inertia_total " *
-                  "$(winch.inertia_total) kg⋅m², may cause numerical issues"
+                  "$inertia_total kg⋅m², may cause numerical issues"
         end
-
-        # Check for non-positive drum_radius
-        if winch.drum_radius <= 0
-            error("Winch $(winch.name) has non-positive drum_radius ($(winch.drum_radius)). " *
-                  "This will cause division by zero in torque conversions.")
-        end
-
-        # Check for non-positive gear_ratio
-        if winch.gear_ratio <= 0
-            error("Winch $(winch.name) has non-positive gear_ratio ($(winch.gear_ratio)). " *
-                  "This will cause division by zero in speed/torque calculations.")
-        end
+        drum_radius = value(:winches, i, :drum_radius)
+        drum_radius <= 0 && error("Winch $(winch.name) has non-positive drum_radius " *
+            "($drum_radius). This will cause division by zero in torque conversions.")
+        gear_ratio = value(:winches, i, :gear_ratio)
+        gear_ratio <= 0 && error("Winch $(winch.name) has non-positive gear_ratio " *
+            "($gear_ratio). This will cause division by zero in speed/torque " *
+            "calculations.")
     end
 
-    # ==================== SEGMENT VALIDATIONS ==================== #
-    for segment in segments
+    for (i, segment) in enumerate(sys.segments)
         # Wing structural segments don't use diameter (stiffness explicit, drag from VSM)
-        wing_structural = all(points[i].is_wing_node for i in segment.points)
-        if !wing_structural && !(0 < segment.diameter < 1)
-            @warn "Segment $(segment.name) has unusual diameter " *
-                  "$(segment.diameter) m (expected range: 0 to 1 m)"
+        diameter = value(:segments, i, :diameter)
+        if !wing_structural_segment(sys, i) && !(0 < diameter < 1)
+            @warn "Segment $(segment.name) has unusual diameter $diameter m " *
+                  "(expected range: 0 to 1 m)"
         end
-
-        # Rest length must be positive
-        if segment.rest_length <= 0
-            error("Segment $(segment.name) has non-positive rest length " *
-                  "rest_length = $(segment.rest_length) m. This will cause division " *
-                  "by zero.")
-        end
-
-        # Warn about zero or negative stiffness/damping (callable laws self-validate).
-        if segment.unit_stiffness isa Real
-            if segment.unit_stiffness ≈ 0.0
+        rest_length = value(:segments, i, :rest_length)
+        rest_length <= 0 && error("Segment $(segment.name) has non-positive rest " *
+            "length rest_length = $rest_length m. This will cause division by zero.")
+        # Callable laws self-validate.
+        stiffness = value(:segments, i, :unit_stiffness)
+        if stiffness isa Real
+            if stiffness ≈ 0.0
                 @warn "Segment $(segment.name) has zero stiffness"
-            elseif segment.unit_stiffness < 0
-                @warn "Segment $(segment.name) has negative stiffness " *
-                      "$(segment.unit_stiffness) N"
+            elseif stiffness < 0
+                @warn "Segment $(segment.name) has negative stiffness $stiffness N"
             end
         end
-
-        if segment.unit_damping < 0
-            @warn "Segment $(segment.name) has negative damping " *
-                  "$(segment.unit_damping) N⋅s"
-        end
+        unit_damping = value(:segments, i, :unit_damping)
+        unit_damping < 0 && @warn "Segment $(segment.name) has negative damping " *
+            "$unit_damping N⋅s"
     end
 
-    # ==================== PULLEY VALIDATIONS ==================== #
-    for pulley in pulleys
-        if pulley.sum_len ≈ 0
-            error("Pulley $(pulley.name) has zero total length constraint " *
-                  "(sum_len = $(pulley.sum_len) m). " *
-                  "Pulley constraints must have non-zero total length.")
-        end
+    for (i, pulley) in enumerate(sys.pulleys)
+        sum_len = pulley_sum_len(sam, i)
+        sum_len ≈ 0 && error("Pulley $(pulley.name) has zero total length constraint " *
+            "(sum_len = $sum_len m). Pulley constraints must have non-zero total length.")
     end
 
-    # ==================== STATION VALIDATIONS ==================== #
+    stations = sys.spanwise_stations
     if length(stations) > 0
-        first_moment_frac = stations[1].moment_frac
-        for station in stations
-            if !(station.moment_frac ≈ first_moment_frac)
-                error("Station $(station.name) has moment_frac = " *
-                      "$(station.moment_frac), but all stations must have the " *
-                      "same moment_frac (first station has $(first_moment_frac))")
-            end
+        first_moment_frac = value(:spanwise_stations, 1, :moment_frac)
+        for (s, station) in enumerate(stations)
+            moment_frac = value(:spanwise_stations, s, :moment_frac)
+            moment_frac ≈ first_moment_frac || error("Station $(station.name) has " *
+                "moment_frac = $moment_frac, but all stations must have the same " *
+                "moment_frac (first station has $first_moment_frac)")
         end
     end
-
     return nothing
 end
 
 """
-    set_unstretched_length!(sys_struct::SystemState, tether, len)
+    set_unstretched_length!(sam, tether, len)
 
-Set `tether`'s unstretched length [m] and share it equally over its segments'
-`rest_length`. Point positions, body poses, tube rest geometry and station flap
-references are left as they are.
+Set the unstretched length [m] of tether `tether` of the run `sam`, an index or a name,
+which its segments share equally as their rest length. Point positions, body poses and
+rest geometry are left as they are.
 """
-function set_unstretched_length!(sys_struct::SystemState, tether, len)
-    len > 0 || error("Tether $(tether.name): unstretched length $len m " *
-        "must be positive")
-    isempty(tether.segments) && error("Tether $(tether.name): " *
-        "has no segments to carry an unstretched length")
-    tether.len = len
+function set_unstretched_length!(sam, tether, len)
+    i = item_index(sam, :tethers, tether)
+    name = sam.definition.tethers[i].name
+    len > 0 || error("Tether $name: unstretched length $len m must be positive")
+    isempty(sam.definition.tethers[i].segments) &&
+        error("Tether $name: has no segments to carry an unstretched length")
+    set_run_value!(sam, :tethers, i, :len, len)
     return nothing
 end
 
 """
-    seed_per_point_wind!(state::SystemState)
+    seed_per_point_wind!(sam)
 
-Give every point and every wing the ground wind `set.wind_vec` as its own wind, so a
-[`PerPointWind`](@ref) model that is never written to flies in the uniform wind the
-settings describe. Called from [`init_wind!`](@ref); from then on these winds belong to the
-caller, who writes them between steps.
+Give every point and every body of the run `sam` the ground wind `set.wind_vec` as its
+own wind, so a [`PerPointWind`](@ref) model that is never written to flies in the uniform
+wind the settings describe. Called from [`init_wind!`](@ref); from then on these winds
+belong to the caller, who writes them between steps.
 """
-function seed_per_point_wind!(state)
-    for point in state.points
-        point.wind_vec .= state.set.wind_vec
+function seed_per_point_wind!(sam)
+    for i in eachindex(sam.definition.points)
+        set_run_value!(sam, :points, i, :wind_vec, sam.set.wind_vec)
     end
-    for wing in state.wings
-        wing.wind_vec .= state.set.wind_vec
+    for w in eachindex(sam.definition.wings)
+        set_run_value!(sam, :bodies, wing_body(sam, w), :wind_vec, sam.set.wind_vec)
     end
     return nothing
 end
@@ -235,221 +175,198 @@ end
 # ==================== PLACEMENT ==================== #
 
 """
-    reset_to_initial_pose!(state::SystemState; reset_vel=true)
+    reset_to_initial_pose!(sam; reset_vel=true)
 
-Put every point and body back at its initial pose (`pos_ENU`, `origin_ENU`,
-`Q_KA2ENU`), zero the twist of every non-`STATIC` station and set every winch's
-reel-out speed to `init_vel`. `reset_vel` zeroes point and body velocities as well.
+Put every point and body of the run `sam` back at its initial pose (`pos_ENU`,
+`origin_ENU`, `Q_KA2ENU`), zero the twist of every non-`STATIC` station and set every
+winch's reel-out speed to `init_vel`. `reset_vel` zeroes point and body velocities as
+well.
 """
-function reset_to_initial_pose!(state::SystemState; reset_vel::Bool=true)
-    for winch in state.winches
-        winch.vel = winch.init_vel
+function reset_to_initial_pose!(sam; reset_vel::Bool=true)
+    sys = sam.definition
+    for (i, winch) in enumerate(sys.winches)
+        set_run_value!(sam, :winches, i, :vel, something(winch.init_vel, 0.0))
     end
-    for point in state.points
-        point.pos_w .= point.pos_ENU
-        reset_vel && (point.vel_w .= 0.0)
+    for (i, point) in enumerate(sys.points)
+        set_run_value!(sam, :points, i, :pos_w, point.pos_ENU)
+        reset_vel && set_run_value!(sam, :points, i, :vel_w, zero(SVec3))
     end
-    for body in state.bodies
-        body.pos_w .= origin_ENU(body)
-        body.Q_b_to_w .= body.Q_KA2ENU
-        reset_vel && (body.vel_w .= 0.0; body.ω_b .= 0.0)
-    end
-    for station in state.spanwise_stations
-        station_type(station) == STATIC && continue
-        station.twist = 0.0
-        station.twist_ω = 0.0
-    end
-    return nothing
-end
-
-"""
-    remake_wing_aero!(state::SystemState, set::Settings)
-
-Rebuild every wing's aero engine from `set` and the structure's `vsm_set`, e.g.
-after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
-"""
-function remake_wing_aero!(state, set::Settings)
-    for wing in state.wings
-        remake_aero!(wing.aero, wing, set, state.vsm_set, state)
-    end
-    return nothing
-end
-
-"""
-    init_wind!(state::SystemState, set::Settings)
-
-Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, or
-seed every point and wing with it under [`PerPointWind`](@ref), and initialise each
-wing's aerodynamic operating point from that wind.
-"""
-function init_wind!(state, set::Settings)
-    (; wings) = state
-    if per_point_wind(state)
-        seed_per_point_wind!(state)
-    else
-        wind_factor = WindFactor(state.am, set.profile_law)
-        for wing in wings
-            wing.wind_vec .= wind_factor(wing.pos_w[3]) * set.wind_vec
+    for (b, body) in enumerate(sys.bodies)
+        set_run_value!(sam, :bodies, b, :pos_w, origin_ENU(sam, b))
+        set_run_value!(sam, :bodies, b, :Q_b_to_w, body.Q_KA2ENU)
+        if reset_vel
+            set_run_value!(sam, :bodies, b, :vel_w, zero(SVec3))
+            set_run_value!(sam, :bodies, b, :ω_b, zero(SVec3))
         end
     end
-    for wing in wings
-        body_dynamics_type(wing) == PARTICLE_DYNAMICS && continue
-        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        init_aero_state!(wing.aero, wing, R_b_to_w' *
-            (per_point_wind(state) ? wing.wind_vec : set.wind_vec))
+    for (s, station) in enumerate(sys.spanwise_stations)
+        station_type(station) == STATIC && continue
+        set_run_value!(sam, :spanwise_stations, s, :twist, 0.0)
+        set_run_value!(sam, :spanwise_stations, s, :twist_ω, 0.0)
     end
     return nothing
 end
 
 """
-    init_sys_struct!(state::SystemState, set::Settings; remake_vsm=false, prn=true)
+    remake_wing_aero!(sam)
 
-Bring a placed structure to the start of a run: derive its mass properties and rest
-geometry ([`init_derived_properties!`](@ref)), rebuild every wing's aero engine when
-`remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating point
-([`init_wind!`](@ref)). [`init!`](@ref) runs it.
+Rebuild every wing's aero engine of the run `sam` from its settings and its `vsm_set`,
+e.g. after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
 """
-function init_sys_struct!(state, set::Settings;
-                          remake_vsm::Bool=false, prn::Bool=true)
-    init_derived_properties!(state; prn)
-    remake_vsm && remake_wing_aero!(state, set)
-    init_wind!(state, set)
+function remake_wing_aero!(sam)
+    for (w, mode) in enumerate(sam.aero)
+        remake_aero!(mode, sam, w)
+    end
     return nothing
 end
 
 """
-    init_rest_geometry!(sys_struct::SystemDefinition)
+    init_wind!(sam)
 
-Capture every tube's rest configuration and every flap station's rest deflection
-from the initial pose, so the structure is unstrained there.
+Set each wing's wind of the run `sam` from the ground wind `set.wind_vec` at the wing's
+height, or seed every point and wing with it under [`PerPointWind`](@ref), and
+initialise each wing's aerodynamic operating point from that wind.
 """
-function init_rest_geometry!(sys_struct)
-    init_tube_rest!.(sys_struct.tubes, Ref(sys_struct.bodies))
-    init_station_flap!.(sys_struct.spanwise_stations, Ref(sys_struct))
+function init_wind!(sam)
+    set = sam.set
+    if per_point_wind(sam)
+        seed_per_point_wind!(sam)
+    else
+        wind_factor = WindFactor(sam.am, set.profile_law)
+        for w in eachindex(sam.definition.wings)
+            b = wing_body(sam, w)
+            height = run_value(sam, :bodies, b, :pos_w)[3]
+            set_run_value!(sam, :bodies, b, :wind_vec, wind_factor(height) * set.wind_vec)
+        end
+    end
+    for (w, mode) in enumerate(sam.aero)
+        b = wing_body(sam, w)
+        body_dynamics_type(sam, b) == PARTICLE_DYNAMICS && continue
+        wind = per_point_wind(sam) ? run_value(sam, :bodies, b, :wind_vec) : set.wind_vec
+        init_aero_state!(mode, sam, w, body_rotation(sam, b)' * wind)
+    end
     return nothing
 end
 
 """
-    init_derived_properties!(sys_struct::SystemDefinition; prn=true)
+    start_lengths!(sam)
 
-Derive from the initial pose every body's mass properties
-([`update_mass_properties!`](@ref)) and the rest geometry of its tubes and flap
-stations ([`init_rest_geometry!`](@ref)).
+Start each tether of the run `sam` at its segments' rest lengths, and each pulley's rope
+split as its two segments' rest lengths give it, at rest.
 """
-function init_derived_properties!(sys_struct; prn::Bool=true)
-    update_mass_properties!(sys_struct; prn)
-    init_rest_geometry!(sys_struct)
-    return nothing
-end
-
-"""
-    start_lengths!(state)
-
-Start each tether of `state` at its segments' rest lengths, and each pulley's rope split
-as its two segments' rest lengths give it, at rest.
-"""
-function start_lengths!(state)
-    rest_length(idx) = something(state.structure.segments[idx].rest_length, 0.0)
-    for tether in state.tethers
-        tether.len = sum(rest_length, tether.segments; init=0.0)
+function start_lengths!(sam)
+    sys = sam.definition
+    rest_length(k) = something(sys.segments[k].rest_length, 0.0)
+    for (i, tether) in enumerate(sys.tethers)
+        set_run_value!(sam, :tethers, i, :len, sum(rest_length, tether.segments; init=0.0))
     end
-    for pulley in state.pulleys
-        pulley.len = rest_length(pulley.segments[1])
-        pulley.vel = 0.0
+    for (i, pulley) in enumerate(sys.pulleys)
+        set_run_value!(sam, :pulleys, i, :len, rest_length(pulley.segments[1]))
+        set_run_value!(sam, :pulleys, i, :vel, 0.0)
     end
-    return state
+    return sam
 end
 
 """
-    start_run!(state::SystemState; reset_vel=true)
+    start_run!(sam; reset_vel=true)
 
-Put `state` at the start of a run from the pose its structure is placed in: every
-point and body at its initial pose ([`reset_to_initial_pose!`](@ref)), the twist of a
-`STATIC` station, masses, segment, tether and pulley lengths from its segments' rest
-lengths, and
-points and bodies moving as the rates of its transforms say
-([`set_transform_velocities!`](@ref)). `reset_vel=false` keeps the velocities `state`
-holds.
+Put the run `sam` at its start from the pose its definition is placed in: every point
+and body at its initial pose ([`reset_to_initial_pose!`](@ref)), the twist of a `STATIC`
+station, tether and pulley lengths from its segments' rest lengths, and points and bodies
+moving as the rates of its transforms say ([`set_transform_velocities!`](@ref)).
+`reset_vel=false` keeps the velocities the run holds.
 """
-function start_run!(state; reset_vel::Bool=true)
-    foreach(station -> station.twist = something(station.row.twist, 0.0),
-            state.spanwise_stations)
-    reset_to_initial_pose!(state; reset_vel)
-    start_lengths!(state)
-    fit_body_frames!(state.points, state.bodies)
-    reset_vel && set_transform_velocities!(state, state.transforms)
-    return state
-end
-
-"""
-    Pose(state::SystemState)
-
-The KiteGeometry `Pose` `state` stands in: the position of each point, and the origin
-and frame of each body.
-"""
-KiteGeometry.Pose(state::SystemState) =
-    Pose([SVector{3, Float64}(point.pos_w) for point in state.points],
-         [SVector{3, Float64}(body.pos_w) for body in state.bodies],
-         [SMatrix{3, 3, Float64}(body.R_b_to_w) for body in state.bodies])
-
-"""Put the points and bodies of `state` where `pose` has them."""
-function set_pose!(state::SystemState, pose)
-    foreach((point, pos) -> point.pos_w .= pos, state.points, pose.pos)
-    for (body, pos, R) in zip(state.bodies, pose.body_pos, pose.body_R)
-        body.pos_w .= pos
-        body.R_b_to_w = R
+function start_run!(sam; reset_vel::Bool=true)
+    for (s, station) in enumerate(sam.definition.spanwise_stations)
+        set_run_value!(sam, :spanwise_stations, s, :twist, something(station.twist, 0.0))
     end
-    return state
+    reset_to_initial_pose!(sam; reset_vel)
+    start_lengths!(sam)
+    fit_body_frames!(sam)
+    reset_vel && set_transform_velocities!(sam, sam.transforms)
+    return sam
 end
 
 """
-    reposition!(state::SystemState, transforms=state.transforms; update_vel=false)
+    Pose(sam::SymbolicAWEModel)
 
-Turn the points and bodies of a running `state` to the current elevation, azimuth and
+The KiteGeometry `Pose` the run `sam` stands in: the position of each point, and the
+origin and frame of each body.
+"""
+function KiteGeometry.Pose(sam::SymbolicAWEModel)
+    sys = sam.definition
+    return Pose([SVec3(run_value(sam, :points, i, :pos_w)) for i in eachindex(sys.points)],
+                [SVec3(run_value(sam, :bodies, b, :pos_w)) for b in eachindex(sys.bodies)],
+                [SMatrix{3, 3, Float64}(body_rotation(sam, b))
+                 for b in eachindex(sys.bodies)])
+end
+
+"""Put the points and bodies of the run `sam` where `pose` has them."""
+function set_pose!(sam, pose)
+    for (i, pos) in enumerate(pose.pos)
+        set_run_value!(sam, :points, i, :pos_w, pos)
+    end
+    for (b, (pos, R)) in enumerate(zip(pose.body_pos, pose.body_R))
+        set_run_value!(sam, :bodies, b, :pos_w, pos)
+        set_run_value!(sam, :bodies, b, :Q_b_to_w, rotation_matrix_to_quaternion(R))
+    end
+    return sam
+end
+
+"""
+    reposition!(sam::SymbolicAWEModel, transforms=sam.transforms; update_vel=false)
+
+Turn the points and bodies of the running `sam` to the current elevation, azimuth and
 heading of each of `transforms` about its base where it stands, with KiteGeometry's
 `reposition!`, keeping their velocities. `update_vel` sets them to the transforms' rates
 instead ([`set_transform_velocities!`](@ref)).
 """
-function KiteGeometry.reposition!(state::SystemState, transforms=state.transforms;
+function KiteGeometry.reposition!(sam::SymbolicAWEModel, transforms=sam.transforms;
                                   update_vel::Bool=false)
-    fit_body_frames!(state.points, state.bodies)
-    set_pose!(state, reposition!(Pose(state), transforms))
-    update_vel && set_transform_velocities!(state, transforms)
-    fit_body_frames!(state.points, state.bodies)
-    return state
+    fit_body_frames!(sam)
+    set_pose!(sam, reposition!(Pose(sam), transforms))
+    update_vel && set_transform_velocities!(sam, transforms)
+    fit_body_frames!(sam)
+    return sam
 end
 
 """
-    set_transform_velocities!(state::SystemState, transforms)
+    set_transform_velocities!(sam, transforms)
 
-Set every point and body of `state` to the velocity KiteGeometry's
+Set every point and body of the run `sam` to the velocity KiteGeometry's
 `transform_velocities` gives it, zero for one no transform moves; a `RIGID_DYNAMICS`
 body takes the matching `ω_b` as well.
 """
-function set_transform_velocities!(state::SystemState, transforms)
-    point_vel, body_vel, body_spin = transform_velocities(Pose(state), transforms)
-    foreach((point, vel) -> point.vel_w .= vel, state.points, point_vel)
-    for (body, vel, spin) in zip(state.bodies, body_vel, body_spin)
-        body.vel_w .= vel
-        body.ω_b .= body_dynamics_type(body) == RIGID_DYNAMICS ?
-            body.R_b_to_w' * spin : 0.0
+function set_transform_velocities!(sam, transforms)
+    point_vel, body_vel, body_spin = transform_velocities(Pose(sam), transforms)
+    for (i, vel) in enumerate(point_vel)
+        set_run_value!(sam, :points, i, :vel_w, vel)
     end
-    return state
+    for (b, (vel, spin)) in enumerate(zip(body_vel, body_spin))
+        set_run_value!(sam, :bodies, b, :vel_w, vel)
+        ω_b = body_dynamics_type(sam, b) == RIGID_DYNAMICS ?
+            body_rotation(sam, b)' * spin : zero(SVec3)
+        set_run_value!(sam, :bodies, b, :ω_b, ω_b)
+    end
+    return sam
 end
 
 """
-    fit_body_frames!(points, bodies)
+    fit_body_frames!(sam)
 
-Fit each `PARTICLE_DYNAMICS` body's frame and origin to its reference points.
+Fit the frame and origin of the body of each `PARTICLE_DYNAMICS` wing of the run `sam`
+to its reference points.
 """
-function fit_body_frames!(points, bodies)
-    for body in bodies
-        body_dynamics_type(body) == PARTICLE_DYNAMICS || continue
-        isnothing(body.wing_frame) && continue
-        R_b_to_w, origin = calc_particle_dynamics_wing_frame(points, body.wing_frame)
-        body.R_b_to_w = R_b_to_w
-        body.pos_w .= origin
+function fit_body_frames!(sam)
+    for w in eachindex(sam.definition.wings)
+        b = wing_body(sam, w)
+        frame = wing_frame(sam, w)
+        (body_dynamics_type(sam, b) == PARTICLE_DYNAMICS && !isnothing(frame)) || continue
+        R_b_to_w, origin = KiteGeometry.wing_frame(run_positions(sam), frame)
+        set_run_value!(sam, :bodies, b, :Q_b_to_w, rotation_matrix_to_quaternion(R_b_to_w))
+        set_run_value!(sam, :bodies, b, :pos_w, origin)
     end
+    return sam
 end
 
 """
@@ -467,11 +384,11 @@ end
 
 # ==================== SYSSTATE INTEROP ==================== #
 
-"""Put the world-frame aero force of each point back from `sys_state`; a log without
-those channels leaves them as they are."""
-function restore_point_aero_forces!(sys, sys_state)
+"""Put the world-frame aero force of each point of the run `sam` back from `sys_state`;
+a log without those channels leaves them as they are."""
+function restore_point_aero_forces!(sam, sys_state)
     length(sys_state.aero_force_x) == length(sys_state.X) || return nothing
-    columns = sys.sysstate
+    columns = sam.sysstate
     copyto!(columns.aero_force_x, sys_state.aero_force_x)
     copyto!(columns.aero_force_y, sys_state.aero_force_y)
     copyto!(columns.aero_force_z, sys_state.aero_force_z)
@@ -479,158 +396,111 @@ function restore_point_aero_forces!(sys, sys_state)
 end
 
 """
-    update_from_sysstate!(sys::SystemState, sys_state::SysState)
+    update_from_sysstate!(sam::SymbolicAWEModel, sys_state::SysState)
 
-Copy the state a `SysState` carries (point positions, wing orientations, winch
-lengths, twist angles, segment spring forces, the wings' circulation) into a run's
-state, e.g. to plot one snapshot of a `SysLog` with the Makie extension or to resume
-from it. Fields `SysState` cannot supply (net point forces, winch forces) are set to
-`NaN` so they are not plotted.
+Copy the state a `SysState` carries (point positions, wing and body poses, winch
+lengths, twist angles, segment spring forces, the wings' circulation) into the run `sam`,
+e.g. to plot one snapshot of a `SysLog` with the Makie extension or to resume from it,
+reading each wing's pose at its wing slot and frame and every other body's at its body
+slot and frame, as [`update_sys_state!`](@ref) logs them. Fields `SysState` cannot supply
+(winch forces) are left as they are, a log without spring forces leaves them `NaN`.
 
-`sys` must have been created with the same model configuration as the simulation that
+`sam` must have been created with the same model configuration as the simulation that
 produced the log; its point count must match the parametric type `P` of `SysState{P}`.
-
-Every field the log can reach is written, whether or not the compiler integrates it,
-because a derived field can still seed `u0` as a torn variable.
 """
-function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
-    (; points, segments, pulleys, tethers, winches, wings, bodies) = sys
-    stations = sys.spanwise_stations
-
-    # Position slot layout (points, panel corners, wing origins, body origins).
-    slots = position_slots(sys)
-    n_points = length(points)
-    n_panel_corners = count_aero_log_points(wings)
-    n_wings = length(wings)
-    total_without_wings = n_points + n_panel_corners
-    has_wing_slots = P == slots.total
-
-    if !has_wing_slots && P != total_without_wings
-        error("SystemDefinition expects $(slots.total) points " *
-              "($n_points regular + $n_panel_corners corners + " *
-              "$n_wings wings + $(length(bodies)) bodies) or " *
-              "$total_without_wings without wing slots, but SysState has $P points")
-    end
+function update_from_sysstate!(sam::SymbolicAWEModel, sys_state::SysState{P}) where P
+    sys = sam.definition
+    slots = sam.topology.slots
+    n_wings = length(sys.wings)
+    P == slots.total || error("$(sys.metadata.name) logs $(slots.total) positions " *
+        "($(length(slots.points)) points, $(length(slots.panel_corners)) aero log " *
+        "points, $n_wings wings and $(length(sys.bodies)) bodies), but the SysState " *
+        "has $P")
 
     # Logs written before the velocity columns existed restart from rest.
     has_velocity = length(sys_state.VX) == length(sys_state.X)
-    for point in points
-        point.pos_w[1] = sys_state.X[point.idx]
-        point.pos_w[2] = sys_state.Y[point.idx]
-        point.pos_w[3] = sys_state.Z[point.idx]
-        point.vel_w .= has_velocity ?
-            (sys_state.VX[point.idx], sys_state.VY[point.idx],
-             sys_state.VZ[point.idx]) : (0.0, 0.0, 0.0)
+    logged(column, slot) = SVec3(getfield(sys_state, column[1])[slot],
+                                 getfield(sys_state, column[2])[slot],
+                                 getfield(sys_state, column[3])[slot])
+    for i in eachindex(sys.points)
+        set_run_value!(sam, :points, i, :pos_w, logged((:X, :Y, :Z), i))
+        set_run_value!(sam, :points, i, :vel_w,
+                       has_velocity ? logged((:VX, :VY, :VZ), i) : zero(SVec3))
     end
 
-    # Update wing state if wings exist
-    if length(wings) > 0 && length(wings) == 1  # Currently only support single-wing systems
-        wing = wings[1]
-
-        # Copy orientation quaternion
-        wing.Q_b_to_w .= sys_state.orient
-
-        # Copy spherical coordinates
-        wing.elevation = Float64(sys_state.elevation)
-        wing.azimuth = Float64(sys_state.azimuth)
-        wing.heading = Float64(sys_state.heading)
-
-        if has_wing_slots
-            wing_slot = slots.wings[wing.idx]
-            wing.pos_w[1] = sys_state.X[wing_slot]
-            wing.pos_w[2] = sys_state.Y[wing_slot]
-            wing.pos_w[3] = sys_state.Z[wing_slot]
-        else
-            wing.pos_w .= [mean(sys_state.X), mean(sys_state.Y), mean(sys_state.Z)]
-        end
-
-        # Copy velocity if available in vel_kite
-        wing.vel_w .= sys_state.vel_kite
-
-        # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
-        wing.ω_b .= sys_state.turn_rates
-
-        wing.aero_force_b .= sys_state.aero_force_KA
-        wing.aero_moment_b .= sys_state.aero_moment_KA
-        wing.wind_vec .= sys_state.v_wind_kite
-        wing.aoa = Float64(sys_state.AoA)
-        wing.course = Float64(sys_state.course)
+    for b in eachindex(sys.bodies)
+        w = body_wing(sam, b)
+        slot, frame = w == 0 ? (slots.bodies[b], n_wings + b) : (slots.wings[w], w)
+        set_run_value!(sam, :bodies, b, :pos_w, logged((:X, :Y, :Z), slot))
+        has_velocity && set_run_value!(sam, :bodies, b, :vel_w,
+                                       logged((:VX, :VY, :VZ), slot))
+        set_run_value!(sam, :bodies, b, :Q_b_to_w, sys_state.orients[frame])
+        frame <= length(sys_state.turn_rate_x) && set_run_value!(sam, :bodies, b, :ω_b,
+            logged((:turn_rate_x, :turn_rate_y, :turn_rate_z), frame))
+    end
+    if n_wings == 1
+        set_run_value!(sam, :wings, 1, :elevation, Float64(sys_state.elevation))
+        set_run_value!(sam, :wings, 1, :azimuth, Float64(sys_state.azimuth))
+        set_run_value!(sam, :wings, 1, :heading, Float64(sys_state.heading))
+        set_run_value!(sam, :wings, 1, :aero_force_b, sys_state.aero_force_KA)
+        set_run_value!(sam, :wings, 1, :aero_moment_b, sys_state.aero_moment_KA)
+        set_run_value!(sam, :bodies, wing_body(sam, 1), :wind_vec, sys_state.v_wind_kite)
+        set_run_value!(sam, :wings, 1, :aoa, Float64(sys_state.AoA))
+        set_run_value!(sam, :wings, 1, :course, Float64(sys_state.course))
     end
 
-    restore_point_aero_forces!(sys, sys_state)
+    restore_point_aero_forces!(sam, sys_state)
 
-    # Standalone bodies: origins after the wing slots, orientations after the wings.
-    if has_wing_slots
-        for rigid_body in bodies
-            slot = slots.bodies[rigid_body.idx]
-            frame = n_wings + rigid_body.idx
-            rigid_body.pos_w[1] = sys_state.X[slot]
-            rigid_body.pos_w[2] = sys_state.Y[slot]
-            rigid_body.pos_w[3] = sys_state.Z[slot]
-            has_velocity && (rigid_body.vel_w .= (sys_state.VX[slot],
-                sys_state.VY[slot], sys_state.VZ[slot]))
-            rigid_body.Q_b_to_w .= sys_state.orients[frame]
-            frame <= length(sys_state.turn_rate_x) &&
-                (rigid_body.ω_b .= (sys_state.turn_rate_x[frame],
-                    sys_state.turn_rate_y[frame], sys_state.turn_rate_z[frame]))
-        end
-    end
-
-    gamma = getfield(sys, :sysstate).gamma_distribution
+    gamma = sam.sysstate.gamma_distribution
     length(sys_state.gamma_distribution) == length(gamma) &&
         copyto!(gamma, sys_state.gamma_distribution)
 
     # Logs written before twist_vel existed restart the surfaces at rest.
-    has_twist_vel = length(sys_state.twist_vel) == length(stations)
-    for station in stations
-        i = station.idx
-        if i <= length(sys_state.twist_angles)
-            station.twist = Float64(sys_state.twist_angles[i])
-            station.twist_ω = has_twist_vel ?
-                Float64(sys_state.twist_vel[i]) : 0.0
-        end
+    has_twist_vel = length(sys_state.twist_vel) == length(sys.spanwise_stations)
+    for s in eachindex(sys.spanwise_stations)
+        s <= length(sys_state.twist_angles) || continue
+        set_run_value!(sam, :spanwise_stations, s, :twist,
+                       Float64(sys_state.twist_angles[s]))
+        set_run_value!(sam, :spanwise_stations, s, :twist_ω,
+                       has_twist_vel ? Float64(sys_state.twist_vel[s]) : 0.0)
     end
-    for pulley in pulleys
-        pulley.idx > length(sys_state.pulley_len) && break
-        pulley.len = Float64(sys_state.pulley_len[pulley.idx])
-        pulley.vel = Float64(sys_state.pulley_vel[pulley.idx])
-    end
-
-    for wing in wings
-        restore_aero_twist!(wing.aero, wing, stations)
+    for i in eachindex(sys.pulleys)
+        i > length(sys_state.pulley_len) && break
+        set_run_value!(sam, :pulleys, i, :len, Float64(sys_state.pulley_len[i]))
+        set_run_value!(sam, :pulleys, i, :vel, Float64(sys_state.pulley_vel[i]))
     end
 
-    # Update tether lengths from SysState (per-tether)
-    for (tether_idx, tether) in enumerate(tethers)
-        tether_idx > length(sys_state.l_tether) && break
-        tether.len = Float64(sys_state.l_tether[tether_idx])
+    for (w, mode) in enumerate(sam.aero)
+        restore_aero_twist!(mode, sam, w)
     end
 
-    # Update winch state from SysState (per-winch)
-    for i in eachindex(winches)
+    for i in eachindex(sys.tethers)
+        i > length(sys_state.l_tether) && break
+        set_run_value!(sam, :tethers, i, :len, Float64(sys_state.l_tether[i]))
+    end
+    for i in eachindex(sys.winches)
         i > length(sys_state.v_reelout) && continue
-        winches[i].vel = Float64(sys_state.v_reelout[i])
-        winches[i].set_value = Float64(sys_state.set_torque[i])
+        set_run_value!(sam, :winches, i, :vel, Float64(sys_state.v_reelout[i]))
+        set_run_value!(sam, :winches, i, :set_value, Float64(sys_state.set_torque[i]))
     end
 
-    corner_idx = n_points
-    for wing in wings
-        corner_idx = read_aero_log_points!(wing.aero, wing, sys,
-                                           sys_state, corner_idx)
-        restore_flap_delta!(wing.aero, wing, sys_state)
-        restore_live_shape!(wing.aero, wing, sys.points)
+    corner_idx = length(sys.points)
+    for (w, mode) in enumerate(sam.aero)
+        corner_idx = read_aero_log_points!(mode, sam, w, sys_state, corner_idx)
+        restore_flap_delta!(mode, sam, w, sys_state)
+        restore_live_shape!(mode, sam, w)
     end
 
-    set = sys.set
+    set = sam.set
     if !isnothing(set) && set.use_wind_vec
         set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
-    # Only the force is logged; `segment.len` still comes from the symbolic getters.
-    has_spring_force = length(sys_state.spring_force) == length(segments)
-    for segment in segments
-        segment.force = has_spring_force ?
-            Float64(sys_state.spring_force[segment.idx]) : NaN
+    # Only the force is logged; a segment's length follows from its points.
+    has_spring_force = length(sys_state.spring_force) == length(sys.segments)
+    for i in eachindex(sys.segments)
+        set_run_value!(sam, :segments, i, :force,
+                       has_spring_force ? Float64(sys_state.spring_force[i]) : NaN)
     end
 
     return nothing
@@ -719,65 +589,39 @@ set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector}
 # ==================== SEGMENT STATISTICS ==================== #
 
 """
-    segment_stretch_stats(sys::SystemDefinition)
+    segment_stretch_stats(sam)
 
-Maximum and mean relative stretch `(len - rest_length) / rest_length` over the segments in
-tension
-(`len > rest_length`), plus the index of the most stretched one.
-
+Maximum and mean relative stretch `(len - rest_length) / rest_length` over the segments of
+the run `sam` in tension (`len > rest_length`), plus the index of the most stretched one.
 For pulley segments, the combined length of both legs is used against the pulley's
-`sum_l0`, since the pulley constraint distributes length between them.
-
-# Arguments
-- `sys::SystemDefinition`: System structure with current segment states
+`sum_len`, since the pulley constraint distributes length between them.
 
 # Returns
 - `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,
   and index of the segment with maximum stretch (or first pulley segment index)
 """
-function segment_stretch_stats(sys::SystemState)
-    if isempty(sys.segments)
-        return (0.0, 0.0, 0)
-    end
-
-    # Build set of segment indices that belong to pulleys
+function segment_stretch_stats(sam)
+    sys = sam.definition
+    isempty(sys.segments) && return (0.0, 0.0, 0)
     pulley_seg_idxs = Set{Int64}()
-    for pulley in sys.pulleys
-        push!(pulley_seg_idxs, pulley.segments[1])
-        push!(pulley_seg_idxs, pulley.segments[2])
-    end
-
     stretch_data = Tuple{Int64, Float64}[]
-
-    # Add pulley stretches (combined length of both segments)
-    for pulley in sys.pulleys
-        seg1 = sys.segments[pulley.segments[1]]
-        seg2 = sys.segments[pulley.segments[2]]
-        combined_len = seg1.len + seg2.len
-        sum_l0 = pulley.sum_len  # sum_len stores seg1.rest_length + seg2.rest_length
-        if combined_len > sum_l0
-            push!(stretch_data, (pulley.segments[1],
-                                 (combined_len - sum_l0) / sum_l0))
-        end
+    for (i, pulley) in enumerate(sys.pulleys)
+        union!(pulley_seg_idxs, pulley.segments)
+        combined_len = sum(segment_world_length(sam, k) for k in pulley.segments)
+        sum_len = pulley_sum_len(sam, i)
+        combined_len > sum_len &&
+            push!(stretch_data, (pulley.segments[1], (combined_len - sum_len) / sum_len))
     end
-
-    # Add non-pulley segment stretches
-    for seg in sys.segments
-        if seg.idx ∉ pulley_seg_idxs && seg.len > seg.rest_length
-            push!(stretch_data, (seg.idx, (seg.len - seg.rest_length) / seg.rest_length))
-        end
+    for k in eachindex(sys.segments)
+        k in pulley_seg_idxs && continue
+        len = segment_world_length(sam, k)
+        rest_length = run_value(sam, :segments, k, :rest_length)
+        len > rest_length && push!(stretch_data, (k, (len - rest_length) / rest_length))
     end
-
-    if isempty(stretch_data)
-        return (0.0, 0.0, 0)
-    end
-
+    isempty(stretch_data) && return (0.0, 0.0, 0)
     stretches = [entry[2] for entry in stretch_data]
-    max_stretch = maximum(stretches)
-    mean_stretch = sum(stretches) / length(stretches)
-    max_idx = stretch_data[argmax(stretches)][1]
-
-    return (max_stretch, mean_stretch, max_idx)
+    return (maximum(stretches), sum(stretches) / length(stretches),
+            stretch_data[argmax(stretches)][1])
 end
 
 """

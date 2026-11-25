@@ -9,7 +9,7 @@
 Callable wind-shear factor, used as a callable flat parameter `w(pos_z)`: the
 ratio of wind speed at height `pos_z` to the ground value, from atmospheric model
 `am` under `profile_law` (1.0 when `profile_law == 0`). `ForwardDiff.Dual`-safe in
-`pos_z`. Read live from `sys_struct` via [`WindFactorReader`](@ref).
+`pos_z`. Read live from the run via [`WindFactorReader`](@ref).
 """
 struct WindFactor
     am::AtmosphericModel
@@ -23,12 +23,11 @@ end
 """
     WindFactorReader()
 
-Serializable flat-param reader producing a [`WindFactor`](@ref) from the live
-`sys_struct`'s atmospheric model and wind profile law.
+Serializable flat-param reader producing a [`WindFactor`](@ref) from a run's atmospheric
+model and wind profile law.
 """
 struct WindFactorReader end
-(::WindFactorReader)(sys_struct) =
-    WindFactor(sys_struct.am, sys_struct.set.profile_law)
+(::WindFactorReader)(sam) = WindFactor(sam.am, sam.set.profile_law)
 
 """
     calc_angle_of_attack(va_wing_b)

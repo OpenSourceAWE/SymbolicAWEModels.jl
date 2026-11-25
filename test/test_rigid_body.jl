@@ -83,47 +83,47 @@ environment:
     test_init!(sam)
 
     @testset "Free fall acceleration = g" begin
-        rb = sam.state.bodies[:body1]
+        rb(quantity) = run_value(sam, :bodies, :body1, quantity)
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
         end
-        vel_before = copy(rb.vel_w)
+        vel_before = rb(:vel_w)
         t_before = sam.integrator.t
         for _ in 1:10
             next_step!(sam; dt, vsm_interval=0)
         end
         elapsed = sam.integrator.t - t_before
-        acc = (rb.vel_w - vel_before) / elapsed
+        acc = (rb(:vel_w) - vel_before) / elapsed
         @test acc[3] ≈ -9.81 atol=0.1
         @test abs(acc[1]) < 0.1
         @test abs(acc[2]) < 0.1
-        @test norm(rb.ω_b) < 1e-6   # no spurious rotation
+        @test norm(rb(:ω_b)) < 1e-6   # no spurious rotation
     end
 
     @testset "Spin-up under applied moment" begin
-        rb = sam.state.bodies[:body1]
-        rb.row.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
-        SymbolicAWEModels.set_origin_ENU!(rb.row, [0.0, 0.0, 10.0])
-        rb.vel_w .= 0.0
-        rb.ω_b .= 0.0
+        rb(quantity) = run_value(sam, :bodies, :body1, quantity)
+        sam.definition.bodies[:body1].Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
+        SymbolicAWEModels.set_origin_ENU!(sam.definition.bodies[:body1], [0.0, 0.0, 10.0])
+        set_run_value!(sam, :bodies, :body1, :vel_w, zeros(3))
+        set_run_value!(sam, :bodies, :body1, :ω_b, zeros(3))
         torque = 0.05
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
-        rb.ext_moment_b = [torque, 0.0, 0.0]
+        set_run_value!(sam, :bodies, :body1, :ext_moment_b, [torque, 0.0, 0.0])
 
         dt = 0.005
         t_before = sam.integrator.t
-        ω_before = copy(rb.ω_b)
+        ω_before = rb(:ω_b)
         for _ in 1:20
             next_step!(sam; dt, vsm_interval=0)
         end
         elapsed = sam.integrator.t - t_before
-        α_measured = (rb.ω_b[1] - ω_before[1]) / elapsed
+        α_measured = (rb(:ω_b)[1] - ω_before[1]) / elapsed
         @test α_measured ≈ torque / inertia[1] atol=0.02
-        @test abs(rb.ω_b[2]) < 1e-3
-        @test abs(rb.ω_b[3]) < 1e-3
-        rb.ext_moment_b = zeros(3)
+        @test abs(rb(:ω_b)[2]) < 1e-3
+        @test abs(rb(:ω_b)[3]) < 1e-3
+        set_run_value!(sam, :bodies, :body1, :ext_moment_b, zeros(3))
     end
 
     @testset "COM-offset body-frame output" begin
@@ -135,15 +135,15 @@ environment:
         sys2 = system_definition("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
         test_init!(sam2)
-        rb = sam2.state.bodies[:body2]
+        rb(quantity) = run_value(sam2, :bodies, :body2, quantity)
         # identity orientation: com_w = pos_w + offset
-        @test rb.com_w ≈ rb.pos_w .+ offset atol=1e-6
+        @test rb(:com_w) ≈ rb(:pos_w) .+ offset atol=1e-6
         for _ in 1:10
             next_step!(sam2; dt=0.01, vsm_interval=0)
         end
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
-        @test rb.com_w ≈ rb.pos_w .+ R_b_to_w * offset atol=1e-5
-        @test norm(rb.ω_b) < 1e-6
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb(:Q_b_to_w))
+        @test rb(:com_w) ≈ rb(:pos_w) .+ R_b_to_w * offset atol=1e-5
+        @test norm(rb(:ω_b)) < 1e-6
     end
 
     # A transform must reposition AND reorient a rigid body, like a wing.
@@ -163,16 +163,17 @@ environment:
         place!(sys3, [tf])
 
         rb = sys3.bodies[:body3]
+        origin(sys) = SymbolicAWEModels.origin_ENU(SymbolicAWEModel(nothing, sys), 1)
         r = 100.0 / sqrt(2)
-        @test SymbolicAWEModels.origin_ENU(rb) ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test origin(sys3) ≈ KVec3(r, 0.0, r) atol=1e-6
         # body x-axis followed the radial from +x to the 45° elevation direction
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA2ENU)
         @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
         # the body-anchored point rides the rotated body
-        @test sys3.points[:tip].pos_ENU ≈ SymbolicAWEModels.origin_ENU(rb) atol=1e-6
+        @test sys3.points[:tip].pos_ENU ≈ origin(sys3) atol=1e-6
         # idempotent across a second reinit!
         place!(sys3, [tf])
-        @test SymbolicAWEModels.origin_ENU(rb) ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test origin(sys3) ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     # A KCU-like point riding 1 m out moves the COM a third of the way to it, and
@@ -184,24 +185,25 @@ environment:
                     extra_mass=1.0)
         sys4 = system_definition("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])
-        rb = SystemState(sys4).bodies[:carrier]
-        @test rb.extra_mass == 2.0
-        @test rb.total_mass ≈ 3.0
-        @test rb.com_offset_b ≈ [1/3, 0.0, 0.0] atol=1e-12
-        @test rb.inertia_principal ≈ inertia .+ [0.0, 2/3, 2/3] atol=1e-12
+        start(quantity) =
+            run_value(SymbolicAWEModel(nothing, sys4), :bodies, :carrier, quantity)
+        @test start(:extra_mass) == 2.0
+        @test start(:total_mass) ≈ 3.0
+        @test start(:total_com_offset_b) ≈ [1/3, 0.0, 0.0] atol=1e-12
+        @test start(:inertia_principal) ≈ inertia .+ [0.0, 2/3, 2/3] atol=1e-12
 
         sam4 = SymbolicAWEModel(set, sys4)
         test_init!(sam4)
-        rb = sam4.state.bodies[:carrier]
-        @test rb.com_w ≈ rb.pos_w .+ [1/3, 0.0, 0.0] atol=1e-6
-        vel_before = copy(rb.com_vel)
+        rb(quantity) = run_value(sam4, :bodies, :carrier, quantity)
+        @test rb(:com_w) ≈ rb(:pos_w) .+ [1/3, 0.0, 0.0] atol=1e-6
+        vel_before = rb(:com_vel)
         t_before = sam4.integrator.t
         for _ in 1:10
             next_step!(sam4; dt=0.01, vsm_interval=0)
         end
-        acc = (rb.com_vel - vel_before) / (sam4.integrator.t - t_before)
+        acc = (rb(:com_vel) - vel_before) / (sam4.integrator.t - t_before)
         @test acc ≈ [0.0, 0.0, -9.81] atol=0.1
-        @test norm(rb.ω_b) < 1e-6
+        @test norm(rb(:ω_b)) < 1e-6
     end
 
     rm(tmpdir; recursive=true)

@@ -36,7 +36,7 @@ torque_winch(friction_epsilon) = TorqueWinch(; friction_epsilon)
 
 is_builtin_winch(::TorqueWinch) = true
 
-function winch_component(::TorqueWinch, sys_struct, winch_idx; name, params)
+function winch_component(::TorqueWinch, sam, winch_idx; name, params)
     @variables begin
         vel(t)
         len(t)

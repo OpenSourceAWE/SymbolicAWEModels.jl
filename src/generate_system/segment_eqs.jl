@@ -4,10 +4,11 @@
 # Segment spring-damper equation generation
 
 """
-    segment_rest_length_eqs(segment, pulleys, tethers, params;
+    segment_rest_length_eqs(sys, idx, params;
                             l0, pulley_len, pulley_vel, tether_len, tether_vel)
 
-Rest-length equations for one segment, and the rate that rest length moves at.
+Rest-length equations for segment `idx` of definition `sys`, and the rate that rest
+length moves at.
 A pulley member takes either the pulley state `pulley_len` or the remainder
 `sum_len - pulley_len`, a tether member takes `tether_len / n_segments`, and any
 other segment keeps its fixed `l0` parameter. Returns `(eqs, rest_len_rate)`, the
@@ -16,23 +17,21 @@ length; [`segment_load_terms`](@ref) needs it to damp the extension rather than 
 endpoint separation. Errors when a segment belongs to more than one pulley or more
 than one tether.
 """
-function segment_rest_length_eqs(segment, pulleys, tethers, params;
+function segment_rest_length_eqs(sys, idx, params;
                                  l0, pulley_len, pulley_vel, tether_len, tether_vel)
-    idx = segment.idx
     eqs = Equation[]
     rate = Num(0.0)
     in_pulley = 0
-    for pulley in pulleys
-        split_rate = pulley_len_rate(params.pulleys[pulley.idx],
-                                     pulley_vel[pulley.idx])
+    for (pulley_idx, pulley) in enumerate(sys.pulleys)
+        split_rate = pulley_len_rate(params.pulleys[pulley_idx], pulley_vel[pulley_idx])
         if idx == pulley.segments[1]
-            push!(eqs, l0[idx] ~ pulley_len[pulley.idx])
+            push!(eqs, l0[idx] ~ pulley_len[pulley_idx])
             rate = split_rate
             in_pulley += 1
         end
         if idx == pulley.segments[2]
             push!(eqs, l0[idx] ~
-                params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx])
+                params.pulleys[pulley_idx].sum_len - pulley_len[pulley_idx])
             rate = -split_rate
             in_pulley += 1
         end
@@ -44,9 +43,9 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
 
     in_tether = 0
     tether_idx = 0
-    for tether in tethers
+    for (i, tether) in enumerate(sys.tethers)
         if idx in tether.segments
-            tether_idx = tether.idx
+            tether_idx = i
             in_tether += 1
         end
     end
@@ -54,7 +53,7 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
         "Segment $idx is in $in_tether tethers; should be 0 or 1.",
     )
     if in_tether == 1
-        n_segments = length(tethers[tether_idx].segments)
+        n_segments = length(sys.tethers[tether_idx].segments)
         push!(eqs, l0[idx] ~ tether_len[tether_idx] / n_segments)
         rate = tether_vel[tether_idx] / n_segments
     else
@@ -64,11 +63,12 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
 end
 
 """
-    segment_eqs!(s, eqs, points, segments, pulleys, tethers, bodies, params;
+    segment_eqs!(s, eqs, params;
                  pos, vel, wind_vec_gnd, wind_at_point, spring_force_vec,
                  drag_force, l0, pulley_len, pulley_vel, tether_len, tether_vel)
 
-Generate equations for segment spring-damper forces and aerodynamic drag.
+Generate equations for the spring-damper forces and aerodynamic drag of the segments of
+the run `s`.
 
 Every load term comes from the shared [`segment_load_terms`](@ref) with the
 parameters read by [`segment_spring_params`](@ref), so the monolith and the
@@ -78,9 +78,8 @@ owned by the wing's VSM), and one whose wing has `RIGID_DYNAMICS` skips the spri
 as well, keeping only the geometry.
 
 # Arguments
-- `s::SymbolicAWEModel`: The main model object (for atmospheric model).
+- `s::SymbolicAWEModel`: The run.
 - `eqs`: Accumulating equation vector for the MTK system.
-- `points`, `segments`, `pulleys`, `tethers`, `bodies`: System components.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `wind_at_point`: Per-point wind, which a [`PerPointWind`](@ref) segment averages
@@ -94,11 +93,11 @@ as well, keeping only the geometry.
 - Tuple `(eqs, len, spring_force)` with updated equation vector
   and the segment length and spring force variables for use by other components.
 """
-function segment_eqs!(s, eqs, points, segments,
-                      pulleys, tethers, bodies,
-                      params; pos, vel, wind_vec_gnd, wind_at_point,
+function segment_eqs!(s, eqs, params; pos, vel, wind_vec_gnd, wind_at_point,
                       spring_force_vec, drag_force, l0,
                       pulley_len, pulley_vel, tether_len, tether_vel)
+    sys = s.definition
+    segments = sys.segments
     @variables begin
         segment_vec(t)[1:3, eachindex(segments)]
         unit_vec(t)[1:3, eachindex(segments)]
@@ -109,14 +108,13 @@ function segment_eqs!(s, eqs, points, segments,
     end
     wind_gnd = collect(wind_vec_gnd)
 
-    for segment in segments
-        idx = segment.idx
+    for (idx, segment) in enumerate(segments)
         src, dst = segment.points[1], segment.points[2]
         src_pos, src_vel = collect(pos[:, src]), collect(vel[:, src])
         dst_pos, dst_vel = collect(pos[:, dst]), collect(vel[:, dst])
 
         rest_eqs, rest_len_rate = segment_rest_length_eqs(
-            segment, pulleys, tethers, params;
+            sys, idx, params;
             l0, pulley_len, pulley_vel, tether_len, tether_vel)
         eqs = [
             eqs
@@ -124,9 +122,9 @@ function segment_eqs!(s, eqs, points, segments,
             rel_vel[:, idx] ~ src_vel - dst_vel
         ]
 
-        with_drag = !wing_structural_segment(params.reg.sys_struct, idx)
+        with_drag = !wing_structural_segment(sys, idx)
         rigid_link = !with_drag &&
-            body_dynamics_type(bodies[points[src].wing_idx]) == RIGID_DYNAMICS
+            body_dynamics_type(s, wing_body(s, point_wing(s, src))) == RIGID_DYNAMICS
         if rigid_link
             seg_vec, seg_len, axis, closing_vel =
                 segment_geometry(src_pos, dst_pos, src_vel, dst_vel)

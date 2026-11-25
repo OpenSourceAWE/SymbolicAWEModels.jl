@@ -4,9 +4,9 @@
 # Code shared by all winch models: dispatch interface + connector validation.
 
 """
-    winch_component(model::AbstractWinchModel, sys_struct, winch_idx; name, params)
+    winch_component(model::AbstractWinchModel, sam, winch_idx; name, params)
 
-Build the winch motor subsystem for `sys_struct.winches[winch_idx]`, selected by
+Build the winch motor subsystem for winch `winch_idx` of the run `sam`, selected by
 dispatch on the winch's `model.dynamics`. The component is pure-algebraic at its connector
 boundary (see [`validate_winch_component`](@ref)) but may declare arbitrary
 internal `D(x) ~ …` states. Common drum parameters are read live via the flat

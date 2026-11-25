@@ -119,7 +119,7 @@ frozen-force build that used the default empty id). The panel→flap-station
 map is likewise baked into the δ wiring.
 """
 aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.blend_point,
-    [round(w; digits=8) for (_, _, w) in mode.panel_blend], mode.panel_station,
+    [round(weight; digits=8) for (_, _, weight) in mode.panel_blend], mode.panel_station,
     mode.live_polars,
     mode.section_left_strut, round.(mode.section_left_weight; digits=8),
     round.(mode.section_le_offset; digits=8),
@@ -128,21 +128,20 @@ aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.blend_point,
 # ==================== equation builder ==================== #
 
 """
-    aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct; name, params)
+    aero_component(mode::AeroPressure, ::ParticleDynamics, sam, wing_idx; name, params)
 
-Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
-fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
-pattern. Each wing node's force is `Σ over mapped (panel, node) of
-traction[node] + share[node]·(panel_force[panel] − traction_net[panel])`, its share
-from [`node_residual_shares`](@ref), so per panel the point forces sum to the live
-`panel_force` exactly. Apparent wind and density are
-per refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
+Live per-refined-panel VSM force of wing `wing_idx` of `sam` (shared
+[`build_panel_force_eqs`](@ref) on the fixed loaded mesh + live apparent wind) scattered
+over the frozen surface traction pattern. Each wing node's force is `Σ over mapped
+(panel, node) of traction[node] + share[node]·(panel_force[panel] −
+traction_net[panel])`, its share from [`node_residual_shares`](@ref), so per panel the
+point forces sum to the live `panel_force` exactly. Apparent wind and density are per
+refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
 `traction_net` and the `cl/cd/cm` polars are flat params refreshed every
 `vsm_interval`.
 """
-function aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct;
+function aero_component(mode::AeroPressure, ::ParticleDynamics, sam, wing_idx;
                         name, params=nothing)
-    wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind
     chord_w = params.wings[wing_idx].aero.chord_weight
     cl = params.wings[wing_idx].aero.cl
@@ -153,13 +152,12 @@ function aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct
     traction_moment_p = params.wings[wing_idx].aero.traction_moment
     residual_arm_p = params.wings[wing_idx].aero.residual_arm
 
-    points = wing_points(sys_struct, wing)
-    num_points = length(points)
-    panels = wing.vsm_aero.panels
-    n_panels = length(panels)
+    point_idxs = wing_points(sam, wing_idx)
+    num_points = length(point_idxs)
+    n_panels = length(mode.vsm_aero.panels)
     length(mode.station_point) == n_panels || error(
-        "AeroPressure wing $(wing.name): surface→point map not built " *
-        "($(length(mode.station_point)) entries for $n_panels panels).")
+        "AeroPressure wing $(sam.definition.wings[wing_idx].name): surface→point map not " *
+        "built ($(length(mode.station_point)) entries for $n_panels panels).")
 
     # Add a live per-panel flap deflection connector only when this wing has a flap.
     has_flap_coupling = length(mode.panel_station) == n_panels &&
@@ -168,20 +166,17 @@ function aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct
         n_delta=has_flap_coupling ? n_panels : 0)
 
     # Live geometry: refined-section LE/TE from the structural stations' pos_w.
-    column = aero_section_columns(wing, points)
-    sec_le, sec_te =
-        reconstruct_sections_sym(mode, wing, points, connectors, column)
+    column = aero_section_columns(sam, wing_idx)
+    sec_le, sec_te = reconstruct_sections_sym(mode, connectors, column)
+    sec_va, sec_rho, sec_dva = reconstruct_inflow_sym(mode, connectors, column)
 
-    sec_va, sec_rho, sec_dva =
-        reconstruct_inflow_sym(mode, wing, connectors, column)
-
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
-    scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
-        wing.aero_scale_chord : AERO_SCALE_CHORD)
+    spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
+    scale = 1.0 + (isfinite(mode.aero_scale_chord) ?
+        mode.aero_scale_chord : AERO_SCALE_CHORD)
 
     delta = has_flap_coupling ? collect(connectors.delta) : nothing
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
-        wagner_wing_eqs(wing, sec_va, params)
+        wagner_wing_eqs(sam, wing_idx, sec_va, params)
     eqs, panel_vars, panel_force, panel_couple, curvature_couple, slots =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
             cl, cd, cm, spanwise, scale; delta, sec_dva, deficiency)
@@ -200,7 +195,7 @@ function aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct
     append!(vars, wagner_vars)
     append!(vars, collect(scatter_couple))
 
-    point_num = Dict(point.idx => k for (k, point) in enumerate(points))
+    point_num = Dict(i => k for (k, i) in enumerate(point_idxs))
     point_force = [zeros(Num, 3) for _ in 1:num_points]
     residual = [collect(panel_force[:, i]) .- column_of(traction_net_p, i)
                 for i in 1:n_panels]
@@ -223,90 +218,87 @@ function aero_component(mode::AeroPressure, ::ParticleDynamics, wing, sys_struct
     return System(eqs, t, vars,
         [Any[vind_p, chord_w, cl, cd, cm, traction_p, traction_net_p,
              traction_moment_p, residual_arm_p];
-         wagner_params(wing, params)];
+         wagner_params(sam, wing_idx, params)];
         name, initial_conditions=wagner_defaults)
 end
 
 # ==================== build-time panel→flap map + live δ ==================== #
 
 """
-    build_panel_station_map!(mode, wing, sys_struct)
+    build_panel_station_map!(mode, sam, wing_idx)
 
-Map each refined VSM panel to the flap `KINEMATIC` station of `wing` whose
-spanwise station (midpoint of its two flap bodies) is nearest the panel's — the
-nearest-station philosophy of [`build_station_point_map!`](@ref). Stored in
-`mode.panel_station` (global station idx, `0` = no flap); structural,
-so it enters [`aero_hash_id`](@ref). All-zeros (no coupling) when the wing has no
-flap surface. Generic modes are a no-op.
+Map each refined VSM panel of wing `wing_idx` of `sam` to the flap `KINEMATIC` station of
+the wing whose spanwise station (its hinge point, or the midpoint of its two flap bodies) is
+nearest the panel's — the nearest-station philosophy of
+[`build_station_point_map!`](@ref). Stored in `mode.panel_station` (station index, `0`
+= no flap); structural, so it enters [`aero_hash_id`](@ref). All-zeros (no coupling)
+when the wing has no flap surface. Generic modes are a no-op.
 """
-build_panel_station_map!(::AbstractAeroModel, wing, sys_struct) = nothing
-function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
-    panels = wing.vsm_aero.panels
+build_panel_station_map!(::AbstractAeroModel, sam, wing_idx) = nothing
+function build_panel_station_map!(mode::AeroPressure, sam, wing_idx)
+    panels = mode.vsm_aero.panels
     n_panels = length(panels)
-    if mode.live_polars
-        mode.panel_station = zeros(Int64, n_panels)
-        return nothing
-    end
-    flaps = [ts for ts in sys_struct.spanwise_stations
-             if station_type(ts) == KINEMATIC && has_flap(ts) && ts.wing == wing.idx]
+    sys = sam.definition
+    flaps = mode.live_polars ? Int[] :
+        [station_idx for (station_idx, station) in enumerate(sys.spanwise_stations)
+         if station_type(station) == KINEMATIC && has_flap(station) &&
+            station.wing == wing_idx]
     if isempty(flaps)
         mode.panel_station = zeros(Int64, n_panels)
         return nothing
     end
-    rot_to_body = initial_rotation(wing)'
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
-    flap_station = map(flaps) do ts
-        mid = has_point_flap(ts) ?
-            sys_struct.points[ts.flap_points[2]].pos_ENU :
-            0.5 .* (origin_ENU(sys_struct.bodies[ts.flap_bodies[1]]) .+
-                    origin_ENU(sys_struct.bodies[ts.flap_bodies[2]]))
-        dot(rot_to_body * (mid .- origin_ENU(wing)), spanwise)
+    body_idx = wing_body(sam, wing_idx)
+    rot_to_body = initial_rotation(sys.bodies[body_idx])'
+    spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
+    flap_station = map(flaps) do station_idx
+        station = sys.spanwise_stations[station_idx]
+        mid = has_point_flap(station) ? sys.points[station.flap_points[2]].pos_ENU :
+            0.5 .* (origin_ENU(sam, station.flap_bodies[1]) .+
+                    origin_ENU(sam, station.flap_bodies[2]))
+        dot(rot_to_body * (mid .- origin_ENU(sam, body_idx)), spanwise)
     end
     assignment = zeros(Int64, n_panels)
     for (panel_idx, panel) in enumerate(panels)
         le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
         te_mid = 0.5 .* (Vector(panel.TE_point_1) .+ Vector(panel.TE_point_2))
         station = dot(0.5 .* (le_mid .+ te_mid), spanwise)
-        best = argmin(abs.(flap_station .- station))
-        assignment[panel_idx] = flaps[best].idx
+        assignment[panel_idx] = flaps[argmin(abs.(flap_station .- station))]
     end
     mode.panel_station = assignment
     return nothing
 end
 
 """
-    station_deltas(sys_struct) -> Vector{SimFloat}
+    station_deltas(sam) -> Vector{SimFloat}
 
-Live flap deflection δ [rad] per station (indexed by `station.idx`;
-`0` for non-flap surfaces), from the current flap-body orientations via
-[`flap_delta`](@ref). The Julia ground truth mirroring the symbolic
+Live flap deflection δ [rad] of each station of the run `sam`, by station index (`0`
+for a station without a flap), from the current positions of its flap points
+([`point_flap_delta`](@ref)) or orientations of its flap bodies
+([`flap_delta`](@ref)). The Julia ground truth mirroring the symbolic
 `station_delta_eqs!`, used to drive `panel.delta` at refresh and by tests.
 """
-function station_deltas(sys_struct)
-    stations = sys_struct.spanwise_stations
-    bodies = sys_struct.bodies
+function station_deltas(sam)
+    stations = sam.definition.spanwise_stations
     deltas = zeros(SimFloat, length(stations))
-    for station in stations
+    for (station_idx, station) in enumerate(stations)
         has_flap(station) || continue
         if has_point_flap(station)
-            deltas[station.idx] = point_flap_delta(station, sys_struct.points,
-                sys_struct.wings[station.wing].R_b_to_w)
+            deltas[station_idx] = point_flap_delta(sam, station_idx,
+                                         body_rotation(sam, wing_body(sam, station.wing)))
             continue
         end
-        R_main = quaternion_to_rotation_matrix(
-            bodies[station.flap_bodies[1]].Q_b_to_w)
-        R_flap = quaternion_to_rotation_matrix(
-            bodies[station.flap_bodies[2]].Q_b_to_w)
-        deltas[station.idx] = flap_delta(station, R_main, R_flap)
+        deltas[station_idx] = flap_delta(sam, station_idx,
+                                         body_rotation(sam, station.flap_bodies[1]),
+                                         body_rotation(sam, station.flap_bodies[2]))
     end
     return deltas
 end
 
 """
-    set_panel_deltas!(mode, wing, deltas) -> Bool
+    set_panel_deltas!(mode, deltas) -> Bool
 
-Put one flap deflection [rad] per panel onto `wing`'s VSM mesh, `deltas` indexed by
-station. `false` when the wing carries no panel-to-surface map to write
+Put one flap deflection [rad] per panel onto the VSM mesh of aero `mode`, `deltas`
+indexed by station. `false` when the mode carries no panel-to-surface map to write
 through.
 
 Both the panels and the wing's `delta_dist` are written, and the wing's is the one
@@ -317,39 +309,39 @@ solve. Writing the panels alone therefore lasts until the next refresh and no
 longer, leaving the solve and the traction contour at δ = 0 on a wing whose flaps
 are deflected.
 """
-function set_panel_deltas!(mode, wing, deltas)
-    panels = wing.vsm_aero.panels
+function set_panel_deltas!(mode, deltas)
+    panels = mode.vsm_aero.panels
     surfaces = mode.panel_station
     (length(surfaces) == length(panels) && any(!=(0), surfaces)) || return false
-    distribution = wing.vsm_wing.delta_dist
+    distribution = mode.vsm_wing.delta_dist
     for (panel_idx, panel) in enumerate(panels)
-        ts_idx = surfaces[panel_idx]
-        (ts_idx == 0 || ts_idx > length(deltas)) && continue
-        panel.delta = deltas[ts_idx]
+        station_idx = surfaces[panel_idx]
+        (station_idx == 0 || station_idx > length(deltas)) && continue
+        panel.delta = deltas[station_idx]
         panel_idx <= length(distribution) &&
-            (distribution[panel_idx] = deltas[ts_idx])
+            (distribution[panel_idx] = deltas[station_idx])
     end
     return true
 end
 
 """
-    apply_flap_delta!(mode, wing, sys_struct)
+    apply_flap_delta!(mode, sam, wing_idx)
 
-Set the VSM mesh's flap deflection from the live deflection of each mapped
-station ([`station_deltas`](@ref)), before the VSM solve, so the
-converged forces and the frozen traction contour track the flap at refresh
-cadence. No-op for modes/wings without flap coupling.
+Set the VSM mesh of wing `wing_idx` of `sam` to the live deflection of each mapped station
+([`station_deltas`](@ref)), before the VSM solve, so the converged forces and the frozen
+traction contour track the flap at refresh cadence. No-op for modes/wings without flap
+coupling.
 """
-apply_flap_delta!(::AbstractAeroModel, wing, sys_struct) = nothing
-function apply_flap_delta!(mode::AeroPressure, wing, sys_struct)
-    set_panel_deltas!(mode, wing, station_deltas(sys_struct))
+apply_flap_delta!(::AbstractAeroModel, sam, wing_idx) = nothing
+function apply_flap_delta!(mode::AeroPressure, sam, wing_idx)
+    set_panel_deltas!(mode, station_deltas(sam))
     return nothing
 end
 
-function restore_flap_delta!(mode::AeroPressure, wing, sys_state)
+function restore_flap_delta!(mode::AeroPressure, sam, wing_idx, sys_state)
     isempty(sys_state.flap_angle) && return nothing
-    body_dynamics_type(wing) == PARTICLE_DYNAMICS || return nothing
-    set_panel_deltas!(mode, wing, sys_state.flap_angle)
+    body_dynamics_type(sam, wing_body(sam, wing_idx)) == PARTICLE_DYNAMICS || return nothing
+    set_panel_deltas!(mode, sys_state.flap_angle)
     return nothing
 end
 
@@ -433,8 +425,7 @@ function node_residual_shares(xc, yc)
 end
 
 """
-    panel_station_candidates(mode, panels, stations, points, wing,
-                             point_idx, point_pos_b)
+    panel_station_candidates(mode, sam, wing_idx, point_idx, point_pos_b)
         -> Vector{Vector{Tuple{Int64, KVec3}}}
 
 The two spanwise stations each panel's load is shared between, and the far one's
@@ -445,22 +436,21 @@ carries, not from measuring the panel's position, so it holds for a swept or dih
 wing as well as a flat one. A panel's load is split between its two neighbouring
 stations rather than rounded onto the nearer, because rounding is a discontinuity: two
 panels that mirror each other land on centres that agree to the last bit but not
-exactly, and the nearer station is then a different one for each, moving a whole
-panel's load a station across the span. Sharing it moves that disagreement back into
-the weights, where it stays the size it actually is. A panel is a slice of one airfoil, and it has to stay on one
-strut. Left to search the
-whole wing, the nodes near a station boundary defect to the neighbouring strut, so half
-an airfoil hangs off one station and half off the next — the panel then spans two
-spanwise planes, and a chordwise profile read off it has a step in it that no airfoil
-basis can represent. Choosing the station first and mapping within it keeps each panel
-whole. Returns `nothing` when the wing declares no stations, which leaves
-the caller on the plain nearest-point search: matching by chord fraction alone is only
-safe once the candidates are confined to one station, since the same fraction occurs at
-every station across the span.
+exactly, and the nearer station is then a different one for each, moving a whole panel's
+load a station across the span. Sharing it moves that disagreement back into the
+weights, where it stays the size it actually is. A panel is a slice of one airfoil, and
+it has to stay on one strut. Left to search the whole wing, the nodes near a station
+boundary defect to the neighbouring strut, so half an airfoil hangs off one station and
+half off the next — the panel then spans two spanwise planes, and a chordwise profile
+read off it has a step in it that no airfoil basis can represent. Choosing the station
+first and mapping within it keeps each panel whole. Returns `nothing` when the wing
+declares no stations, which leaves the caller on the plain nearest-point search:
+matching by chord fraction alone is only safe once the candidates are confined to one
+station, since the same fraction occurs at every station across the span. `point_idx`
+are the wing's nodes and `point_pos_b` where each sits in its body frame.
 """
-function panel_station_candidates(mode, panels, stations, points, wing,
-                                  point_idx, point_pos_b)
-    control = station_control_points(stations, points, wing)
+function panel_station_candidates(mode, sam, wing_idx, point_idx, point_pos_b)
+    control = station_control_points(sam, wing_idx)
     length(control) >= 2 || return nothing
     lookup = Dict(zip(point_idx, point_pos_b))
     grouped = [[(idx, lookup[idx]) for idx in group if haskey(lookup, idx)]
@@ -471,37 +461,37 @@ function panel_station_candidates(mode, panels, stations, points, wing,
 end
 
 """
-    build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
+    build_station_point_map!(mode::AeroPressure, sam, wing_idx; prn=false)
 
-Build the static map from each refined panel's surface contour nodes to their
-nearest wing-node structural point (body frame), and apply the frame-alignment guard.
-Stored in `mode.station_point`; errors on a missing `section_aero` or a mesh that
-sits farther than `frame_tol_frac` chords from the points.
+Build the static map from each refined panel of wing `wing_idx` of `sam` to its surface
+contour nodes' nearest wing-node structural point (body frame), and apply the
+frame-alignment guard. Stored in `mode.station_point`; errors on a missing `section_aero` or
+a mesh that sits farther than `frame_tol_frac` chords from the points.
 """
-function build_station_point_map!(mode::AeroPressure, wing, points, stations;
-                                  prn=false)
-    wing_pts = [p for p in points if p.is_wing_node && p.wing_idx == wing.idx]
-    isempty(wing_pts) && error(
-        "AeroPressure wing $(wing.name): no wing nodes to receive forces.")
-    point_idx = [p.idx for p in wing_pts]
-    point_pos_b = [initial_body_position(wing, p) for p in wing_pts]
+function build_station_point_map!(mode::AeroPressure, sam, wing_idx; prn=false)
+    name = sam.definition.wings[wing_idx].name
+    point_idx = wing_points(sam, wing_idx)
+    isempty(point_idx) && error("AeroPressure wing $name: no wing nodes to receive " *
+                                "forces.")
+    body_idx = wing_body(sam, wing_idx)
+    point_pos_b = [initial_body_position(sam, body_idx, sam.definition.points[i].pos_ENU)
+                   for i in point_idx]
 
-    panels = wing.vsm_aero.panels
-    control = station_control_points(stations, points, wing)
+    panels = mode.vsm_aero.panels
+    control = station_control_points(sam, wing_idx)
     mode.panel_blend = length(control) >= 2 ?
         panel_strut_blend(mode, length(control), length(panels)) :
         [(1, 1, 0.0) for _ in eachindex(panels)]
-    candidates = panel_station_candidates(mode, panels, stations, points,
-                                          wing, point_idx, point_pos_b)
+    candidates = panel_station_candidates(mode, sam, wing_idx, point_idx, point_pos_b)
     station_point = Vector{Vector{Int64}}(undef, length(panels))
     blend_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
     node_residual_share = Vector{Vector{SimFloat}}(undef, length(panels))
-    chord_weight = corner_chord_weights(wing)
+    chord_weight = corner_chord_weights(mode)
     max_chord_ratio = 0.0
     for (panel_idx_local, panel) in enumerate(panels)
         panel.section_aero === nothing && error(
-            "AeroPressure wing $(wing.name): panel $panel_idx_local has no " *
+            "AeroPressure wing $name: panel $panel_idx_local has no " *
             "section_aero (surface contour). Load geometry with .dat/Cp/cf tables.")
         xc, yc, _, _ = VortexStepMethod.section_surface(
             panel.section_aero, 0.0, panel.delta)
@@ -545,7 +535,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
         node_residual_share[panel_idx_local] = node_residual_shares(xc, yc)
     end
     max_chord_ratio > mode.frame_tol_frac && error(
-        "AeroPressure wing $(wing.name): max surface-node→point distance is " *
+        "AeroPressure wing $name: max surface-node→point distance is " *
         "$(round(max_chord_ratio, digits=2))× the local chord, exceeding " *
         "frame_tol_frac=$(mode.frame_tol_frac). The VSM mesh and structural " *
         "points are likely misaligned (frame mismatch).")
@@ -553,23 +543,23 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
     mode.blend_point = blend_point
     mode.node_couple_shape = node_couple_shape
     mode.node_residual_share = node_residual_share
-    prn && println("✓ AeroPressure wing $(wing.name): mapped " *
+    prn && println("✓ AeroPressure wing $name: mapped " *
         "$(sum(length, station_point)) surface nodes across $(length(panels)) " *
-        "panels to $(length(wing_pts)) points " *
+        "panels to $(length(point_idx)) points " *
         "(max $(round(max_chord_ratio, digits=2))×chord).")
     return nothing
 end
 
 """
-    init_pressure_buffers!(mode::AeroPressure, wing)
+    init_pressure_buffers!(mode::AeroPressure)
 
 Size the frozen state buffers (`v_ind`, `chord_weight`, `traction`,
 `traction_net`) to the current
 mesh and set the `cl/cd/cm` polar callables. Run after
 [`build_station_point_map!`](@ref) (needs the per-panel node counts).
 """
-function init_pressure_buffers!(mode::AeroPressure, wing)
-    body_aero = wing.vsm_aero
+function init_pressure_buffers!(mode::AeroPressure)
+    body_aero = mode.vsm_aero
     n_panels = length(body_aero.panels)
     total_nodes = sum(length, mode.station_point)
     size_frozen_panel_buffers!(mode, n_panels)
@@ -588,65 +578,63 @@ function init_pressure_buffers!(mode::AeroPressure, wing)
 end
 
 """
-    setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
-                vsm_set=nothing)
+    setup_aero!(mode::AeroPressure, sam, wing_idx; prn=false)
 
-Run the generic particle VSM setup (rebuild the unrefined sections onto the
-structural LE/TE stations, refine, build `point_to_vsm_point`), freeze the
+Run the generic particle VSM setup of wing `wing_idx` of `sam` (rebuild the unrefined
+sections onto the structural LE/TE stations, refine, build `point_to_vsm_point`), freeze the
 strut-interpolation caches ([`build_section_interp`](@ref)), then build the
 surface→point traction map ([`build_station_point_map!`](@ref)) and size the frozen
 buffers/polars ([`init_pressure_buffers!`](@ref)). `PARTICLE_DYNAMICS` only.
 
-Live polars are sampled at the `airfoil:` settings `vsm_set` carries, so a deformed
-section is re-solved on the network its tables were generated with.
+Live polars are sampled at the `airfoil:` settings the model's `vsm_set` carries, so a
+deformed section is re-solved on the network its tables were generated with.
 """
-function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
-                     vsm_set=nothing)
-    body_dynamics_type(wing) == PARTICLE_DYNAMICS || error(
-        "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
-        "$(wing.name) is $(body_dynamics_type(wing)).")
-    invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, stations; prn, vsm_set)
+function setup_aero!(mode::AeroPressure, sam, wing_idx; prn=false)
+    dynamics_type = body_dynamics_type(sam, wing_body(sam, wing_idx))
+    dynamics_type == PARTICLE_DYNAMICS || error("AeroPressure supports " *
+        "PARTICLE_DYNAMICS wings only; wing $(sam.definition.wings[wing_idx].name) is " *
+        "$dynamics_type.")
+    invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any}, mode, sam, wing_idx; prn)
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
-        build_section_interp(wing.vsm_wing)
-    build_station_point_map!(mode, wing, points, stations; prn)
-    init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, stations; vsm_set)
+        build_section_interp(mode.vsm_wing)
+    build_station_point_map!(mode, sam, wing_idx; prn)
+    init_pressure_buffers!(mode)
+    mode.live_polars && build_live_polars!(mode, sam, wing_idx)
     return nothing
 end
 
 """
-    validate_aero_structure(mode::AeroPressure, wing, points; prn=false)
+    validate_aero_structure(mode::AeroPressure, sam, wing_idx; prn=false)
 
-Check the generic section↔point mapping plus the surface→point traction map.
+Check the generic section↔point mapping of wing `wing_idx` of `sam` plus the surface→point
+traction map.
 """
-function validate_aero_structure(mode::AeroPressure, wing, points; prn=false)
-    invoke(validate_aero_structure, Tuple{AbstractVSMAero, Any, Any},
-           mode, wing, points; prn)
+function validate_aero_structure(mode::AeroPressure, sam, wing_idx; prn=false)
+    invoke(validate_aero_structure, Tuple{AbstractVSMAero, Any, Any}, mode, sam, wing_idx;
+           prn)
     isempty(mode.station_point) && error(
-        "AeroPressure wing $(wing.idx): surface→point map not built.")
-    prn && println("✓ AeroPressure wing $(wing.idx): " *
-        "$(length(mode.station_point)) panels mapped.")
+        "AeroPressure wing $wing_idx: surface→point map not built.")
+    prn && println("✓ AeroPressure wing $wing_idx: $(length(mode.station_point)) panels " *
+                   "mapped.")
     return nothing
 end
 
 # ==================== refresh: solve + freeze pattern ==================== #
 
 """
-    refresh_particle_aero!(mode::AeroPressure, wing, points, va_point_b_vals;
-                           vsm_min_wind=0.5)
+    refresh_particle_aero!(mode::AeroPressure, sam, wing_idx, va_point_b; vsm_min_wind=0.5)
 
-Solve at the per-panel apparent wind the symbolic RHS uses
+Solve wing `wing_idx` of `sam` at the per-panel apparent wind the symbolic RHS uses
 ([`set_refined_panel_va!`](@ref)), freezing the induced velocity and the per-node
 surface traction pattern ([`freeze_traction_pattern!`](@ref)). Point forces are
 re-derived symbolically each RHS step and read back into each node's
 `aero_force_b`. Below `vsm_min_wind` all frozen buffers are zeroed, the per-point
 offsets included, so no stale constant force survives.
 """
-function refresh_particle_aero!(mode::AeroPressure, wing, points,
-                                va_point_b_vals; vsm_min_wind=0.5)
-    if norm(wing.va_b) < vsm_min_wind
+function refresh_particle_aero!(mode::AeroPressure, sam, wing_idx, va_point_b;
+                                vsm_min_wind=0.5)
+    if norm(wing_apparent_wind(sam, wing_idx)) < vsm_min_wind
         fill!(mode.v_ind, 0.0)
         fill!(mode.traction, 0.0)
         fill!(mode.traction_net, 0.0)
@@ -655,16 +643,16 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         accumulate_point_offset!(mode)
         return nothing
     end
-    update_vsm_wing_from_structure!(wing, points)
-    set_refined_panel_va!(mode, wing, points, va_point_b_vals)
+    update_vsm_wing_from_structure!(mode, sam, wing_idx)
+    set_refined_panel_va!(mode, sam, wing_idx, va_point_b)
     if mode.live_polars
-        solve_with_live_polars!(mode, wing, points)
+        solve_with_live_polars!(mode, sam, wing_idx)
     else
-        solve_and_freeze_circulation!(mode, wing)
+        solve_and_freeze_circulation!(mode, sam, wing_idx)
     end
-    freeze_traction_pattern!(mode, wing)
+    freeze_traction_pattern!(mode, sam, wing_idx)
     any(!isfinite, mode.traction) && throw(AssertionError(
-        "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))
+        "AeroPressure: non-finite traction pattern on wing $wing_idx"))
     return nothing
 end
 
@@ -684,9 +672,10 @@ function contour_winding(section)
 end
 
 """
-    freeze_traction_pattern!(mode::AeroPressure, wing)
+    freeze_traction_pattern!(mode::AeroPressure, sam, wing_idx)
 
-Fill the frozen traction params from the converged VSM solve: for each refined panel
+Fill the frozen traction params of wing `wing_idx` of `sam` from the converged VSM solve, at
+the dynamic pressure of the wing's apparent wind: for each refined panel
 loft the airfoil surface contour and take its traction pattern from
 [`surface_pattern`](@ref) — the section's own tables at the effective sectional α
 (`sol.alpha_dist`), or, on live polars, the deformed shape's — build
@@ -700,10 +689,11 @@ already carries about the panel's leading-edge midpoint and the share-weighted l
 arm the residual will be spread on; [`pressure_couple`](@ref) subtracts both from the
 polar's moment so the couple it places is only what is missing.
 """
-function freeze_traction_pattern!(mode::AeroPressure, wing)
-    sol = wing.vsm_solver.sol
-    panels = wing.vsm_aero.panels
-    dynamic_pressure = 0.5 * wing.vsm_solver.density * dot(wing.va_b, wing.va_b)
+function freeze_traction_pattern!(mode::AeroPressure, sam, wing_idx)
+    sol = mode.vsm_solver.sol
+    panels = mode.vsm_aero.panels
+    va_b = wing_apparent_wind(sam, wing_idx)
+    dynamic_pressure = 0.5 * mode.vsm_solver.density * dot(va_b, va_b)
     column = 0
     for (panel_idx, panel) in enumerate(panels)
         xc, yc, cp, cf = surface_pattern(mode, panel, panel_idx,
@@ -791,11 +781,11 @@ function accumulate_point_offset!(mode::AeroPressure)
         far = mode.panel_blend[panel][3]
         for (node, point_idx) in enumerate(assigned)
             column += 1
-            for (idx, w) in ((point_idx, 1 - far),
+            for (idx, weight) in ((point_idx, 1 - far),
                              (mode.blend_point[panel][node], far))
-                w > 0 || continue
+                weight > 0 || continue
                 total = get!(zero_aero_force, mode.point_offset, idx)
-                @views total .+= w .* (mode.traction[:, column] .-
+                @views total .+= weight .* (mode.traction[:, column] .-
                                        share[node] .* mode.traction_net[:, panel])
             end
         end
@@ -851,15 +841,15 @@ scatter_couple(::AeroPressure, slots, i, panel) =
                     slots.chord[i])
 
 """
-    aero_scatter_entries(mode::AeroPressure, wing, points)
+    aero_scatter_entries(mode::AeroPressure, sam, wing_idx)
 
-The surface pattern: a point takes each of its contour nodes'
+The surface pattern of wing `wing_idx` of `sam`: a point takes each of its contour nodes'
 [`node_residual_shares`](@ref) share of the panel's live force, and that node's
 [`couple_shape`](@ref) share of the panel's couple. The frozen traction itself is
 constant and lives in [`aero_point_offset`](@ref), so only the shares remain here.
 """
-function aero_scatter_entries(mode::AeroPressure, wing, points)
-    point_num = Dict(point.idx => k for (k, point) in enumerate(points))
+function aero_scatter_entries(mode::AeroPressure, sam, wing_idx)
+    point_num = Dict(i => k for (k, i) in enumerate(wing_points(sam, wing_idx)))
     totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
     for (panel, node, k, weight, _) in scatter_node_weights(mode, point_num)
         scatter_totals!(totals, panel, k,
@@ -892,10 +882,8 @@ function scatter_node_weights(mode::AeroPressure, point_num)
     return spread
 end
 
-aero_point_offset(::AeroPressure, params, wing_idx, point_idx) =
-    params.wings[wing_idx].aero.points[point_idx].offset
+aero_point_offset(::AeroPressure, params, wing_idx, i) =
+params.wings[wing_idx].aero.points[i].offset
 
-write_aero_log_points!(mode::AeroPressure, wing, sys_struct, sys_state,
-                       point_idx, zoom) =
-    write_live_aero_log_points!(mode, wing, sys_struct, sys_state,
-                                point_idx, zoom)
+write_aero_log_points!(mode::AeroPressure, sam, wing_idx, sys_state, point_idx, zoom) =
+    write_live_aero_log_points!(mode, sam, wing_idx, sys_state, point_idx, zoom)

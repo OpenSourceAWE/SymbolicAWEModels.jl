@@ -15,9 +15,9 @@ KINEMATIC (pose fitted from its points, the body of a particle wing) or STATIC (
 The body's own mass properties are its `extra_mass` and `extra_inertia_KA`. A DYNAMIC or
 STATIC body adds the points it carries, its `BODY_STATIC` riders and a `RIGID_DYNAMICS`
 wing's nodes, as point masses of their `total_mass` at their anchors: a run's
-`total_mass`, `com_offset_b` and principal inertia describe the body with them
-([`update_mass_properties!`](@ref)). The row's `pos_ENU` is the centre of the body's own
-mass; the origin of its frame is `origin_ENU`.
+`total_mass`, `total_com_offset_b` and principal inertia describe the body with them
+([`body_mass_properties`](@ref)). The row's `pos_ENU` is the centre of the body's own
+mass; the origin of its frame is a run's `origin_ENU`.
 
 $(TYPEDFIELDS)
 """
@@ -51,75 +51,15 @@ end
 KiteGeometry.model_columns(::Type{BodyModel}) = fieldnames(BodyModel)
 KiteGeometry.model_references(::Type{BodyModel}) = (wing=:wings,)
 
-
-"""The `wings` row of the wing whose body body record `r` is, `nothing` for another."""
-function body_wing(r)
-    wing = body_geometry(r).wing_row
-    return wing == 0 ? nothing : getfield(run_state(r), :structure).wings[wing]
-end
-
-"""The dynamics type of body record `body`: `STATIC` where it is held, `KINEMATIC` for
-the body of a particle wing and `DYNAMIC` for another."""
-function body_type(body)
-    body.fixed && return STATIC
-    return body_dynamics_type(body) == PARTICLE_DYNAMICS ? KINEMATIC : DYNAMIC
-end
-
-"""The [`WingType`](@ref) of body record `body`: its wing's, `RIGID_DYNAMICS` for a body
-that is no wing."""
-body_dynamics_type(body) = body_geometry(body).dynamics_type
-
-"""Column `column` of the model of body record `r`, else the same column of its wing's
-`wings` row, `nothing` where neither gives it."""
-function wing_column(r, column)
-    model = getfield(r, :row).model
-    value = hasproperty(model, column) ? getproperty(model, column) : nothing
-    wing = body_wing(r)
-    isnothing(value) && !isnothing(wing) && return getproperty(wing.model, column)
-    return value
-end
-
-"""How the principal frame of body record `r` is found: its own column, else its wing's,
-else `EIGEN_DECOMP`."""
-body_principal_frame_method(r) = parse_principal_frame_method(
-    something(wing_column(r, :principal_frame_method), "EIGEN_DECOMP"))
-
-"""The spin damping of body record `r` per axis [1/s]: its own column, else its wing's,
-else none on a body that is no wing and 150 about y on a wing."""
-body_angular_damping(r) = per_axis(something(wing_column(r, :angular_damping),
-    isnothing(body_wing(r)) ? 0.0 : [0.0, 150.0, 0.0]))
-
-"""The centre of `body`'s own mass from the origin of its frame, body frame [m]: a row's
-`com_offset_b` column, what the run works out for a body record."""
+"""The centre of `body`'s own mass from the origin of its frame, body frame [m]: its
+row's `com_offset_b` column."""
 own_com_offset(body::KiteGeometry.Body) =
     something(body.model.com_offset_b, zero(SVector{3, Float64}))
-own_com_offset(body) = body_geometry(body).extra_com_offset_b
-
-"""
-    origin_ENU(body)
-
-The origin of `body`'s frame in the world [m] in its initial pose: its `pos_ENU`, the
-centre of its own mass, less that centre's offset from the origin.
-"""
-origin_ENU(body) = KVec3(body.pos_ENU) -
-    quaternion_to_rotation_matrix(body.Q_KA2ENU) * own_com_offset(body)
 
 """Put the origin of body row `body`'s frame at `origin` [m] in the world, keeping its
 rotation."""
 set_origin_ENU!(body, origin) = body.pos_ENU =
     origin + quaternion_to_rotation_matrix(body.Q_KA2ENU) * own_com_offset(body)
-
-"""
-    mesh_frame(r) -> (origin, R_mesh_to_w)
-
-The frame the mesh of body record `r`'s wing is authored in: the KA frame of its wing's
-`wings` row, origin [m] and rotation into the world, else the world frame.
-"""
-function mesh_frame(r)
-    wing = body_wing(r)
-    isnothing(wing) && return zeros(KVec3), Matrix{SimFloat}(I, 3, 3)
-    return KVec3(wing.pos_ENU), quaternion_to_rotation_matrix(wing.Q_KA2ENU)
-end
 
 """The vector column `field` of the model of `row`, a zero vector where it is unset."""
 column_vector(row, field) =
@@ -204,19 +144,12 @@ The body→world rotation matrix of `body`'s initial pose `Q_KA2ENU`.
 initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA2ENU)
 
 """
-    initial_body_position(body, point) -> Vector
+    initial_chord_position(sam, b, pos_ENU) -> SimFloat
 
-Where `point` sits in `body`'s frame, from the body origin, in the initial pose.
+Body-frame x of the position `pos_ENU` on body `b` of `sam` in the initial pose:
+smaller towards the leading edge.
 """
-initial_body_position(body, point) =
-    initial_rotation(body)' * (point.pos_ENU - origin_ENU(body))
-
-"""
-    initial_chord_position(wing, point) -> SimFloat
-
-Body-frame x of `point` on `wing` in the initial pose: smaller towards the leading edge.
-"""
-initial_chord_position(wing, point) = initial_body_position(wing, point)[1]
+initial_chord_position(sam, b, pos_ENU) = initial_body_position(sam, b, pos_ENU)[1]
 
 """
     AbstractTubeModel
@@ -416,36 +349,17 @@ function timoshenko_element_frame(x_a, x_b, R_a)
 end
 
 """
-    tube_initial_frames(tube, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
+    init_rest!(model, R_a, R_b, anchor_a_w, anchor_b_w)
 
-World rotations of the two connected bodies and the world positions of the tube's
-two anchors, in the bodies' initial poses (`pos_ENU`, `Q_KA2ENU`).
-"""
-function tube_initial_frames(tube::KiteGeometry.Tube, bodies)
-    body_a = bodies[tube.bodies[1]]
-    body_b = bodies[tube.bodies[2]]
-    R_a = initial_rotation(body_a)
-    R_b = initial_rotation(body_b)
-    anchor_a_w = origin_ENU(body_a) .+ R_a * tube.anchor_a_b
-    anchor_b_w = origin_ENU(body_b) .+ R_b * tube.anchor_b_b
-    return R_a, R_b, anchor_a_w, anchor_b_w
-end
-
-"""
-    init_tube_rest!(tube, bodies)
-
-Capture the rest reference of `tube.model` from the bodies' initial poses, so the
-initial geometry is unstrained and the tube wrench there is exactly zero. One
-`init_rest!` method per tube model:
+Capture the rest reference of the tube element `model` from its bodies' world rotations
+and its anchors' world positions, so that geometry is unstrained and the tube wrench
+there is exactly zero:
 
 - [`ElasticTube`](@ref): rest anchor offset (body-A frame) and rest relative
   rotation `R_a' R_b`.
-- [`TimoshenkoTube`](@ref): rest length (on the first call) and per-node
+- [`TimoshenkoTube`](@ref): rest length, where it holds none, and per-node
   orientations relative to the corotational element frame.
 """
-init_tube_rest!(tube::KiteGeometry.Tube, bodies) =
-    init_rest!(tube.model, tube_initial_frames(tube, bodies)...)
-
 function init_rest!(model::ElasticTube, R_a, R_b, anchor_a_w, anchor_b_w)
     model.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
     model.R_rel0 .= R_a' * R_b
@@ -461,22 +375,6 @@ function init_rest!(model::TimoshenkoTube, R_a, R_b, x_a, x_b)
     model.R_a_rel0 .= element_frame' * R_a
     model.R_b_rel0 .= element_frame' * R_b
     return nothing
-end
-
-"""
-    beam_anchor(pos_ENU, tube, bodies) -> (beam_frac, beam_offset_b)
-
-Where a point at `pos_ENU` [m] rides `tube`'s beam element in the bodies' initial poses:
-its position `s ∈ [0, 1]` along the element and its offset off the centreline in the
-rest element frame [m].
-"""
-function beam_anchor(pos_ENU, tube::KiteGeometry.Tube, bodies)
-    R_a, _, node_a, node_b = tube_initial_frames(tube, bodies)
-    e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, R_a)
-    rel = pos_ENU .- node_a
-    s = clamp(dot(rel, e1) / len, 0.0, 1.0)
-    perp = rel .- (s * len) .* e1
-    return s, KVec3(dot(perp, e1), dot(perp, e2), dot(perp, e3))
 end
 
 """
@@ -505,56 +403,24 @@ has_flap(station) =
     has_point_flap(station) || has_body_flap(station)
 
 """
-    flap_delta(station, R_main, R_flap) -> SimFloat
+    flap_delta(sam, s, R_main, R_flap) -> SimFloat
 
-Signed flap deflection δ [rad] of `station` from the two flap bodies'
-world orientations `R_main`, `R_flap`: project each body's reference chord
-direction onto the plane normal to the world hinge axis and take the signed angle
-about that axis, minus the rest deflection `flap_rest_delta`.
+Signed flap deflection δ [rad] of station `s` of `sam` from the two flap bodies'
+world orientations `R_main`, `R_flap` ([`flap_delta_expression`](@ref)).
 """
-flap_delta(station, R_main, R_flap) =
-    flap_delta_expression(station, R_main, R_flap)
+flap_delta(sam, s, R_main, R_flap) = flap_delta_expression(sam, s, R_main, R_flap)
 
 """
-    point_flap_delta(station, points, R_wing) -> SimFloat
+    point_flap_delta(sam, s, R_wing) -> SimFloat
 
-Deflection δ [rad] of a point flap from the current positions of its three points,
-with `R_wing` the owning wing's orientation. The same
+Deflection δ [rad] of the point flap of station `s` of `sam` from the current positions
+of its three points, with `R_wing` the owning wing's orientation. The same
 [`point_flap_delta_expression`](@ref) the symbolic RHS evaluates, so it is the ground
 truth for tests.
 """
-function point_flap_delta(station, points, R_wing)
-    fore, hinge, aft = station.flap_points
-    return point_flap_delta_expression(station, points[fore].pos_w,
-        points[hinge].pos_w, points[aft].pos_w, R_wing)
+function point_flap_delta(sam, s, R_wing)
+    fore, hinge, aft = sam.definition.spanwise_stations[s].flap_points
+    position(i) = run_value(sam, Val(:points), i, Val(:pos_w))
+    return point_flap_delta_expression(sam, s, position(fore), position(hinge),
+                                       position(aft), R_wing)
 end
-
-"""
-    init_station_flap!(station, sys_struct)
-
-Capture a flapped `KINEMATIC` station's rest geometry from the initial pose, so the
-undeformed configuration reads δ = 0. A body flap defaults its reference chords to
-each body's x-axis and measures the two bodies' `Q_KA2ENU`; a point flap measures
-its three points' `pos_ENU`. No-op for surfaces without a flap.
-"""
-function init_station_flap!(station, sys_struct)
-    if has_point_flap(station)
-        points = sys_struct.points
-        fore, hinge, aft = station.flap_points
-        station.flap_rest_delta = 0.0
-        station.flap_rest_delta = point_flap_delta_expression(station,
-            points[fore].pos_ENU, points[hinge].pos_ENU, points[aft].pos_ENU,
-            initial_rotation(sys_struct.wings[station.wing]))
-        return nothing
-    end
-    has_body_flap(station) || return nothing
-    bodies = sys_struct.bodies
-    isempty(station.flap_chord_refs) &&
-        (station.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
-    R_main = initial_rotation(bodies[station.flap_bodies[1]])
-    R_flap = initial_rotation(bodies[station.flap_bodies[2]])
-    station.flap_rest_delta = 0.0
-    station.flap_rest_delta = flap_delta(station, R_main, R_flap)
-    return nothing
-end
-

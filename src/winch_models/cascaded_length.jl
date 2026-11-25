@@ -45,7 +45,7 @@ CascadedLengthWinch(; v_max, position_gain, velocity_gain, friction_epsilon=6.0)
 
 is_builtin_winch(::CascadedLengthWinch) = true
 
-function winch_component(::CascadedLengthWinch, sys_struct, winch_idx; name, params)
+function winch_component(::CascadedLengthWinch, sam, winch_idx; name, params)
     @variables begin
         vel(t)
         len(t)
