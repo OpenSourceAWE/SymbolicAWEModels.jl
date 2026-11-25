@@ -666,7 +666,7 @@ function init!(sam::SymbolicAWEModel;
 
         remake_vsm && remake_wing_aero!(sam)
         init_wind!(sam)
-        # reinit!(sam, prob) syncs the struct's ICs onto the problem; no rebuild needed.
+        # reinit!(sam, prob) syncs the run's initial state onto the problem; no rebuild.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
             reset_integrator |= reload
@@ -682,7 +682,7 @@ end
 """
     reinit!(sam, integrator; solver=integrator.alg, kwargs...) -> (ODEIntegrator, Bool)
 
-Reset `integrator`, which is `sam`'s own, to the initial state of `sam`'s definition.
+Reset `integrator`, which is `sam`'s own, to the state of the run `sam` as it stands.
 `solver` defaults to the one `integrator` was built with, so the reset stays on the
 compiled right-hand side instead of forcing a second compilation at another
 Jacobian's element type. `kwargs` are those of
@@ -720,7 +720,7 @@ function reinit!(
     seed_set_values!(target) = isnothing(prob.set_set_values) ? nothing :
         prob.set_set_values(target, copy(sam.sysstate.set_torque))
     if fresh
-        # A fresh run starts from the definition, not from an earlier integrator.
+        # A fresh run starts from the run's state, not from an earlier integrator.
         sam.integrator = nothing
         # A trailing reinit! would re-solve the DAE init and discard this synced state.
         sync_run_params!(prob.param_sync, prob.prob, sam)
@@ -781,8 +781,6 @@ function structure_hash(sam)
     sys = sam.definition
     data_parts = []
     for (idx, point) in enumerate(sys.points)
-        # nothing-vs-set gates whether drag/damping equations are emitted (structure,
-        # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
         push!(data_parts, ("point", idx, something(point_wing(sam, idx), 0),
                            something(point.body, 0), something(point.tube, 0),
                            Int(point_type(point))))

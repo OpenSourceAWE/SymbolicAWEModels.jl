@@ -11,7 +11,7 @@ motion, or a station's twist. `DYNAMIC` quantities carry differential state
 and are solved by the dynamics; the others are *prescribed* — no state, held
 constant within a step, but mutable between steps. A wing's aerodynamic-surface
 points are ordinary `DYNAMIC` (particle wing) or `BODY_STATIC` (rigid wing) points;
-their wing membership comes from station membership (`point.is_wing_node`).
+their wing membership comes from station membership (run quantity `:is_wing_node`).
 
 # Elements
 - `DYNAMIC`: Solved by the dynamics. A point moves by Newton's second law; a

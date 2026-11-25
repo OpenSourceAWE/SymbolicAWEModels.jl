@@ -13,7 +13,7 @@ Generate equations for the winch motor dynamics and per-tether length state of t
 
 For each winch:
 1. Sum spring force vectors of the segments meeting the winch point
-   (sign-aware via segment `point_idxs`) → `winch_force_vec`.
+   (sign-aware via segment `points`) → `winch_force_vec`.
 2. Instantiate the winch component via `winch_component(winch.model.dynamics, …)`.
 3. Validate the connector contract with
    [`validate_winch_component`](@ref).
@@ -28,8 +28,8 @@ segments' dampers read as a rest-length rate:
 - With winch: `tether_vel = ifelse(brake > 0.5, 0, winch_vel)` and
   `D(tether_len) = tether_vel`, so the length is integrator state.
 - Without winch: `tether_vel = 0` and `tether_len ~ params.tethers[i].len`, a
-  parameter, so writing `tether.len` retrims a running simulation without a
-  `reinit!`.
+  parameter, so `set_run_value!(sam, :tethers, i, :len, v)` retrims a running
+  simulation without a `reinit!`.
 """
 function winch_eqs!(sam, eqs, defaults, params, initial;
                     spring_force_vec, set_values, tether_len, tether_vel,

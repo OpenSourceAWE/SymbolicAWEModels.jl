@@ -287,8 +287,9 @@ end
 
 XFoil against the live polar one panel of wing `wing_idx` of `sam` is flying, at the state
 the model is in now: the panel's own deformed shape, the angle of attack its circulation
-gives it and its Reynolds. `panel_idx` defaults to the panel NeuralFoil is least confident about, which
-is the one worth asking about. See `AirfoilAero.compare_live_polar` for what comes back.
+gives it and its Reynolds. `panel_idx` defaults to the panel NeuralFoil is least confident
+about, which is the one worth asking about. See `AirfoilAero.compare_live_polar` for what
+comes back.
 
 The `Live polar off the trained shape range` warning says the network is extrapolating.
 This says whether the extrapolation is any good, which the confidence cannot: it scores

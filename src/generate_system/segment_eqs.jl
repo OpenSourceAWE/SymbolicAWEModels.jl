@@ -11,7 +11,7 @@ Rest-length equations for segment `idx` of definition `sys`, and the rate that r
 length moves at.
 A pulley member takes either the pulley state `pulley_len` or the remainder
 `sum_len - pulley_len`, a tether member takes `tether_len / n_segments`, and any
-other segment keeps its fixed `l0` parameter. Returns `(eqs, rest_len_rate)`, the
+other segment keeps its fixed `rest_length` parameter. Returns `(eqs, rest_len_rate)`, the
 rate carrying the sign of the state it follows and being zero for a fixed rest
 length; [`segment_load_terms`](@ref) needs it to damp the extension rather than the
 endpoint separation. Errors when a segment belongs to more than one pulley or more

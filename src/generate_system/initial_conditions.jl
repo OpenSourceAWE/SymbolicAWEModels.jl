@@ -86,7 +86,7 @@ end
     ElementReader(base, index)
 
 Serialisable reader returning the `index`-th element of `base(sam)`. Used
-to map an array-valued struct field onto per-element `Initial` parameters
+to map an array-valued run quantity onto per-element `Initial` parameters
 (scalars are indexed at 1, which is a no-op).
 """
 struct ElementReader{R}
@@ -170,9 +170,8 @@ Operating-point pairs for every compiled parameter of `sys` that has no default,
 matched by [`normalize_param_name`](@ref) to a value in `defaults`. Restores
 values for the aliasing artefacts (e.g. `tether_len[1]#0`, from a single-segment
 tether's `l0`↔`tether_len` alias) that ModelingToolkitBase ≥ 1.58 leaves
-`missing` at eager `MTKParameters` construction — the old raw-variable default no
-longer reaches the renamed parameter. `sync_params!`/`sync_initial!` overwrite
-these each `reinit!`, so the value only needs to be a consistent placeholder.
+`missing` at eager `MTKParameters` construction. `sync_params!`/`sync_initial!`
+overwrite these each `reinit!`, so the value only needs to be a consistent placeholder.
 """
 function missing_param_defaults(sys, defaults)
     valmap = Dict{String, Any}()

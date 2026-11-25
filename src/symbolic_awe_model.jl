@@ -76,9 +76,9 @@ associated getter and setter functions for the full, nonlinear physical state.
     prob::Prob
 
     # Setters for the ODE
-    "Syncs flattened struct-field parameters into the flat buffer once per step."
+    "Syncs the run's parameters into the flat buffer once per step."
     param_sync::ParamSync
-    "Pushes the struct's initial conditions onto the problem's `Initial` params."
+    "Pushes the run's initial conditions onto the problem's `Initial` params."
     initial_sync::InitialSync
     "Setter for the control input values."
     set_set_values::SetSetValues
@@ -400,7 +400,7 @@ function copy_run_columns!(to::SysState, from::SysState)
 end
 
 """
-    update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
+    update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
 
 Update a `SysState` from the model's integrator: converts units (e.g. radians to
 degrees) and computes derived values like AoA. Roll, pitch and yaw are
@@ -409,7 +409,7 @@ frame, every other body's at its body slot and frame.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
-- `s::SymbolicAWEModel`: The source model.
+- `sam::SymbolicAWEModel`: The source model.
 - `zoom::SimFloat=1.0`: A scaling factor for the position coordinates.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
@@ -469,7 +469,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     slots = sam.topology.slots
     for b in eachindex(sys.bodies)
         w = body_wing(sam, b)
-        slot, frame = w == 0 ? (slots.bodies[b], length(sys.wings) + b) : (slots.wings[w], w)
+        slot, frame = w == 0 ? (slots.bodies[b], length(sys.wings) + b) :
+            (slots.wings[w], w)
         write_body_state!(ss, sam, b, slot, frame, zoom)
     end
     copyto!(ss.pulley_len, run.pulley_len)
@@ -739,7 +740,7 @@ calc_heading(sam::SymbolicAWEModel) =
      for b in (wing_body(sam, w) for w in eachindex(sam.definition.wings))]
 
 """
-    calc_aoa(s::SymbolicAWEModel)
+    calc_aoa(sam::SymbolicAWEModel)
 
 Angle of attack [rad] of the first wing, dispatched on its aero mode
 ([`calc_aoa(::AbstractAeroModel, sam, w)`](@ref)). `NaN` if the mode defines no AoA.
@@ -747,14 +748,14 @@ Angle of attack [rad] of the first wing, dispatched on its aero mode
 calc_aoa(sam::SymbolicAWEModel) = calc_aoa(sam.aero[1], sam, 1)
 
 """
-    unstretched_length(s::SymbolicAWEModel)
+    unstretched_length(sam::SymbolicAWEModel)
 
 Returns the unstretched tether length [m] for each tether.
 """
 unstretched_length(sam::SymbolicAWEModel) = copy(sam.sysstate.l_tether)
 
 """
-    tether_length(s::SymbolicAWEModel)
+    tether_length(sam::SymbolicAWEModel)
 
 Returns the current stretched tether length [m] for each tether.
 """
@@ -762,14 +763,14 @@ tether_length(sam::SymbolicAWEModel) =
     [tether_stretched_length(sam, i) for i in eachindex(sam.definition.tethers)]
 
 """
-    calc_height(s::SymbolicAWEModel)
+    calc_height(sam::SymbolicAWEModel)
 
 Returns the height (z-position) [m] of the wing.
 """
 calc_height(sam::SymbolicAWEModel) = run_value(sam, :wings, 1, :pos_w)[3]
 
 """
-    winch_force(s::SymbolicAWEModel)
+    winch_force(sam::SymbolicAWEModel)
 
 Returns the winch force [N] for each winch.
 """
@@ -777,14 +778,14 @@ winch_force(sam::SymbolicAWEModel) =
     [norm(winch_force_vector(sam, i)) for i in eachindex(sam.definition.winches)]
 
 """
-    spring_forces(s::SymbolicAWEModel)
+    spring_forces(sam::SymbolicAWEModel)
 
 Returns the spring force [N] for each tether segment.
 """
 spring_forces(sam::SymbolicAWEModel) = copy(sam.sysstate.spring_force)
 
 """
-    pos(s::SymbolicAWEModel)
+    pos(sam::SymbolicAWEModel)
 
 Returns a vector of the position vectors [m] for each point in the system.
 """

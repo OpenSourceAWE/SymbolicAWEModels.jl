@@ -46,7 +46,7 @@ struct ProfileWind <: WindMode end
 """
     PerPointWind()
 
-Wind mode in which every point carries its own wind vector: `point.wind_vec` becomes
+Wind mode in which every point carries its own wind vector: its `wind_vec` becomes
 a parameter, settable between steps, instead of an output of the height profile. A
 segment takes the mean of its two endpoints' winds and a wing reads its own
 `wing.wind_vec`; `set.profile_law` is unused. `reinit!` seeds every point and wing
@@ -156,7 +156,7 @@ segment_wind_source(::PerPointWind, params, idx, src_wind, dst_wind, ground) =
 
 The wind source a segment kernel uses and the parameters it has to declare for it.
 Under [`PerPointWind`](@ref) a drag-carrying segment mints `src_wind`/`dst_wind`,
-which `bind_segment_winds!` points at its two endpoints' `point.wind_vec` — the
+which `bind_segment_winds!` points at its two endpoints' `wind_vec` — the
 kernel is instanced over `:segments`, so the endpoints cannot be reached through the
 registry's per-instance index remapping. The monolith reads its endpoints'
 `wind_at_point` directly and calls [`segment_wind_source`](@ref) itself.
@@ -215,7 +215,7 @@ end
     point_particle_params(params, idx)
 
 The shared DYNAMIC-particle parameters read from `params.points[idx]` — mass, drag,
-area and world-frame damping as the point's own struct fields — plus the registered
+area and world-frame damping as the point's run values — plus the registered
 gravity `g_earth` and the point's [`point_wind_source`](@ref). Returns a named tuple
 consumed by [`dynamic_point_dynamics`](@ref); each read registers the parameter on
 `params`, so gravity stays settable after construction.
@@ -306,7 +306,7 @@ end
     segment_spring_params(params, idx; with_drag=true)
 
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
-compression fraction, diameter, density as the segment's own struct fields), plus
+compression fraction, diameter, density as the segment's run values), plus
 the global tether drag `cd_tether` (`params.set.cd_tether`). With `with_drag=false`
 (the [`wing_structural_segment`](@ref) edge) `cd_tether` is a literal `0` and unused.
 `nonlinear` marks a callable `unit_stiffness` force law. Each read registers the
@@ -944,9 +944,9 @@ end
     point_wind_eqs(s, params, idx, io)
 
 Bind `wind_vec` to the point's [`point_wind_source`](@ref) at its own height — the
-monolith's `wind_at_point`, scattered into `point.wind_vec` — and `total_drag` to the
+monolith's `wind_at_point`, scattered into its `wind_vec` — and `total_drag` to the
 point's own aerodynamic drag against it plus the share its segments deliver, which
-the state getter scatters into `point.drag_force`.
+the state getter scatters into its `drag_force`.
 """
 function point_wind_eqs(s, params, idx, io)
     point = params.points[idx]
@@ -1006,7 +1006,7 @@ end
 
 The rope mass `sum_len · ρ · π (d/2)²` driving a pulley's rope split, built in
 equation from the pulley's `sum_len` and one of its segments' material, so it
-follows the struct live.
+follows the run live.
 """
 function pulley_rope_mass(params, pulley_idx, segment_idx)
     segment = params.segments[segment_idx]
@@ -1051,10 +1051,10 @@ end
 """
     WinchAnchor(s, params, winch_idx, idx; name)
 
-Winch `winch_idx` of the run `s`, reeling at the STATIC point `idx`. It owns the motor speed `winch_vel` and
-one `tether_len_k` state per connected tether, each an output its tether's segments
-read as their rest length, alongside a `tether_vel_k` output carrying that length's
-rate for their dampers. The motor law is [`winch_component`](@ref) reused
+Winch `winch_idx` of the run `s`, reeling at the STATIC point `idx`. It owns the motor
+speed `winch_vel` and one `tether_len_k` state per connected tether, each an output its
+tether's segments read as their rest length, alongside a `tether_vel_k` output carrying
+that length's rate for their dampers. The motor law is [`winch_component`](@ref) reused
 verbatim; it reads the tension gathered at the winch point (the vector sum of the
 spring forces there, as `winch_eqs!` forms it), the mean tether length, the control
 `set_value` and the `brake`, and returns the drum acceleration.
@@ -1252,7 +1252,7 @@ The variables a rigid-body component declares, as a named tuple: the aggregated
 `force_in`/`moment_in` at and about its COM, the pose outputs a point riding the
 body reads (`pos`, `vel`, `frame` — `R_b_to_w` column-major — `com`, `com_velocity`,
 `omega_w`), and the observed `acc`/`orientation`/`omega_b`/`alpha_b` the state getter
-scatters into the struct or feeds to the reported scalars.
+scatters into the run or feeds to the reported scalars.
 """
 function body_variables()
     vars = @variables begin
@@ -1474,8 +1474,8 @@ end
 The variables shared by every anchored point's *statics* half, as a named tuple:
 its own `height` and `vel` from the kinematics half, the `force_in`/`mass_in`/
 `drag_in` its segments deliver, and the observed `total_drag`/`wind_vec`/`net_force`
-— the same three [`point_variables`](@ref) declares, so the struct reads the same
-fields back whether a point rides something or flies free. The moment arms differ
+— the same three [`point_variables`](@ref) declares, so the run reads the same
+quantities back whether a point rides something or flies free. The moment arms differ
 per anchor kind and are declared by the component itself.
 """
 function ride_wrench_variables()
@@ -1522,7 +1522,7 @@ end
 The three observables every anchored point's statics half reports, whatever it
 rides: its `total_drag` (its own plus its segments' share), the `wind_vec` at its
 own height and its `net_force`. `point_eqs!` writes all three for every point, so
-binding them here is what lets the struct read the same fields back on either
+binding them here is what lets the run read the same quantities back on either
 backend.
 """
 ride_wrench_eqs(io, ride) = [
@@ -2574,7 +2574,7 @@ body-frame damping `point_eqs!` adds for a point that damps against its wing's f
 rather than the world, which reads the `wing_frame`/`wing_velocity` the fitted body
 supplies. Its aerodynamic force arrives at `force_in` from
 [`ParticleWingAero`](@ref), like any other load. `with_damping = false` drops the
-damping term whose coefficient the struct leaves unset, so no zero-valued parameter
+damping term whose coefficient the run leaves unset, so no zero-valued parameter
 is generated, matching the monolith.
 """
 function WingNodePoint(s, params, idx; name, with_damping = true)

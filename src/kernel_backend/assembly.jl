@@ -219,7 +219,8 @@ end
 Decide each segment's component type. A pulley's two segments take their rest
 length from the pulley split; a winched tether's segments take theirs from the
 winch. An *unwinched* tether's rest length never changes, so its segments stay
-plain springs whose `l0` parameter the assembler reads from the tether instead.
+plain springs whose `rest_length` parameter the assembler reads from the tether
+instead.
 """
 function classify_segments(sam)
     sys = sam.definition

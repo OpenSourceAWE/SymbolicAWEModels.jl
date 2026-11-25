@@ -10,9 +10,9 @@ only it reads, each `nothing` where the row leaves it unset.
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct PointModel <: KiteGeometry.AbstractModel
-    "Damping in the body frame [N·s/m], one value or one per axis."
+    "Damping per unit mass on the body axes [1/s], one value or one per axis."
     body_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
-    "Damping in the world frame [N·s/m], one value or one per axis."
+    "Damping per unit mass on the world axes [1/s], one value or one per axis."
     world_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Drag area [m²]."
     area::Union{Nothing, Float64} = nothing
@@ -54,8 +54,7 @@ end
     StationModel
 
 What SymbolicAWEModels holds of a station beyond its KiteGeometry `spanwise_stations` row:
-the columns only it reads, each `nothing` where the row leaves it unset, then what it
-derives when it builds the structure, which no document holds.
+the columns only it reads, each `nothing` where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """

@@ -425,7 +425,7 @@ Copy `buffer[slots[k]]` into entry `entry` of `columns[k]`, one column of a run'
 end
 
 """
-    KernelControlSetter(model)
+    KernelControlSetter(model, sam)
 
 Callable `(target, values)` writing each winch's control setpoint into the
 parameter buffer, mirroring the monolith's `set_set_values`. `values[i]` is the
