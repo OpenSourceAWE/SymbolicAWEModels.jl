@@ -596,7 +596,7 @@ end
 
 Advance the simulation by one time step, optionally
 updating control inputs and re-linearizing the VSM
-model, then update the `SystemDefinition` from the ODE
+model, then update `s.sysstate` from the ODE
 integrator. Errors on an unstable solver retcode.
 
 # Keyword Arguments

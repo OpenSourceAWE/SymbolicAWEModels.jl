@@ -268,11 +268,10 @@ A mode supports a wing dynamics exactly when it defines the matching
 `safe_vsm_solve!` solves under `VortexStepMethod`'s `throw_on_fail`, so a solve
 that missed the solver's tolerances or came back non-finite — a `ForwardDiff`
 partial included — throws `VortexStepMethod.SolveFailure` rather than returning.
-Before that failure leaves `safe_vsm_solve!` it restores the circulation and the
-two angle-of-attack distributions of the last converged solve, which `solve!` has
-already overwritten with the diverged ones. The restored circulation is the warm
-start of the next attempt, and the restored angles are what a live polar
-re-centres its knots on.
+The run's circulation, in its `SysState`'s `gamma_distribution`, is written only after
+a solve converged, so it still holds the last converged solve: it is the start of the
+next attempt, and what a live polar re-centres its knots on
+([`circulation_alpha`](@ref)).
 
 `next_step!(sam; vsm_warn_on_fail=true)` downgrades that to a warning and the
 simulation goes on. Each mode solves before it writes anything frozen, so the

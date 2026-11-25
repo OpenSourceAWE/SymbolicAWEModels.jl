@@ -55,7 +55,7 @@ Alternatively, components can be parsed from a YAML file using
 1. **Completes the winches** — a winch without a `gear_ratio` or `drum_radius` takes
    `set`'s
 2. **Builds the definition** — the rows and the `materials` they name become a
-   KiteGeometry `SystemDefinition`, with the body of each wing leading `bodies`
+   KiteGeometry `SystemDefinition`
 3. **Completes the wings** — KiteGeometry's `complete_wings!` gives every wing
    `set.mass` where it carries none and puts its body in its design pose from where
    its points stand

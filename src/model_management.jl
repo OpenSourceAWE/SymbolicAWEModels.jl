@@ -446,8 +446,8 @@ end
 Full `init!` path for a non-[`MonolithBackend`](@ref). The monolith uses the
 `init!` body directly; other backends (currently [`KernelBackend`](@ref))
 implement their own assembly + integrator build here and return the fresh
-`ODEIntegrator`: refresh the `SystemDefinition` (positions, rest lengths), assemble
-the problem from it, and store `sam.prob`/`sam.integrator`.
+`ODEIntegrator`: assemble the problem from `sam`'s definition and run, and store
+`sam.prob`/`sam.integrator`.
 """
 function init_backend!(backend::ModelBackend, sam, solver; kwargs...)
     throw(BackendUnsupportedError("init!", backend))
@@ -682,7 +682,7 @@ end
 """
     reinit!(sam, integrator; solver=integrator.alg, kwargs...) -> (ODEIntegrator, Bool)
 
-Reset `integrator`, which is `sam`'s own, from the current `SystemDefinition`.
+Reset `integrator`, which is `sam`'s own, to the initial state of `sam`'s definition.
 `solver` defaults to the one `integrator` was built with, so the reset stays on the
 compiled right-hand side instead of forcing a second compilation at another
 Jacobian's element type. `kwargs` are those of

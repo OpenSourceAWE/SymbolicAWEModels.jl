@@ -62,7 +62,7 @@ Mutable holder for the live `BodyAerodynamics` a polar reads, and the reason a
 serialized model does not carry one. A polar is a callable parameter, so its
 concrete type is baked into the parameter store and into what the solver
 specialized on and has to survive a round trip — but its contents are dead weight,
-because `sync_params!` rebinds every polar from the `SystemDefinition` before the
+because `sync_params!` rebinds every polar from the model's VSM engines before the
 problem is evaluated. Serializing the holder empty keeps the type and drops the
 wing's whole Cp/cf surface tables, which were 2.4 GB of bin on a large kite. It is
 undefined between `deserialize` and that sync, and reading it there is a bug.
