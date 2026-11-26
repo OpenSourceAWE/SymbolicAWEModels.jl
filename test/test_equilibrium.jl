@@ -12,7 +12,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, EquilibriumProblem, loads_at!, aitken_factor
+using SymbolicAWEModels: KernelBackend, EquilibriumProblem, loads_at!, next_input
 using KiteUtils
 using LinearAlgebra
 
@@ -112,24 +112,6 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
         @test resolved.residual <= resolved.tolerance
     end
 
-    @testset "a relaxed change lands where move takes it" begin
-        start_at!(rigid; elevation = 50.0, v_wind = 15.51)
-        problem = EquilibriumProblem(rigid)
-        u = copy(rigid.integrator.u)
-        step = 0.01 .* sin.(1:length(problem.inertia))
-        target = SymbolicAWEModels.move(problem, u, step)
-        change = SymbolicAWEModels.coordinate_change(problem, u, target)
-        @test change ≈ step
-        @test SymbolicAWEModels.move(problem, u, change) ≈ target
-    end
-
-    @testset "Aitken relaxation shrinks on an oscillation, within [0.05, 1]" begin
-        @test aitken_factor(0.5, nothing, [1.0, 0.0]) == 0.5
-        @test aitken_factor(1.0, [1.0, 0.0], [-0.9, 0.0]) ≈ 1 / 1.9
-        @test aitken_factor(1.0, [1.0, 0.0], [0.99, 0.0]) == 1.0
-        @test aitken_factor(0.06, [1.0, 0.0], [-10.0, 0.0]) == 0.05
-    end
-
     @testset "damping does not move the equilibrium" begin
         start_at!(particle; elevation = 50.0, v_wind = 15.51)
         start = copy(particle.integrator.u)
@@ -140,6 +122,29 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
         find_equilibrium!(particle)
         set_world_frame_damping(particle.state.points, 0.0)
         @test largest_distance(point_positions(particle), undamped) < 1e-9
+    end
+
+    @testset "a coordinate change is the step move takes" begin
+        start_at!(rigid; elevation = 50.0, v_wind = 15.51)
+        problem = EquilibriumProblem(rigid)
+        u = copy(rigid.integrator.u)
+        step = 0.01 .* sin.(1:length(problem.inertia))
+        target = SymbolicAWEModels.move(problem, u, step)
+        change = SymbolicAWEModels.coordinate_change(problem, u, target)
+        @test change ≈ step
+        @test SymbolicAWEModels.move(problem, u, change) ≈ target
+    end
+
+    @testset "the quasi-Newton update finds the fixed point of a diverging linear map" begin
+        amplify = [3.0 0.0; 0.0 0.5]
+        offset = [1.0, 1.0]
+        fixed_point = (I - amplify) \ offset
+        inputs, outputs = [zeros(2)], Vector{Float64}[]
+        for _ in 1:3
+            push!(outputs, amplify * inputs[end] .+ offset)
+            push!(inputs, next_input(inputs, outputs))
+        end
+        @test inputs[end] ≈ fixed_point
     end
 
     @testset "a pose off its equilibrium reports the moment holding it" begin

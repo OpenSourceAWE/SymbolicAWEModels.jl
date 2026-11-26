@@ -366,14 +366,14 @@ end
                       move_limit=0.25, turn_limit=0.2) -> NamedTuple
 
 Move `sam` to its quasi-steady state at rest, with the pose of its first transform held
-about the base: the aerodynamics solved on the structure's shape and the structure at
-the minimum of its potential energy under them. Each round solves the aerodynamics on
-the current shape, settles the structure under them as dead loads in at most
-`max_iterations` Newton steps, and moves towards that shape by an Aitken relaxation
-factor in [0.05, 1]. A Newton step moves no point further than `move_limit` [m] and no
-body further than `turn_limit` [rad]. Stops once no coordinate carries more than `rtol`
-times the kite's weight plus its aerodynamic force, in [N] or [N m], or after
-`max_rounds` rounds. Needs the `KernelBackend`.
+about the base: the structure at the minimum of its potential energy under the
+aerodynamics solved on its own shape. Each round settles the structure under the
+aerodynamics of the current shape as dead loads, in at most `max_iterations` Newton
+steps of no more than `move_limit` [m] per point and `turn_limit` [rad] per body, and
+solves the aerodynamics on the settled shape; the next round starts from the shape
+[`next_input`](@ref) predicts from the last five. Stops once no coordinate carries more
+than `rtol` times the kite's weight plus its aerodynamic force, in [N] or [N m], or
+after `max_rounds` rounds. Needs the `KernelBackend`.
 
 Returns `(; converged, rounds, iterations, residual, moment)`: the rounds and Newton
 steps taken, the largest unbalanced load left [N] and the moment about the base [N m,
@@ -382,21 +382,25 @@ world frame] that holding the pose takes, zero where the pose is itself an equil
 function find_equilibrium!(sam::SymbolicAWEModel; rtol = 1e-4, max_rounds = 30,
                            max_iterations = 100, move_limit = 0.25, turn_limit = 0.2)
     problem = EquilibriumProblem(sam)
-    u = at_rest(problem, copy(sam.integrator.u))
-    (; force, residual, tolerance) = loads_at!(problem, u, rtol)
-    relaxation, previous, rounds, iterations = 1.0, nothing, 0, 0
-    while residual > tolerance && rounds < max_rounds
+    reference = at_rest(problem, copy(sam.integrator.u))
+    u, loads = reference, loads_at!(problem, reference, rtol)
+    inputs, outputs = Vector{Float64}[], Vector{Float64}[]
+    rounds, iterations = 0, 0
+    while true
         rounds += 1
-        settled = settle_structure(problem, u, force, tolerance; max_iterations,
-                                   move_limit, turn_limit)
+        push!(inputs, coordinate_change(problem, reference, u))
+        settled = settle_structure(problem, u, loads.force, loads.tolerance;
+                                   max_iterations, move_limit, turn_limit)
         iterations += settled.iterations
-        change = coordinate_change(problem, u, settled.u)
-        relaxation = aitken_factor(relaxation, previous, change)
-        u, previous = move(problem, u, relaxation .* change), change
-        (; force, residual, tolerance) = loads_at!(problem, u, rtol)
+        u, loads = settled.u, loads_at!(problem, settled.u, rtol)
+        (loads.residual <= loads.tolerance || rounds == max_rounds) && break
+        push!(outputs, coordinate_change(problem, reference, u))
+        length(inputs) > 5 && (popfirst!(inputs); popfirst!(outputs))
+        u = move(problem, reference, next_input(inputs, outputs))
+        loads = loads_at!(problem, u, rtol)
     end
-    return (; converged = residual <= tolerance, rounds, iterations, residual,
-            moment = pose_moment(problem, u, force))
+    return (; converged = loads.residual <= loads.tolerance, rounds, iterations,
+            residual = loads.residual, moment = pose_moment(problem, u, loads.force))
 end
 
 """
@@ -409,7 +413,7 @@ function loads_at!(problem::EquilibriumProblem, u, rtol)
     (; sam) = problem
     settle!(sam, u)
     if has_vsm_wing(sam.state)
-        refresh_aero!(sam; cold_start = true)
+        refresh_aero!(sam; cold_start = true, vsm_warn_on_fail = true)
         sync_params!(sam.prob.param_sync, sam.integrator, sam.state)
     end
     force = generalized_force(problem, u)
@@ -461,18 +465,20 @@ function coordinate_change(problem::EquilibriumProblem, u, target)
 end
 
 """
-    aitken_factor(relaxation, previous, change) -> Float64
+    next_input(inputs, outputs; relaxation=0.1) -> Vector
 
-The relaxation factor for a fixed-point `change` after the `previous` one, by Aitken's
-method from the last factor `relaxation`, clipped to [0.05, 1]; `relaxation` itself
-where there is no previous change.
+The next input of the fixed point that maps each of `inputs` to the matching one of
+`outputs`, by interface quasi-Newton with least squares (IQN-ILS): the latest output
+corrected by how outputs and their residuals changed between rounds, or the first input
+moved `relaxation` of the way to its output where there is one round.
 """
-function aitken_factor(relaxation, previous, change)
-    isnothing(previous) && return relaxation
-    difference = change .- previous
-    denominator = dot(difference, difference)
-    denominator > 0 || return relaxation
-    return clamp(-relaxation * dot(previous, difference) / denominator, 0.05, 1.0)
+function next_input(inputs, outputs; relaxation = 0.1)
+    residuals = outputs .- inputs
+    n = length(inputs)
+    n == 1 && return inputs[1] .+ relaxation .* residuals[1]
+    residual_changes = reduce(hcat, [residuals[n] .- residuals[i] for i in 1:(n - 1)])
+    output_changes = reduce(hcat, [outputs[n] .- outputs[i] for i in 1:(n - 1)])
+    return outputs[n] .+ output_changes * (residual_changes \ -residuals[n])
 end
 
 """

@@ -4,9 +4,7 @@ CurrentModule = SymbolicAWEModels
 
 # Private API — equilibrium solver
 
-The internals of [`find_equilibrium!`](@ref): the coordinates it moves, the forces and
-stiffness it reads off the model, and the damped Newton search on them. Not part of
-the public API.
+The internals of [`find_equilibrium!`](@ref): the coordinates it moves, the forces and stiffness it reads off the model, the damped Newton search on them, and the relaxed loop that couples it to the aerodynamics. Not part of the public API.
 
 ```@docs
 SymbolicAWEModels.EquilibriumLayout
@@ -34,6 +32,10 @@ SymbolicAWEModels.energy_slope
 SymbolicAWEModels.line_search
 SymbolicAWEModels.limit_step
 SymbolicAWEModels.descent_step
+SymbolicAWEModels.loads_at!
+SymbolicAWEModels.settle_structure
+SymbolicAWEModels.coordinate_change
+SymbolicAWEModels.next_input
 SymbolicAWEModels.kite_load
 SymbolicAWEModels.settle!
 ```
