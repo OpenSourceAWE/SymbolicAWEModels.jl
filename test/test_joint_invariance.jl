@@ -282,20 +282,20 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
     end
 
     # The damping terms are the ones that carry velocity into the Jacobian, so a
-    # rigidity law with a slope discontinuity shows up here and nowhere else.
-    # Comer-Levy only; the Breukels knee is a fitting anchor, not a tangency.
-    @testset "Comer-Levy bending law is C1 across the knee" begin
-        law = comer_levy_bending_law(0.06, 0.3e5, 5.0e5)
-        knee = law.curvature_knee
-        step = 1e-7 * max(knee, 1.0)
-        below = (law(knee - step) - law(knee - 2step)) / step
-        above = (law(knee + 2step) - law(knee + step)) / step
-        # dEI/dκ runs on EI0/κ_knee, so a kink is a finite fraction of that and
-        # the law's own curvature over the offset step is many orders below it.
-        scale = law.EI0 / knee
-        @info "Bending law slope across the knee" knee below above scale
-        @test isapprox(law(knee - step), law(knee + step);
-                       rtol=1e-4)                       # C0: values match
+    # rigidity law with a slope discontinuity shows up here and nowhere else. Each
+    # bending law is checked where its moment bends hardest: the Comer-Levy knee and
+    # the Breukels curvature scale M_c/EI0.
+    @testset "$label bending law is C1" for (label, law, curvature) in (
+            ("Comer-Levy", comer_levy_bending_law(0.06, 0.3e5, 5.0e5), :knee),
+            ("Breukels", tube_bending_law(0.06, 0.3), :scale))
+        bend = curvature === :knee ? law.curvature_knee : law.moment_collapse / law.EI0
+        step = 1e-7 * max(bend, 1.0)
+        below = (law(bend - step) - law(bend - 2step)) / step
+        above = (law(bend + 2step) - law(bend + step)) / step
+        # dEI/dκ runs on EI0/κ, so a kink is a finite fraction of that and the
+        # law's own curvature over the offset step is many orders below it.
+        scale = law.EI0 / bend
+        @test isapprox(law(bend - step), law(bend + step); rtol=1e-4)  # C0
         @test isapprox(below, above; atol=1e-3 * scale)
     end
 
