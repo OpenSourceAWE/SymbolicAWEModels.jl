@@ -449,8 +449,8 @@ function point_wings(sys, body_wings)
     wings = Union{Nothing, Int}[nothing for _ in sys.points]
     for (i, point) in enumerate(sys.points)
         body = point.body
-        if !isnothing(point.wing)
-            wings[i] = point.wing
+        if !isnothing(point.wing_idx)
+            wings[i] = point.wing_idx
         elseif !isnothing(body) && body_wings[body] != 0
             wings[i] = body_wings[body]
         end

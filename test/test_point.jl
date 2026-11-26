@@ -580,7 +580,7 @@ end
     end
 
     @testset "wing that does not exist is rejected at load" begin
-        @test_throws "no wings 7" load_authoring(
+        @test_throws "no wings at index 7" load_authoring(
             geometry_with_wing(:kcu, "7");
             name="wing_out_of_range", set)
     end

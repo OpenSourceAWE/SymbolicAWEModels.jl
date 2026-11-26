@@ -26,9 +26,12 @@ $(TYPEDFIELDS)
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
     "Entrained-air mass resisting acceleration without adding weight [kg]."
     apparent_mass::Union{Nothing, Float64} = nothing
+    "The `wings` row whose frame a bridle or pulley point is damped in."
+    wing_idx::Union{Nothing, KiteGeometry.NameRef} = nothing
 end
 
 KiteGeometry.model_columns(::Type{PointModel}) = fieldnames(PointModel)
+KiteGeometry.model_references(::Type{PointModel}) = (wing_idx=:wings,)
 
 """
     SegmentSpring
@@ -316,7 +319,7 @@ default, and `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "m", "kg");
+                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "m", "kg", "-");
                     default=true)
     register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
