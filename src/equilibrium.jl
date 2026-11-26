@@ -47,6 +47,9 @@ tether_points(state) = Set(Iterators.flatten(state.segments[idx].point_idxs
                                              for tether in state.tethers
                                              for idx in tether.segment_idxs))
 
+"""The mass `component` accelerates with: its own plus the air it drags along [kg]."""
+inertial_mass(component) = component.total_mass + component.apparent_mass
+
 """
     twist_inertia(sam, model, idx) -> Float64
 
@@ -54,8 +57,8 @@ The inertia of station `idx`'s twist about its hinge [kg m²], as the model's
 [`station_dynamics`](@ref) has it at the current state.
 """
 function twist_inertia(sam::SymbolicAWEModel, model, idx)
-    integrator = sam.integrator
-    inputs = refresh_outputs!(integrator.f.f, integrator.u, integrator.p, integrator.t).input
+    (; f, u, p, t) = sam.integrator
+    inputs = refresh_outputs!(f.f, u, p, t).input
     node_mass = inputs[only(buffer_slots(model.system, model.twist_instances[idx],
                                          :inputs, :node_mass_in))]
     station = sam.state.stations[idx]
@@ -94,9 +97,8 @@ function EquilibriumLayout(sam::SymbolicAWEModel)
                init = Int[]),
         reduce(vcat, [state_slots(model, instance, vel) for (instance, _, vel) in parts];
                init = Int[]),
-        repeat([[points[idx].total_mass + points[idx].apparent_mass for idx in free_points];
-                [bodies[idx].total_mass + bodies[idx].apparent_mass for idx in free_bodies]];
-               inner = 3),
+        repeat([[inertial_mass(points[idx]) for idx in free_points];
+                [inertial_mass(bodies[idx]) for idx in free_bodies]]; inner = 3),
         repeat([[!(idx in tether) for idx in free_points]; trues(length(free_bodies))];
                inner = 3),
         reduce(hcat, [state_slots(model, model.body_instances[idx], :Q)
@@ -131,6 +133,28 @@ quaternion_turn(q) =
 The matrix that takes `x` to `r × x`.
 """
 skew(r) = [0 -r[3] r[2]; r[3] 0 -r[1]; -r[2] r[1] 0]
+
+"""
+    coordinate_ranges(layout) -> (; translation, rotation, scalar)
+
+Where the translational, rotational and scalar coordinates of `layout` sit in a
+coordinate vector.
+"""
+function coordinate_ranges(layout::EquilibriumLayout)
+    n_translation = length(layout.position)
+    n_rotation = 3size(layout.quaternion, 2)
+    return (; translation = 1:n_translation,
+            rotation = n_translation + 1:n_translation + n_rotation,
+            scalar = n_translation + n_rotation + 1:
+                     n_translation + n_rotation + length(layout.scalar))
+end
+
+"""The consecutive triples of `range`, one per vector coordinate."""
+triples(range) = (range[i:i+2] for i in 1:3:length(range))
+
+"""The largest norm among the vectors of `vector` at the triples of `range`."""
+largest_norm(vector, range) =
+    maximum((norm(vector[slots]) for slots in triples(range)); init = 0.0)
 
 """
     EquilibriumProblem(sam)
@@ -170,8 +194,9 @@ The 3×n map from a coordinate step to the mass-weighted rotation it gives the k
 `base`, the angular momentum a unit-rate step would carry [kg m²]. Tethers are left out.
 """
 function pose_rows(layout::EquilibriumLayout, u, base)
-    translational = [layout.mass[3i] * layout.on_kite[3i] .* skew(u[layout.position[3i-2:3i]] .- base)
-                     for i in 1:length(layout.position)÷3]
+    translational = [layout.mass[first(slots)] * layout.on_kite[first(slots)] .*
+                     skew(u[layout.position[slots]] .- base)
+                     for slots in triples(coordinate_ranges(layout).translation)]
     rotational = [quaternion_to_rotation_matrix(u[quat]) * Diagonal(inertia)
                   for (quat, inertia) in zip(eachcol(layout.quaternion),
                                              eachcol(layout.inertia))]
@@ -225,20 +250,19 @@ end
 """
     move(problem, u, step) -> Vector
 
-`u` with the coordinates moved by `step`: translations and splits added, bodies turned
-about their own axes.
+`u` with the coordinates moved by `step`: translations and scalar coordinates added,
+bodies turned about their own axes.
 """
 function move(problem::EquilibriumProblem, u, step)
     (; layout) = problem
+    ranges = coordinate_ranges(layout)
     moved = copy(u)
-    n_position, n_body = length(layout.position), size(layout.quaternion, 2)
-    moved[layout.position] .+= step[1:n_position]
-    for (k, quat) in enumerate(eachcol(layout.quaternion))
-        turn = step[n_position + 3k - 2:n_position + 3k]
-        turned = quaternion_product(u[quat], [1.0; 0.5 .* turn])
+    moved[layout.position] .+= step[ranges.translation]
+    for (quat, turn) in zip(eachcol(layout.quaternion), triples(ranges.rotation))
+        turned = quaternion_product(u[quat], [1.0; 0.5 .* step[turn]])
         moved[quat] .= turned ./ norm(turned)
     end
-    moved[layout.scalar] .+= step[n_position + 3n_body + 1:end]
+    moved[layout.scalar] .+= step[ranges.scalar]
     return moved
 end
 
@@ -250,15 +274,13 @@ pose against the loads.
 """
 function pose_moment(problem::EquilibriumProblem, u, force)
     (; layout, base) = problem
-    n_position = length(layout.position)
+    ranges = coordinate_ranges(layout)
     moment = zeros(3)
-    for i in 1:n_position÷3
-        slots = 3i-2:3i
+    for slots in triples(ranges.translation)
         moment .+= cross(u[layout.position[slots]] .- base, force[slots])
     end
-    for (k, quat) in enumerate(eachcol(layout.quaternion))
-        moment .+= quaternion_to_rotation_matrix(u[quat]) *
-                   force[n_position + 3k - 2:n_position + 3k]
+    for (quat, turn) in zip(eachcol(layout.quaternion), triples(ranges.rotation))
+        moment .+= quaternion_to_rotation_matrix(u[quat]) * force[turn]
     end
     return moment
 end
@@ -280,11 +302,10 @@ end
 The largest force [N] or moment [N m] among the coordinates of `force`.
 """
 function largest_load(problem::EquilibriumProblem, force)
-    (; layout) = problem
-    n_position = length(layout.position)
-    blocks = [norm(force[i:i+2]) for i in 1:3:n_position + 3size(layout.quaternion, 2)]
-    return maximum([blocks; abs.(force[n_position + 3size(layout.quaternion, 2) + 1:end])];
-                   init = 0.0)
+    ranges = coordinate_ranges(problem.layout)
+    return max(largest_norm(force, ranges.translation),
+               largest_norm(force, ranges.rotation),
+               maximum(abs, force[ranges.scalar]; init = 0.0))
 end
 
 """
@@ -335,12 +356,9 @@ end
 further than `turn_limit` [rad].
 """
 function limit_step(problem::EquilibriumProblem, step, move_limit, turn_limit)
-    (; layout) = problem
-    n_position, n_body = length(layout.position), size(layout.quaternion, 2)
-    largest_move = maximum([norm(step[i:i+2]) for i in 1:3:n_position]; init = 0.0)
-    largest_turn = maximum([norm(step[n_position+i:n_position+i+2]) for i in 1:3:3n_body];
-                           init = 0.0)
-    return step .* min(1.0, move_limit / largest_move, turn_limit / largest_turn)
+    ranges = coordinate_ranges(problem.layout)
+    return step .* min(1.0, move_limit / largest_norm(step, ranges.translation),
+                       turn_limit / largest_norm(step, ranges.rotation))
 end
 
 """
