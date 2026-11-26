@@ -164,7 +164,6 @@ SymbolicAWEModels.validate_run
 SymbolicAWEModels.vsm_point_to_struct
 SymbolicAWEModels.wing_apparent_wind
 SymbolicAWEModels.wing_body
-SymbolicAWEModels.wing_count
 SymbolicAWEModels.wing_frame
 SymbolicAWEModels.wing_mesh_pose
 SymbolicAWEModels.wing_origin
