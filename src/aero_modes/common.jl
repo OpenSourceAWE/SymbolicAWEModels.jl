@@ -2061,7 +2061,8 @@ end
                      gamma_init=nothing) -> Vector
 
 Run one VSM solve at operating-point input `y = [α, β, ω₁, ω₂, ω₃, θ_twist…]` and
-return the wind-axis coefficient vector `[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`.
+return the wind-axis coefficient vector `[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`,
+normalised by the dynamic pressure of `va_mag`.
 `ForwardDiff.Dual`-aware via `vsm_solve_objects`: for a Dual eltype it solves on a
 cached dual shadow of the VSM solver, so the same routine yields the Jacobian
 under AD.
@@ -2102,10 +2103,11 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     set_va!(body_aero_c, va_b_local, ω)
     safe_vsm_solve!(solver_c, body_aero_c, gamma_init; moment_frac)
 
+    # VSM's own coefficients are scaled by the panel inflow, which carries ω × r.
     sol = solver_c.sol
-    force_coeffs = sol.force_coeffs
-    cm_body = sol.moment_coeffs
-    moment_coeff_dist = sol.moment_coeff_dist
+    q_area = 0.5 * solver_c.density * va_mag^2 * body_aero_c.projected_area
+    force_coeffs = sol.force ./ q_area
+    cm_body = sol.moment ./ (q_area * body_aero_c.c_ref)
 
     # Wind-axis basis (VSM): drag∥va, lift=norm(drag×span), side=lift×drag.
     span = SVector(zero(T), one(T), zero(T))
@@ -2122,9 +2124,9 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     x[6] = cm_body[3]
     for (station_index, gidx) in enumerate(station_idxs)
         x[6 + station_index] = sum(
-            moment_coeff_dist[panel_idx]
+            sol.moment_dist[panel_idx]
             for panel_idx in stations[gidx].panel_idxs;
-            init = zero(T))
+            init = zero(T)) / (q_area * body_aero_c.c_ref)
     end
     return x
 end
