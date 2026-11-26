@@ -296,6 +296,9 @@ SymbolicAWEModels.membrane_strain_energy
 SymbolicAWEModels.membrane_dissipation
 SymbolicAWEModels.membrane_corner_forces
 SymbolicAWEModels.init_membrane_rest_lengths!
+SymbolicAWEModels.MembraneModel
+SymbolicAWEModels.definition_membrane
+SymbolicAWEModels.membrane_eqs!
 SymbolicAWEModels.workload_fixture
 SymbolicAWEModels.workload_model
 SymbolicAWEModels.run_workload
