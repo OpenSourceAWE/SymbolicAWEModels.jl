@@ -34,9 +34,9 @@ end
     membrane_strain_energy(x1, x2, x3, rest_lengths, youngs_modulus, poisson_ratio,
                            thickness, slack_frac)
 
-Strain energy [J] of a membrane triangle with corners at `x1`, `x2`, `x3` [m]. Taut, where
-the minor principal Green strain `e2` satisfies `e2 + ν e1 ≥ 0`, it is Saint-Venant–Kirchhoff
-in plane stress; wrinkled, where only `e1 > 0`, the uniaxial `Y e1² / 2`; slack, zero. A
+Strain energy [J] of a membrane triangle with corners at `x1`, `x2`, `x3` [m]. Taut,
+where the principal Green strains satisfy `e2 + ν e1 ≥ 0`, it is Saint-Venant–Kirchhoff in
+plane stress; wrinkled, where only `e1 > 0`, the uniaxial `Y e1² / 2`; slack, zero. A
 `slack_frac` of the taut energy is kept everywhere.
 """
 function membrane_strain_energy(x1, x2, x3, rest_lengths, youngs_modulus, poisson_ratio,
@@ -57,8 +57,8 @@ function membrane_strain_energy(x1, x2, x3, rest_lengths, youngs_modulus, poisso
     taut = youngs_modulus / (2 * (1 - ν^2)) * (trace_E^2 - 2 * (1 - ν) * det_E)
     relaxed = ifelse(e2 + ν * e1 >= 0, taut,
                      ifelse(e1 > 0, youngs_modulus * e1^2 / 2, zero(taut)))
-    area = sqrt(det_G) / 2
-    return area * thickness * ((1 - slack_frac) * relaxed + slack_frac * taut)
+    return membrane_rest_area(rest_lengths) * thickness *
+           ((1 - slack_frac) * relaxed + slack_frac * taut)
 end
 
 """
@@ -81,7 +81,7 @@ function membrane_dissipation(x1, x2, x3, v1, v2, v3, rest_lengths, thickness, d
     M21 = (G11 * rate_12 - G12 * rate_11) / det_G
     M22 = (G11 * rate_22 - G12 * rate_12) / det_G
     strain_rate_sq = (M11^2 + 2 * M12 * M21 + M22^2) / 4
-    return sqrt(det_G) / 2 * thickness * damping * strain_rate_sq / 2
+    return membrane_rest_area(rest_lengths) * thickness * damping * strain_rate_sq / 2
 end
 
 """

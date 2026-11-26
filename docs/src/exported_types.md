@@ -68,7 +68,7 @@ default_backend!
 
 ```@docs
 SystemStructure
-SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, bodies, tubes)
+SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, bodies, tubes, membranes)
 Point
 Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
@@ -76,6 +76,8 @@ Station(name, points, type::DynamicsType, moment_frac; damping=50.0)
 Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, compression_damping_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
 Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol}, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
+Membrane
+Membrane(name, point_1::NameRef, point_2::NameRef, point_3::NameRef; wing, youngs_modulus, poisson_ratio, thickness, damping, slack_frac, rest_lengths)
 Pulley
 Pulley(name, segment_i, segment_j, type::DynamicsType; efficiency, damping, brake, friction_epsilon)
 Tether

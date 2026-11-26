@@ -1,0 +1,3 @@
+### Added
+
+- `Membrane`: a triangle of canopy fabric between three points, read from a `canopy_faces` row whose `model` is `sam_membrane` (columns `youngs_modulus`, `poisson_ratio`, `thickness`, `damping`) or passed to `SystemStructure(...; membranes)`. Its corner forces are the gradient of its strain energy, Saint-Venant–Kirchhoff in plane stress relaxed for wrinkling as in awegroup/Billow, so it carries no compressive stress; its `damping` resists the strain rate. Both backends and `find_equilibrium!` use it. A model that opts in has different physics from its spring net; a model without membranes is unchanged, and a canopy face without the `sam_membrane` model is still ignored.

@@ -156,6 +156,7 @@ SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!
+SymbolicAWEModels.membrane_eqs!
 SymbolicAWEModels.refresh_aero!
 SymbolicAWEModels.wing_kinematics_from_points!
 SymbolicAWEModels.point_acceleration_w
@@ -255,6 +256,7 @@ SymbolicAWEModels.WinchModel
 SymbolicAWEModels.TimoshenkoTubeModel
 SymbolicAWEModels.ElasticTubeModel
 SymbolicAWEModels.SegmentModel
+SymbolicAWEModels.MembraneModel
 SymbolicAWEModels.register_definition_models
 ```
 

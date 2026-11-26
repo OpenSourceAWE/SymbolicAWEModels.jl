@@ -821,8 +821,8 @@ set_row_property!(row::Membrane, ::Val{:point_idxs}, points) =
 
 A membrane triangle of the canopy of `wing`, with corners `point_1`, `point_2` and
 `point_3`, of a fabric with Young's modulus [Pa], Poisson's ratio, thickness [m] and
-strain-rate viscosity `damping` [Pa·s]. `rest_lengths` are the edges 1→2, 2→3 and 3→1 at
-rest [m], 0 taking an edge's built length. References are names or indices.
+strain-rate viscosity `damping` [Pa·s]. `rest_lengths` are the edges 1→2, 2→3 and 3→1
+at rest [m], 0 taking an edge's built length. References are names or indices.
 """
 function Membrane(name, point_1::NameRef, point_2::NameRef, point_3::NameRef;
                   wing, youngs_modulus, poisson_ratio, thickness, damping,

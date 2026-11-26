@@ -235,6 +235,43 @@ function load_2plate_sys(system_name; geometry = "particle_structural_geometry.y
 end
 
 """
+    kernel_2plate(geometry) -> SymbolicAWEModel
+
+The 2plate kite of the structural `geometry` file on the `KernelBackend`.
+"""
+function kernel_2plate(geometry)
+    sys, set, transforms = load_2plate_sys("2plate_kite"; geometry)
+    return SymbolicAWEModel(set, sys; transforms,
+                            backend = SymbolicAWEModels.KernelBackend())
+end
+
+"""
+    start_at!(sam; elevation, v_wind) -> SymbolicAWEModel
+
+`sam` placed at `elevation` [deg], azimuth and heading zero, in a wind of `v_wind`
+[m/s], with its winches braked.
+"""
+function start_at!(sam; elevation, v_wind)
+    sam.set.v_wind = v_wind
+    transform = sam.state.transforms[1]
+    transform.elevation = deg2rad(elevation)
+    transform.azimuth = 0.0
+    transform.heading = 0.0
+    place!(sam)
+    init!(sam; prn = false)
+    foreach(winch -> winch.brake = 1.0, sam.state.winches)
+    return sam
+end
+
+"""The free point positions of `sam`'s ODE state, one column per point."""
+point_positions(sam) =
+    reshape(sam.integrator.u[SymbolicAWEModels.EquilibriumProblem(sam).layout.position],
+            3, :)
+
+"""The largest distance between matching columns of `a` and `b`."""
+largest_distance(a, b) = maximum(norm.(eachcol(a .- b)))
+
+"""
     scalar_equation_pairs(eq) -> Vector{Tuple}
 
 `eq` as scalar `(left, right)` pairs, splitting an array-valued equation into one

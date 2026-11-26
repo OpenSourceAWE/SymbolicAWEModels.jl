@@ -100,12 +100,12 @@ Generate equations for all point types (STATIC, DYNAMIC, BODY_STATIC).
 
 Each point's net force is the shared [`point_net_force`](@ref): the structural load
 gathered from its incident segments (their spring force with the endpoint sign and
-half their drag) and the membranes it is a corner of, plus per-node aero, its own drag and gravity. A point a rigid body
-carries ([`carrier_body_idx`](@ref)) has zero gravitational mass here, since its mass
-is part of the body's `total_mass` and weighs at the body's COM. Free particles
-integrate through [`confined_derivatives`](@ref), which applies `fix_static` and
-`fix_sphere`; a rigid wing node is placed instead by [`twist_deformed_offset`](@ref)
-from its body's COM.
+half their drag) and the membranes it is a corner of, plus per-node aero, its own drag
+and gravity. A point a rigid body carries ([`carrier_body_idx`](@ref)) has zero
+gravitational mass here, since its mass is part of the body's `total_mass` and weighs at
+the body's COM. Free particles integrate through [`confined_derivatives`](@ref), which
+applies `fix_static` and `fix_sphere`; a rigid wing node is placed instead by
+[`twist_deformed_offset`](@ref) from its body's COM.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
