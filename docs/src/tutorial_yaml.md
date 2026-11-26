@@ -352,6 +352,19 @@ Mass properties (`extra_mass`, `com`, `unit_inertia`) are optional columns; `com
 and `unit_inertia` are computed from the wing's `.obj` mesh when omitted, if one is
 supplied. They describe the wing body alone, as below.
 
+### Canopy faces
+
+A canopy face whose `model` is `sam_membrane` is a [`Membrane`](@ref): a triangle of fabric whose corner forces are the gradient of its strain energy, relaxed for wrinkling so it carries no compressive stress. It loads beside the segments, which stay as they are; a face without that model adds no force.
+
+```yaml
+canopy_faces:
+  headers: [name, wing, points, model, youngs_modulus, poisson_ratio, thickness, damping]
+  data:
+    - [canopy_1a, main_wing, [le_left, te_left, te_center], sam_membrane, 5.0e8, 0.3, 3.0e-4, 1.0e5]
+```
+
+`youngs_modulus` is in Pa, `thickness` in m and `damping`, the viscosity resisting the strain rate, in Pa·s. The face is at rest in the shape its corners are written in. A membrane carries no mass: its corners do.
+
 ### Mass of a rigid body
 
 A `RIGID_DYNAMICS` wing or a plain `Body` has an `extra_mass`: its own mass, which
