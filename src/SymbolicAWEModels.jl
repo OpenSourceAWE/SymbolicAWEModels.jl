@@ -100,7 +100,7 @@ export WindMode, ProfileWind, PerPointWind, per_point_wind
 export sim!, sim_reposition!
 
 # --- Low-Level Simulation Functions ---
-export find_steady_state!
+export find_steady_state!, find_equilibrium!
 export linearize!
 export set_world_frame_damping
 export set_body_frame_damping
@@ -250,6 +250,7 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
+include("equilibrium.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
 function rotate_around_x(vec, angle::T) where T
