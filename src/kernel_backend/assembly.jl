@@ -68,7 +68,8 @@ const STATION_INPUTS = [:aero_moment_in, :node_moment_in, :node_force_in,
 How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch`,
 `:wing_node`, `:ride` or `:hermite`. A `:pulley` point carries the pulley it splits
 and one of that pulley's segments (whose material gives the rope mass); a `:winch`
-point carries its winch; a `:ride` point carries the body it is anchored to.
+point carries its winch; a `:ride` point carries the body it is anchored to, and a
+`:wing_node` or `:pulley` point the body of the fitted wing it is damped against.
 `element_idx` is the Timoshenko tube a `:hermite` point rides, or the station of a
 `:twist_node`.
 """
@@ -122,8 +123,9 @@ function classify_points(sam)
         pulley_type(pulley) == DYNAMIC || error(
             "KernelBackend: pulley $(pulley.name) has type $(pulley_type(pulley)); " *
             "only DYNAMIC pulleys exist.")
-        roles[pulley_point_index(sys, i)] = PointRole(:pulley, i, pulley.segments[1],
-                                                      0, 0, 0)
+        point = pulley_point_index(sys, i)
+        roles[point] = PointRole(:pulley, i, pulley.segments[1], 0,
+                                 kinematic_wing_of(sam, point), 0)
     end
     for (i, winch) in enumerate(sys.winches)
         point_type(sys.points[winch.winch_point]) == STATIC || error(
@@ -177,6 +179,16 @@ function kinematic_wing_of(sam, i)
     body_idx = wing_body(sam, wing_idx)
     return body_type(sam, body_idx) == KINEMATIC ? body_idx : 0
 end
+
+"""
+    reads_wing_frame(sys, i, role) -> Bool
+
+Whether point `i` of definition `sys`, realised as `role`, reads its fitted wing's
+frame: every wing node does, and a pulley point on such a wing when it damps in it.
+"""
+reads_wing_frame(sys, i, role) = role.kind === :wing_node ||
+    (role.kind === :pulley && role.body_idx != 0 &&
+     sys.points[i].body_frame_damping !== nothing)
 
 """
     pulley_point_index(sys, i) -> Int
@@ -362,7 +374,7 @@ function assemble(sam; verbose = false)
                              point_instances)
     end
     for (i, role) in enumerate(point_roles)
-        role.kind === :wing_node || continue
+        reads_wing_frame(sys, i, role) || continue
         connect!(builder, body_instances[role.body_idx], :frame,
                  point_instances[i], :wing_frame)
         connect!(builder, body_instances[role.body_idx], :vel,
@@ -872,8 +884,8 @@ function add_point!(builder, table, bindings, sam, i, role, bodies, wrenches, tw
     role.kind === :hermite && return add_hermite_ride_point!(builder, table, bindings,
                                                              sam, i, role, bodies,
                                                              wrenches)
+    with_damping = sys.points[i].body_frame_damping !== nothing
     entry = if role.kind === :wing_node
-        with_damping = sys.points[i].body_frame_damping !== nothing
         key = with_damping ? :wing_node : :wing_node_undamped
         index_map[:bodies] = role.body_idx
         kernel!(builder, table, sam, key, i,
@@ -890,10 +902,15 @@ function add_point!(builder, table, bindings, sam, i, role, bodies, wrenches, tw
     elseif role.kind === :pulley
         index_map[:pulleys] = role.pulley_idx
         index_map[:segments] = role.segment_idx
-        kernel!(builder, table, sam, :pulley_point, i,
+        damped = reads_wing_frame(sys, i, role)
+        key = damped ? :pulley_point_wing : :pulley_point
+        inputs = damped ? [PULLEY_POINT_INPUTS; :wing_frame; :wing_velocity] :
+            PULLEY_POINT_INPUTS
+        kernel!(builder, table, sam, key, i,
                 params -> PulleyParticle(sam, params, i, role.pulley_idx,
-                                         role.segment_idx; name = :pulley_point),
-                PULLEY_POINT_INPUTS, PULLEY_POINT_OUTPUTS)
+                                         role.segment_idx; name = key,
+                                         with_damping = damped),
+                inputs, PULLEY_POINT_OUTPUTS)
     elseif role.kind === :winch
         tethers = sys.winches[role.winch_idx].tethers
         index_map[:winches] = role.winch_idx

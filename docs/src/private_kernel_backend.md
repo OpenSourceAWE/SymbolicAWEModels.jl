@@ -168,6 +168,7 @@ SymbolicAWEModels.wing_frame_variables
 SymbolicAWEModels.KinematicBody
 SymbolicAWEModels.body_frame_damp_accel
 SymbolicAWEModels.WingNodePoint
+SymbolicAWEModels.wing_frame_damping
 SymbolicAWEModels.ParticleWingAero
 SymbolicAWEModels.WagnerLag
 SymbolicAWEModels.AeroInflowPoint
@@ -234,6 +235,7 @@ SymbolicAWEModels.add_body!
 SymbolicAWEModels.add_kinematic_body!
 SymbolicAWEModels.wire_kinematic_body!
 SymbolicAWEModels.kinematic_wing_of
+SymbolicAWEModels.reads_wing_frame
 SymbolicAWEModels.add_ride_point!
 SymbolicAWEModels.add_hermite_ride_point!
 SymbolicAWEModels.add_wing_aero!

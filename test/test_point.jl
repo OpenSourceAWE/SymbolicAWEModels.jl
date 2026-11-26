@@ -585,7 +585,7 @@ end
             name="wing_out_of_range", set)
     end
 
-    # On main's physics, before a point's wing was taken only from stations and bodies.
+    # A steering pulley point naming the wing; undamped, its velocity is off by 2e-3.
     @testset "free point naming a wing is damped in its frame" begin
         tight = Settings("system.yaml")
         tight.abs_tol = tight.rel_tol = 1e-9
@@ -597,10 +597,8 @@ end
               KiteGeometry.row_index(sys.wings, :main_wing)
         init!(sam; prn=false)
         next_step!(sam; dt=1e-3, vsm_interval=0)
-        equations = sam.integrator.sol.prob.f.sys
-        point = KiteGeometry.row_index(sys.points, :steering_left)
-        @test sam.integrator[equations.acc[:, point]] ≈
-              [88.43445212030957, 28.598992175209453, 100.62895429465938] rtol=1e-5
+        @test run_value(sam, :points, :steering_left, :vel_w) ≈
+              [0.04640912518639492, 0.017580741555751653, 0.04692554049876804] rtol=1e-5
     end
 
     rm(tmpdir; recursive=true)

@@ -248,18 +248,21 @@ function confined_derivatives(pos, vel, accel, pars)
 end
 
 """
-    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force;
+                           frame_damping=zeros(3))
 
 Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
-`D(vel)=point_acceleration(...)` from the shared kernel, and the point's observed
-`net_force`, reading its drag/damping/wind parameters `pars` (a
+`D(vel)=point_acceleration(...)` from the shared kernel less `frame_damping`, and the
+point's observed `net_force`, reading its drag/damping/wind parameters `pars` (a
 [`point_particle_params`](@ref) named tuple).
 """
-function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force;
+                                frame_damping=zeros(3))
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
         pars.wind_source, pars.g_earth; pars.apparent_mass)
-    velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
+    velocity, acceleration = confined_derivatives(pos, vel,
+                                                  motion.accel .- frame_damping, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
 end
@@ -1015,15 +1018,17 @@ function pulley_rope_mass(params, pulley_idx, segment_idx)
 end
 
 """
-    PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
+    PulleyParticle(s, params, idx, pulley_idx, segment_idx; name, with_damping=false)
 
 A [`Particle`](@ref) that also owns a pulley's rope split: `D(pulley_len) =
 pulley_vel` and `D(pulley_vel) = tension_in / rope_mass − damping · pulley_vel`,
 with `tension_in` the imbalance `spring[seg1] − spring[seg2]` its two segments
 deliver and `line_in` their mean, which the friction scales with. `pulley_len_out`
-exposes the split so those segments read it as their rest length.
+exposes the split so those segments read it as their rest length. `with_damping`
+damps it in its fitted wing's frame, as [`WingNodePoint`](@ref) does.
 """
-function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
+function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name,
+                        with_damping = false)
     io = point_variables()
     extra = @variables begin
         tension_in(t), [input = true]
@@ -1033,10 +1038,13 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         pulley_len(t)
         pulley_vel(t)
     end
+    frame, frame_damping = with_damping ? wing_frame_damping(params, idx, io.vel) :
+        ((), zeros(3))
     pars = point_particle_params(params, idx)
     eqs = [
         dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
-                               pars.extra_mass + io.mass_in, pars, io.net_force)
+                               pars.extra_mass + io.mass_in, pars, io.net_force;
+                               frame_damping)
         point_wind_eqs(s, params, idx, io)
         pulley_split_eqs(extra[5], extra[6], extra[1], extra[2],
                          pulley_rope_mass(params, pulley_idx, segment_idx),
@@ -1044,7 +1052,7 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         extra[4] ~ pulley_len_rate(params.pulleys[pulley_idx], extra[6])
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force, extra...]
+            io.wind_vec, io.net_force, extra..., frame...]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -2578,29 +2586,30 @@ is generated, matching the monolith.
 """
 function WingNodePoint(s, params, idx; name, with_damping = true)
     io = point_variables()
-    extra = @variables begin
+    frame, frame_damping = wing_frame_damping(params, idx, io.vel; with_damping)
+    pars = point_particle_params(params, idx)
+    eqs = [dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
+               pars.extra_mass + io.mass_in, pars, io.net_force; frame_damping);
+           point_wind_eqs(s, params, idx, io)]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            io.wind_vec, io.net_force, frame...]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    wing_frame_damping(params, idx, vel; with_damping=true) -> (variables, accel)
+
+The `wing_frame`/`wing_velocity` inputs a fitted wing supplies to point `idx`, and the
+[`body_frame_damp_accel`](@ref) of its velocity `vel` in that frame, zero without
+`with_damping`.
+"""
+function wing_frame_damping(params, idx, vel; with_damping = true)
+    frame = @variables begin
         wing_frame(t)[1:9], [input = true]
         wing_velocity(t)[1:3], [input = true]
     end
-    orientation = reshape(collect(extra[1]), 3, 3)
-    point = params.points[idx]
-    pars = point_particle_params(params, idx)
-    mass = pars.extra_mass + io.mass_in
-    motion = point_acceleration(s, collect(io.pos), collect(io.vel),
-        collect(io.force_in), mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), pars.wind_source, pars.g_earth;
-        pars.apparent_mass)
-    accel = motion.accel
-    with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
-        point.body_frame_damping, orientation, collect(extra[2])))
-    velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
-    eqs = [
-        D.(collect(io.pos)) .~ velocity
-        D.(collect(io.vel)) .~ acceleration
-        collect(io.net_force) .~ motion.net_force
-        point_wind_eqs(s, params, idx, io)
-    ]
-    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force, extra...]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    with_damping || return frame, zeros(3)
+    orientation = reshape(collect(frame[1]), 3, 3)
+    return frame, body_frame_damp_accel(vel, params.points[idx].body_frame_damping,
+                                        orientation, collect(frame[2]))
 end
