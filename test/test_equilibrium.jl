@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_equilibrium.jl - find_equilibrium!, the structure's equilibrium at a held pose
+# test_equilibrium.jl - find_equilibrium!, the quasi-steady state at a held pose
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -12,7 +12,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, EquilibriumProblem, generalized_force, at_rest
+using SymbolicAWEModels: KernelBackend, EquilibriumProblem, loads_at!, next_input
 using KiteUtils
 using LinearAlgebra
 
@@ -95,19 +95,21 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
         @test largest_distance(equilibrium, start) > 0.1
     end
 
-    @testset "a $name kite in wind returns from a stretched start" for (name, sam) in
-            (("particle", particle), ("rigid", rigid))
+    @testset "a $name kite in wind settles under the aerodynamics of its own shape" for
+            (name, sam) in (("particle", particle), ("rigid", rigid))
         start_at!(sam; elevation = 50.0, v_wind = 15.51)
         start = copy(sam.integrator.u)
         @test find_equilibrium!(sam).converged
         plain = point_positions(sam)
         SymbolicAWEModels.settle!(sam, start)
-        stretch!(sam, 1.01)
+        stretch!(sam, 1.05)
         result = find_equilibrium!(sam)
         @test result.converged
         @test largest_distance(point_positions(sam), plain) < 1e-3
         problem = EquilibriumProblem(sam)
         @test all(iszero, sam.integrator.u[problem.rows])
+        resolved = loads_at!(problem, copy(sam.integrator.u), 1e-4)
+        @test resolved.residual <= resolved.tolerance
     end
 
     @testset "damping does not move the equilibrium" begin
@@ -120,6 +122,29 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
         find_equilibrium!(particle)
         set_world_frame_damping(particle.state.points, 0.0)
         @test largest_distance(point_positions(particle), undamped) < 1e-9
+    end
+
+    @testset "a coordinate change is the step move takes" begin
+        start_at!(rigid; elevation = 50.0, v_wind = 15.51)
+        problem = EquilibriumProblem(rigid)
+        u = copy(rigid.integrator.u)
+        step = 0.01 .* sin.(1:length(problem.inertia))
+        target = SymbolicAWEModels.move(problem, u, step)
+        change = SymbolicAWEModels.coordinate_change(problem, u, target)
+        @test change ≈ step
+        @test SymbolicAWEModels.move(problem, u, change) ≈ target
+    end
+
+    @testset "the quasi-Newton update finds the fixed point of a diverging linear map" begin
+        amplify = [3.0 0.0; 0.0 0.5]
+        offset = [1.0, 1.0]
+        fixed_point = (I - amplify) \ offset
+        inputs, outputs = [zeros(2)], Vector{Float64}[]
+        for _ in 1:3
+            push!(outputs, amplify * inputs[end] .+ offset)
+            push!(inputs, next_input(inputs, outputs))
+        end
+        @test inputs[end] ≈ fixed_point
     end
 
     @testset "a pose off its equilibrium reports the moment holding it" begin
@@ -138,9 +163,9 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
     @testset "a search cut short says so with what is left" begin
         start_at!(rigid; elevation = 50.0, v_wind = 15.51)
         stretch!(rigid, 1.01)
-        result = find_equilibrium!(rigid; max_iterations = 1)
+        result = find_equilibrium!(rigid; max_rounds = 1, max_iterations = 1)
         @test !result.converged
-        @test result.iterations == 1
+        @test result.rounds == 1 && result.iterations == 1
         @test isfinite(result.residual) && result.residual > 0
     end
 

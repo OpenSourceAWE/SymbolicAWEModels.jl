@@ -172,8 +172,6 @@ struct EquilibriumProblem{S}
     rows::Vector{Int}
     "ground-station position the pose turns about [m]"
     base::Vector{Float64}
-    "the three rows of linearised rotation about the base that hold the pose"
-    pose::Matrix{Float64}
 end
 
 function EquilibriumProblem(sam::SymbolicAWEModel)
@@ -183,17 +181,18 @@ function EquilibriumProblem(sam::SymbolicAWEModel)
                                               first(transforms)))
     rows = [layout.velocity; vec(layout.spin); layout.scalar_rate]
     inertia = [layout.mass; vec(layout.inertia); layout.scalar_inertia]
-    return EquilibriumProblem(sam, layout, inertia, rows, base,
-                              pose_rows(layout, sam.integrator.u, base))
+    return EquilibriumProblem(sam, layout, inertia, rows, base)
 end
 
 """
-    pose_rows(layout, u, base) -> Matrix
+    pose_rows(problem, u) -> Matrix
 
-The 3×n map from a coordinate step to the mass-weighted rotation it gives the kite about
-`base`, the angular momentum a unit-rate step would carry [kg m²]. Tethers are left out.
+The 3×n map from a coordinate step at `u` to the mass-weighted rotation it gives the
+kite about the base, the angular momentum a unit-rate step would carry [kg m²]. Tethers
+are left out.
 """
-function pose_rows(layout::EquilibriumLayout, u, base)
+function pose_rows(problem::EquilibriumProblem, u)
+    (; layout, base) = problem
     translational = [layout.mass[first(slots)] * layout.on_kite[first(slots)] .*
                      skew(u[layout.position[slots]] .- base)
                      for slots in triples(coordinate_ranges(layout).translation)]
@@ -286,13 +285,13 @@ function pose_moment(problem::EquilibriumProblem, u, force)
 end
 
 """
-    unbalanced(problem, force) -> Vector
+    unbalanced(problem, u, force) -> Vector
 
-The part of the generalized `force` that holding the pose does not take, in the least
-squares sense: what still deforms the structure.
+The part of the generalized `force` at `u` that holding the pose does not take, in the
+least squares sense: what still deforms the structure.
 """
-function unbalanced(problem::EquilibriumProblem, force)
-    (; pose) = problem
+function unbalanced(problem::EquilibriumProblem, u, force)
+    pose = pose_rows(problem, u)
     return force .- pose' * ((pose * pose') \ (pose * force))
 end
 
@@ -309,13 +308,14 @@ function largest_load(problem::EquilibriumProblem, force)
 end
 
 """
-    newton_step(problem, tangent, force, damping) -> Vector
+    newton_step(problem, u, tangent, force, damping) -> Vector
 
-The step that zeroes `force` on a linear structure of stiffness `tangent` with the pose
-held, `damping` [1/s²] times each coordinate's inertia added to the stiffness.
+The step from `u` that zeroes `force` on a linear structure of stiffness `tangent` with
+the pose held, `damping` [1/s²] times each coordinate's inertia added to the stiffness.
 """
-function newton_step(problem::EquilibriumProblem, tangent, force, damping)
-    (; pose, inertia) = problem
+function newton_step(problem::EquilibriumProblem, u, tangent, force, damping)
+    (; inertia) = problem
+    pose = pose_rows(problem, u)
     system = [tangent + damping * Diagonal(inertia) pose'; pose zeros(3, 3)]
     return (system \ [force; zeros(3)])[1:length(force)]
 end
@@ -362,27 +362,76 @@ function limit_step(problem::EquilibriumProblem, step, move_limit, turn_limit)
 end
 
 """
-    find_equilibrium!(sam; rtol=1e-4, max_iterations=100, move_limit=0.25,
-                      turn_limit=0.2) -> NamedTuple
+    find_equilibrium!(sam; rtol=1e-4, max_rounds=30, max_iterations=100,
+                      move_limit=0.25, turn_limit=0.2) -> NamedTuple
 
-Move `sam` to the equilibrium of its structure under the loads it carries now, at rest
-and with the pose of its first transform held about the base: the minimum of the
-structure's potential energy, the aerodynamic loads acting as dead loads at their last
-solve. Steps no point further than `move_limit` [m] and no body further than
-`turn_limit` [rad]. Stops once no coordinate carries more than `rtol` times the kite's
-weight plus its aerodynamic force, in [N] or [N m]. Needs the `KernelBackend`.
+Move `sam` to its quasi-steady state at rest, with the pose of its first transform held
+about the base: the structure at the minimum of its potential energy under the
+aerodynamics solved on its own shape. Each round settles the structure under the
+aerodynamics of the current shape as dead loads, in at most `max_iterations` Newton
+steps of no more than `move_limit` [m] per point and `turn_limit` [rad] per body, and
+solves the aerodynamics on the settled shape; the next round starts from the shape
+[`next_input`](@ref) predicts from the last five. Stops once no coordinate carries more
+than `rtol` times the kite's weight plus its aerodynamic force, in [N] or [N m], or
+after `max_rounds` rounds. Needs the `KernelBackend`.
 
-Returns `(; converged, iterations, residual, moment)`: the largest unbalanced load left
-[N] and the moment about the base [N m, world frame] that holding the pose takes, zero
-where the pose is itself an equilibrium.
+Returns `(; converged, rounds, iterations, residual, moment)`: the rounds and Newton
+steps taken, the largest unbalanced load left [N] and the moment about the base [N m,
+world frame] that holding the pose takes, zero where the pose is itself an equilibrium.
 """
-function find_equilibrium!(sam::SymbolicAWEModel; rtol = 1e-4, max_iterations = 100,
-                           move_limit = 0.25, turn_limit = 0.2)
+function find_equilibrium!(sam::SymbolicAWEModel; rtol = 1e-4, max_rounds = 30,
+                           max_iterations = 100, move_limit = 0.25, turn_limit = 0.2)
     problem = EquilibriumProblem(sam)
-    tolerance = rtol * kite_load(sam)
-    u = at_rest(problem, copy(sam.integrator.u))
+    reference = at_rest(problem, copy(sam.integrator.u))
+    u, loads = reference, loads_at!(problem, reference, rtol)
+    inputs, outputs = Vector{Float64}[], Vector{Float64}[]
+    rounds, iterations = 0, 0
+    while true
+        rounds += 1
+        push!(inputs, coordinate_change(problem, reference, u))
+        settled = settle_structure(problem, u, loads.force, loads.tolerance;
+                                   max_iterations, move_limit, turn_limit)
+        iterations += settled.iterations
+        u, loads = settled.u, loads_at!(problem, settled.u, rtol)
+        (loads.residual <= loads.tolerance || rounds == max_rounds) && break
+        push!(outputs, coordinate_change(problem, reference, u))
+        length(inputs) > 5 && (popfirst!(inputs); popfirst!(outputs))
+        u = move(problem, reference, next_input(inputs, outputs))
+        loads = loads_at!(problem, u, rtol)
+    end
+    return (; converged = loads.residual <= loads.tolerance, rounds, iterations,
+            residual = loads.residual, moment = pose_moment(problem, u, loads.force))
+end
+
+"""
+    loads_at!(problem, u, rtol) -> (; force, residual, tolerance)
+
+Put the model at `u`, solve its aerodynamics there and return the generalized force,
+its largest unbalanced load and the residual it must fall below [N, N m].
+"""
+function loads_at!(problem::EquilibriumProblem, u, rtol)
+    (; sam) = problem
+    settle!(sam, u)
+    if has_vsm_wing(sam.state)
+        refresh_aero!(sam; cold_start = true, vsm_warn_on_fail = true)
+        sync_params!(sam.prob.param_sync, sam.integrator, sam.state)
+    end
     force = generalized_force(problem, u)
-    residual = largest_load(problem, unbalanced(problem, force))
+    return (; force, residual = largest_load(problem, unbalanced(problem, u, force)),
+            tolerance = rtol * kite_load(sam))
+end
+
+"""
+    settle_structure(problem, u, force, tolerance; max_iterations, move_limit,
+                     turn_limit) -> (; u, iterations)
+
+The minimum of the structure's potential energy from `u`, where it carries `force`,
+under the loads the model holds now: damped Newton steps until no coordinate carries
+more than `tolerance`.
+"""
+function settle_structure(problem::EquilibriumProblem, u, force, tolerance;
+                          max_iterations, move_limit, turn_limit)
+    residual = largest_load(problem, unbalanced(problem, u, force))
     damping, iterations = 0.0, 0
     while residual > tolerance && iterations < max_iterations
         iterations += 1
@@ -391,12 +440,45 @@ function find_equilibrium!(sam::SymbolicAWEModel; rtol = 1e-4, max_iterations = 
         α = line_search(problem, u, step, -dot(force, step))
         u = move(problem, u, α .* step)
         force = generalized_force(problem, u)
-        residual = largest_load(problem, unbalanced(problem, force))
+        residual = largest_load(problem, unbalanced(problem, u, force))
         damping = α < 0.25 ? max(4damping, smallest) : α == 1 ? damping / 2 : damping
     end
-    settle!(sam, u)
-    return (; converged = residual <= tolerance, iterations, residual,
-            moment = pose_moment(problem, u, force))
+    return (; u, iterations)
+end
+
+"""
+    coordinate_change(problem, u, target) -> Vector
+
+The step that [`move`](@ref) takes from `u` to `target`.
+"""
+function coordinate_change(problem::EquilibriumProblem, u, target)
+    (; layout) = problem
+    ranges = coordinate_ranges(layout)
+    change = zeros(length(problem.inertia))
+    change[ranges.translation] .= target[layout.position] .- u[layout.position]
+    for (quat, turn) in zip(eachcol(layout.quaternion), triples(ranges.rotation))
+        relative = quaternion_product([u[quat[1]]; -u[quat[2:4]]], target[quat])
+        change[turn] .= 2 .* relative[2:4] ./ relative[1]
+    end
+    change[ranges.scalar] .= target[layout.scalar] .- u[layout.scalar]
+    return change
+end
+
+"""
+    next_input(inputs, outputs; relaxation=0.1) -> Vector
+
+The next input of the fixed point that maps each of `inputs` to the matching one of
+`outputs`, by interface quasi-Newton with least squares (IQN-ILS): the latest output
+corrected by how outputs and their residuals changed between rounds, or the first input
+moved `relaxation` of the way to its output where there is one round.
+"""
+function next_input(inputs, outputs; relaxation = 0.1)
+    residuals = outputs .- inputs
+    n = length(inputs)
+    n == 1 && return inputs[1] .+ relaxation .* residuals[1]
+    residual_changes = reduce(hcat, [residuals[n] .- residuals[i] for i in 1:(n - 1)])
+    output_changes = reduce(hcat, [outputs[n] .- outputs[i] for i in 1:(n - 1)])
+    return outputs[n] .+ output_changes * (residual_changes \ -residuals[n])
 end
 
 """
@@ -410,7 +492,7 @@ function descent_step(problem::EquilibriumProblem, u, force, damping)
     tangent = stiffness(problem, u)
     smallest = 1e-6 * maximum(abs.(diag(tangent)) ./ problem.inertia)
     for _ in 1:30
-        step = newton_step(problem, tangent, force, damping)
+        step = newton_step(problem, u, tangent, force, damping)
         all(isfinite, step) && dot(force, step) > 0 && return (; step, damping, smallest)
         damping = max(10damping, smallest)
     end
