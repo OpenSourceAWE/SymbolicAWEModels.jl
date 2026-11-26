@@ -22,8 +22,6 @@
 - BREAKING: `Point` no longer takes `vel_w`, and `Body` no longer takes `vel` or `ω_b`: a run's starting velocities come from its transforms' rates. The YAML loader no longer reads saved point and body velocities or station twist rates.
 - BREAKING: `load_sys_struct_from_yaml` reads the YAML with KiteGeometry's `load_authoring`, which refuses a column nothing reads: the saved-state columns pulley `sum_len`, station `twist`, tether `len` and wing `Q_b_to_w` are no longer read. It no longer takes the deprecated `wing_type`, nor the wing types `REFINE` and `QUATERNION`.
 - BREAKING: A structure document is KiteGeometry's awesIO 0.1.0 document (`structure_document` is KiteGeometry's, with a method for a `SystemStructure`) in place of SymbolicAWEModels' own 1.0.0 one, and takes no `description` or `note`. A body's `pos_ENU` there is the centre of its own mass.
-- BREAKING: A tube's forces are minus the gradient of its strain energy. A `TubeRigidityLaw` is defined by its energy (`strain_energy`), its moment is the energy's derivative, and its modes are `:saturating`, `:softening` and `:torsion`. A `TimoshenkoTube`'s shear (its mean chord-relative rotation) is now stiffened at the zero-strain bending and shear rigidities, not at the current ones, and both tube models carry the finite-rotation terms of the gradient; an `ElasticTube` whose bodies are turned against each other at rest now turns its restoring torque with them. MEASURED_CHANGE
-- BREAKING: `tube_bending_law` is Breukels' tip-force curve itself, `M = M_c·(1 − exp(−EI0·κ/M_c))`, in place of a linear-then-power-law fit to it: within 2% of the Breukels curve, where the fit was up to 30% stiff. It takes no `n_samples`.
 
 ## SymbolicAWEModels v0.20.0 2026-10-08
 

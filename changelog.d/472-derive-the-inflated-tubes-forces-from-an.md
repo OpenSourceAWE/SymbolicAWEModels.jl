@@ -1,0 +1,4 @@
+### Changed
+
+- BREAKING: A tube's forces are minus the gradient of its strain energy. A `TubeRigidityLaw` is defined by its energy (`strain_energy`), its moment is the energy's derivative, and its modes are `:saturating`, `:softening` and `:torsion`. A `TimoshenkoTube`'s shear (its mean chord-relative rotation) is now stiffened at the zero-strain bending and shear rigidities, not at the current ones, and both tube models carry the finite-rotation terms of the gradient; an `ElasticTube` whose bodies are turned against each other at rest now turns its restoring torque with them. MEASURED_CHANGE
+- BREAKING: `tube_bending_law` is Breukels' tip-force curve itself, `M = M_c·(1 − exp(−EI0·κ/M_c))`, in place of a linear-then-power-law fit to it: within 2% of the Breukels curve, where the fit was up to 30% stiff. It takes no `n_samples`.

@@ -128,9 +128,11 @@ moment error over sampled post-knee `(curvature, moment)`. Golden-section search
 function fit_softening_exponent(curvature, moment, curvature_knee, moment_knee,
                                 moment_collapse)
     isempty(moment) && return 1.0
-    cost(log_exponent) = sum(abs2, (law_moment.(softening_law(moment_knee / curvature_knee,
-        moment_knee, moment_collapse, curvature_knee, exp(log_exponent)), curvature) .-
-        moment) ./ moment)
+    function cost(log_exponent)
+        law = softening_law(moment_knee, moment_collapse, curvature_knee,
+                            exp(log_exponent))
+        return sum(abs2, (law_moment.(law, curvature) .- moment) ./ moment)
+    end
     low, high = log.(SOFTENING_EXPONENT_RANGE)
     golden = (sqrt(5) - 1) / 2
     left, right = high - golden * (high - low), low + golden * (high - low)
@@ -150,14 +152,15 @@ function fit_softening_exponent(curvature, moment, curvature_knee, moment_knee,
 end
 
 """
-    softening_law(EI0, moment_knee, moment_collapse, curvature_knee, exponent)
+    softening_law(moment_knee, moment_collapse, curvature_knee, exponent)
         -> TubeRigidityLaw
 
-The `:softening` [`TubeRigidityLaw`](@ref) leaving the knee at slope `EI0`.
+The `:softening` [`TubeRigidityLaw`](@ref), linear up to the knee and C1 across it.
 """
-softening_law(EI0, moment_knee, moment_collapse, curvature_knee, exponent) =
-    TubeRigidityLaw(:softening, EI0, moment_knee, moment_collapse, curvature_knee,
-                    exponent, moment_knee / (moment_collapse - moment_knee), 0.0, 0.0)
+softening_law(moment_knee, moment_collapse, curvature_knee, exponent) =
+    TubeRigidityLaw(:softening, moment_knee / curvature_knee, moment_knee,
+        moment_collapse, curvature_knee, exponent,
+        moment_knee / (moment_collapse - moment_knee), 0.0, 0.0)
 
 """
     check_tube_geometry(radius, pressure)
@@ -375,23 +378,20 @@ function comer_levy_sample_curve(radius, pressure, membrane_stiffness;
 end
 
 """
-    fit_bending_law(κ, M, moment_knee, moment_collapse)
-        -> (EI0, curvature_knee, exponent)
+    fit_bending_law(κ, M, moment_knee, moment_collapse) -> TubeRigidityLaw
 
-Least-squares fit of the smooth [`TubeRigidityLaw`](@ref) bending law to sampled
-`(κ, M)` given the wrinkling/collapse anchors: `EI0` from the linear region
-(`M < moment_knee`), `curvature_knee = moment_knee/EI0`, and the post-wrinkling
-`exponent` from [`fit_softening_exponent`](@ref) on the tail. No optimisation
-dependency.
+Least-squares fit of the [`softening_law`](@ref) to sampled `(κ, M)` given the
+wrinkling/collapse anchors: `EI0` from the linear region (`M < moment_knee`),
+`curvature_knee = moment_knee/EI0`, and the post-wrinkling exponent from
+[`fit_softening_exponent`](@ref) on the tail. No optimisation dependency.
 """
 function fit_bending_law(κ, M, moment_knee, moment_collapse)
     linear = M .< moment_knee
-    EI0 = κ[linear] \ M[linear]
-    curvature_knee = moment_knee / EI0
+    curvature_knee = moment_knee / (κ[linear] \ M[linear])
     post = (M .> moment_knee) .& (M .< 0.999 * moment_collapse)
-    return EI0, curvature_knee,
-        fit_softening_exponent(κ[post], M[post], curvature_knee, moment_knee,
-                               moment_collapse)
+    exponent = fit_softening_exponent(κ[post], M[post], curvature_knee, moment_knee,
+                                      moment_collapse)
+    return softening_law(moment_knee, moment_collapse, curvature_knee, exponent)
 end
 
 """
@@ -409,8 +409,7 @@ function comer_levy_bending_law(radius, pressure, membrane_stiffness; n_samples=
     κ, M = comer_levy_sample_curve(radius, pressure, membrane_stiffness; n=n_samples)
     moment_knee = comer_levy_wrinkling_moment(radius, pressure)
     moment_collapse = comer_levy_collapse_moment(radius, pressure)
-    EI0, curvature_knee, exponent = fit_bending_law(κ, M, moment_knee, moment_collapse)
-    return softening_law(EI0, moment_knee, moment_collapse, curvature_knee, exponent)
+    return fit_bending_law(κ, M, moment_knee, moment_collapse)
 end
 
 """
