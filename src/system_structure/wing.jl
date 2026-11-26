@@ -138,7 +138,9 @@ Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
 
 # Keyword Arguments
 - `angular_damping`: Per-axis spin damping [1/s] about the body axes, `dω/dt -=
-  c .* ω`. A scalar is broadcast to all three axes.
+  c .* (ω - Rᵀ·Ω)` with `Ω` the rotation of the wing over the sphere about its
+  tether's base point ([`sphere_frame`](@ref)). A scalar is broadcast to all three
+  axes.
 - `world_frame_damping`, `body_frame_damping`: Per-mass translational damping
   [1/s] of the COM velocity, resolved on the world and body axes.
 - `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.

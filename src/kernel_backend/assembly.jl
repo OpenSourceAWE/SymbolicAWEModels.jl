@@ -15,7 +15,7 @@ const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
-const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_velocity]
+const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_com; :wing_velocity]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
 const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
                      :pose_omega]
@@ -30,7 +30,7 @@ const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
 const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
                           :origin_vel]
-const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
+const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame, :wing_com,
                           :wing_velocity]
 """A flap's two frames, nine scalars each rather than two vectors: a hinge axis
 leaves some entries unread, and `mtkcompile` will not take part of a declared
@@ -363,17 +363,16 @@ function assemble(sam; verbose = false)
     end
     for (idx, role) in enumerate(point_roles)
         role.kind === :wing_node || continue
-        connect!(builder, body_instances[role.body_idx], :frame,
-                 point_instances[idx], :wing_frame)
-        connect!(builder, body_instances[role.body_idx], :vel,
-                 point_instances[idx], :wing_velocity)
+        wire_wing_frame!(builder, body_instances[role.body_idx], point_instances[idx])
+        sys_struct.points[idx].body_frame_damping === nothing && continue
+        wire_damping_base!(builder, sam, role.body_idx, point_instances,
+                           point_instances[idx])
     end
     for (idx, body) in enumerate(sys_struct.bodies)
-        (body.type == DYNAMIC && body.wing_idx != 0) || continue
-        connect!(builder, body_instances[body.wing_idx], :frame,
-                 body_instances[idx], :wing_frame)
-        connect!(builder, body_instances[body.wing_idx], :vel,
-                 body_instances[idx], :wing_velocity)
+        body.type == DYNAMIC || continue
+        body.wing_idx == 0 ||
+            wire_wing_frame!(builder, body_instances[body.wing_idx], body_instances[idx])
+        wire_damping_base!(builder, sam, idx, point_instances, body_instances[idx])
     end
     for tube in sys_struct.tubes
         add_tube!(builder, table, bindings, sam, tube, body_instances)
@@ -767,6 +766,33 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
 end
 
 """
+    wire_wing_frame!(builder, wing_instance, instance)
+
+Wire a wing's frame, COM and COM velocity into the `wing_frame`, `wing_com` and
+`wing_velocity` inputs of an instance that damps against the wing's
+[`sphere_frame`](@ref).
+"""
+function wire_wing_frame!(builder, wing_instance, instance)
+    connect!(builder, wing_instance, :frame, instance, :wing_frame)
+    connect!(builder, wing_instance, :com, instance, :wing_com)
+    connect!(builder, wing_instance, :com_velocity, instance, :wing_velocity)
+    return nothing
+end
+
+"""
+    wire_damping_base!(builder, sam, body_idx, point_instances, instance)
+
+Wire the tether base point of body `body_idx`'s [`damping_base`](@ref) into the
+`base_pos` input of `instance`; the world origin and no base leave it unwired.
+"""
+function wire_damping_base!(builder, sam, body_idx, point_instances, instance)
+    base = damping_base(sam.state, body_idx)
+    isnothing(base) || base == 0 ||
+        connect!(builder, point_instances[base], :pos, instance, :base_pos)
+    return nothing
+end
+
+"""
     add_body!(builder, table, bindings, sam, idx) -> Int
 
 Add the instance for body `idx`. Each of the three kinds is its own compiled type,
@@ -781,13 +807,15 @@ function add_body!(builder, table, bindings, sam, idx)
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
     parented = body.type != STATIC && body.wing_idx != 0
+    based = !isnothing(damping_base(sam.state, idx))
     key = body.type == STATIC ? :static_body :
-        parented ? :parented_rigid_body : :rigid_body
+        Symbol(parented ? :parented_rigid_body : :rigid_body, based ? "" : :_unbased)
     make = body.type == STATIC ?
         (params -> StaticBody(sam, params, idx; name = key)) :
-        (params -> RigidBody(sam, params, idx; name = key, parented))
-    entry = kernel!(builder, table, sam, key, idx, make,
-                    parented ? PARENTED_BODY_INPUTS : BODY_INPUTS, BODY_OUTPUTS)
+        (params -> RigidBody(sam, params, idx; name = key, parented, based))
+    inputs = [parented ? PARENTED_BODY_INPUTS : BODY_INPUTS;
+              body.type != STATIC && based ? [:base_pos] : Symbol[]]
+    entry = kernel!(builder, table, sam, key, idx, make, inputs, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
     return instance
@@ -857,10 +885,13 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                                                              wrenches)
     entry = if role.kind === :wing_node
         with_damping = sys_struct.points[idx].body_frame_damping !== nothing
-        key = with_damping ? :wing_node : :wing_node_undamped
+        based = with_damping && !isnothing(damping_base(sam.state, role.body_idx))
+        key = !with_damping ? :wing_node_undamped :
+            based ? :wing_node : :wing_node_unbased
         kernel!(builder, table, sam, key, idx,
-                params -> WingNodePoint(sam, params, idx; name = key, with_damping),
-                WING_NODE_INPUTS, PARTICLE_OUTPUTS)
+                params -> WingNodePoint(sam, params, idx; name = key, with_damping,
+                                        based),
+                [WING_NODE_INPUTS; based ? [:base_pos] : Symbol[]], PARTICLE_OUTPUTS)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),

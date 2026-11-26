@@ -447,6 +447,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,
+            frame_base = damping_base(sys_struct, wing.idx),
             stations = sys_struct.stations)
     end
     for readout in getter.rigid

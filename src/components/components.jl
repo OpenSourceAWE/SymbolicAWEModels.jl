@@ -1259,8 +1259,7 @@ end
 
 """
     body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                     orientation_p; frozen=false, wing_frame=nothing,
-                     wing_vel=nothing)
+                     orientation_p; frame, frozen=false, wing_frame=nothing)
 
 The four integration overrides `rigid_body_pose_expressions` takes. `fix_sphere`
 confines the body to a sphere about the world origin by keeping only the radial part
@@ -1269,12 +1268,11 @@ of its COM velocity and acceleration and dropping the radial part of its spin.
 accelerations they correct without a cycle.
 
 Damping is folded in here so both backends share one definition: `angular_damping` on
-the absolute spin, `world_frame_damping` on the COM velocity on the world axes, and
-`body_frame_damping` through the same [`body_frame_damp_accel`](@ref) a wing node uses
-— the velocity relative to the parent wing, resolved on the wing's axes, so it damps
-deformation and not rigid flight. `wing_frame`/`wing_vel` carry that parent's frame
-and velocity; a body with no parent wing (`wing_idx == 0`) gets its own frame and a
-resting parent.
+the spin relative to `frame`, the [`sphere_frame`](@ref) of the body's wing (its own
+where it has no parent wing), `world_frame_damping` on the COM velocity on the world
+axes, and `body_frame_damping` through the same [`body_frame_damp_accel`](@ref) a wing
+node uses — against `frame`, resolved on the parent wing's axes `wing_frame`. A body
+with no parent wing (`wing_frame = nothing`) damps its velocity on its own axes.
 
 `frozen` holds all four derivatives at zero, clamping a body that is integrated but
 must not move; a backend that gives such a body no state leaves it `false`. A body not
@@ -1282,20 +1280,20 @@ frozen at build time reads the `fix_static` parameter instead, the same clamp un
 runtime control.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                          orientation_p; frozen=false, wing_frame=nothing,
-                          wing_vel=nothing)
+                          orientation_p; frame, frozen=false, wing_frame=nothing)
     body = params.bodies[idx]
     sphere = body.fix_sphere
     spin = collect(omega_p)
-    damped = collect(alpha_p) .- collect(body.angular_damping) .* spin
+    relative_spin = spin .- orientation_p' * frame.spin
+    damped = collect(alpha_p) .- collect(body.angular_damping) .* relative_spin
     velocity = collect(com_vel)
     R_b_to_w = orientation_p * collect(body.R_b_to_p)
-    parent_frame = isnothing(wing_frame) ? R_b_to_w : wing_frame
-    parent_vel = isnothing(wing_vel) ? zeros(3) : collect(wing_vel)
+    axes_w, reference = isnothing(wing_frame) ?
+        (R_b_to_w, sphere_frame(nothing, com_w, zeros(3))) : (wing_frame, frame)
     damped_acc = collect(com_acc) .-
         collect(body.world_frame_damping) .* velocity .-
-        body_frame_damp_accel(velocity, body.body_frame_damping,
-                              parent_frame, parent_vel)
+        body_frame_damp_accel(velocity, body.body_frame_damping, axes_w, reference,
+                              com_w)
     axis = collect(smooth_normalize(collect(com_w)))
     axis_p = orientation_p' * axis
     spin_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin)
@@ -1312,7 +1310,7 @@ function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc
 end
 
 """
-    RigidBody(s, params, idx; name)
+    RigidBody(s, params, idx; name, parented=false, based=true)
 
 Free 6-DOF rigid body: integrates the 13-state principal pose (`com_w`, `com_vel`,
 `Q_p_to_w`, `ω_p`) under gravity, the wrench gathered at `force_in`/`moment_in`, the
@@ -1320,18 +1318,22 @@ external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`) and its damping,
 through [`rigid_body_pose_expressions`](@ref). `fix_sphere` stays a parameter. A
 clamped body is [`StaticBody`](@ref) instead.
 
-`parented` declares the `wing_frame`/`wing_velocity` inputs a body with a parent
-wing needs, so its `body_frame_damping` resists motion relative to that wing
-rather than absolute motion; the assembly connects them from the parent instance.
+It damps against the [`sphere_frame`](@ref) about the `base_pos` input, which the
+assembly connects from the tether's base point and leaves at the world origin where
+the transform has none; `based = false`, for a body no transform moves, drops it.
+`parented` declares the `wing_frame`/`wing_com`/`wing_velocity` inputs a body with a
+parent wing needs, so it damps against that wing's frame rather than its own.
 """
-function RigidBody(s, params, idx; name, parented = false)
+function RigidBody(s, params, idx; name, parented = false, based = true)
     io = body_variables()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     torn = @variables alpha_p(t)[1:3] com_acc(t)[1:3]
     parent = @variables begin
         wing_frame(t)[1:9], [input = true]
+        wing_com(t)[1:3], [input = true]
         wing_velocity(t)[1:3], [input = true]
     end
+    @variables base_pos(t)[1:3] [input = true]
     com_w, com_vel, Q, omega_p = state
     alpha_p, com_acc = torn
     body = params.bodies[idx]
@@ -1341,14 +1343,16 @@ function RigidBody(s, params, idx; name, parented = false)
     force_w = collect(io.force_in) .+ gravity .+ collect(body.ext_force_w) .+
         orientation * collect(body.ext_force_b)
     moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
+    base_w = based ? collect(base_pos) : nothing
+    frame = parented ? sphere_frame(base_w, parent[2], parent[3]) :
+        sphere_frame(base_w, com_w, com_vel)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
         body.total_mass, body.R_b_to_p, body.apparent_mass,
         body.com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
-                         com_acc, orientation_p;
+                         com_acc, orientation_p; frame,
                          wing_frame = parented ?
-                             reshape(collect(parent[1]), 3, 3) : nothing,
-                         wing_vel = parented ? collect(parent[2]) : nothing)...)
+                             reshape(collect(parent[1]), 3, 3) : nothing)...)
     eqs = [
         collect(alpha_p) .~ ex.α_p
         collect(com_acc) .~ ex.com_acc
@@ -1367,7 +1371,7 @@ function RigidBody(s, params, idx; name, parented = false)
         collect(io.omega_b) .~ ex.ω_b
         collect(io.alpha_b) .~ ex.α_b
     ]
-    vars = parented ? [io.all; parent; state; torn] : [io.all; state; torn]
+    vars = [io.all; parented ? parent : []; based ? [base_pos] : []; state; torn]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -2530,34 +2534,65 @@ function KinematicBody(s, params, idx; name)
 end
 
 """
-    body_frame_damp_accel(vel, body_damp, orientation, wing_vel)
+    sphere_frame(base_w, origin, origin_vel)
 
-Body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, the term
-`point_damping_accel` adds for a point that damps against its wing's frame rather
-than the world.
+The frame that follows a body over the sphere about its tether's base point `base_w`
+[m]: it sits at `origin` [m], moves at `origin_vel` [m/s] and turns at the sphere
+rotation `spin = r × v / |r|²` [rad/s] with `r = origin − base_w` and `v = origin_vel`.
+`base_w = nothing`, for a body no transform moves, gives a frame that does not turn.
 """
-body_frame_damp_accel(vel, body_damp, orientation, wing_vel) =
-    orientation * (collect(body_damp) .* (orientation' * (collect(vel) .- wing_vel)))
+function sphere_frame(base_w, origin, origin_vel)
+    vel = collect(origin_vel)
+    isnothing(base_w) && return (; pos = collect(origin), vel, spin = zeros(3))
+    radius = collect(origin) .- collect(base_w)
+    return (; pos = collect(origin), vel, spin = (radius × vel) ./ (radius ⋅ radius))
+end
 
 """
-    WingNodePoint(s, params, idx; name, with_damping=true)
+    base_position(base, position_of)
+
+The position [m] of the [`transform_base`](@ref) `base`, `position_of(base)` for a
+point: zeros for the world origin, `nothing` for no base.
+"""
+base_position(base, position_of) =
+    isnothing(base) ? nothing : base == 0 ? zeros(3) : collect(position_of(base))
+
+"""
+    body_frame_damp_accel(vel, body_damp, orientation, frame, pos)
+
+Body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − v_frame)))` of a point at
+`pos`, with `v_frame = frame.vel + frame.spin × (pos − frame.pos)` the velocity there of
+the [`sphere_frame`](@ref) `frame` it damps against.
+"""
+function body_frame_damp_accel(vel, body_damp, orientation, frame, pos)
+    relative = collect(vel) .- frame.vel .- frame.spin × (collect(pos) .- frame.pos)
+    return orientation * (collect(body_damp) .* (orientation' * relative))
+end
+
+"""
+    WingNodePoint(s, params, idx; name, with_damping=true, based=true)
 
 A particle belonging to a fitted wing: the shared [`Particle`](@ref) motion plus the
-body-frame damping `point_eqs!` adds for a point that damps against its wing's frame
-rather than the world, which reads the `wing_frame`/`wing_velocity` the fitted body
-supplies. Its aerodynamic force arrives at `force_in` from
-[`ParticleWingAero`](@ref), like any other load. `with_damping = false` drops the
+body-frame damping `point_eqs!` adds for a point that damps against its wing's
+[`sphere_frame`](@ref) rather than the world, which reads the
+`wing_frame`/`wing_com`/`wing_velocity` the fitted body supplies and the `base_pos` of
+its tether, dropped with `based = false` where no transform moves the wing. Its
+aerodynamic force arrives at `force_in` from [`ParticleWingAero`](@ref), like any other
+load. `with_damping = false` drops the
 damping term whose coefficient the struct leaves unset, so no zero-valued parameter
 is generated, matching the monolith.
 """
-function WingNodePoint(s, params, idx; name, with_damping = true)
+function WingNodePoint(s, params, idx; name, with_damping = true, based = true)
     io = point_variables()
     extra = @variables begin
         wing_frame(t)[1:9], [input = true]
+        wing_com(t)[1:3], [input = true]
         wing_velocity(t)[1:3], [input = true]
     end
+    @variables base_pos(t)[1:3] [input = true]
     orientation = reshape(collect(extra[1]), 3, 3)
     point = params.points[idx]
+    frame = sphere_frame(based ? collect(base_pos) : nothing, extra[2], extra[3])
     pars = point_particle_params(params, idx)
     mass = pars.extra_mass + io.mass_in
     motion = point_acceleration(s, collect(io.pos), collect(io.vel),
@@ -2566,7 +2601,7 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
         pars.apparent_mass)
     accel = motion.accel
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
-        point.body_frame_damping, orientation, collect(extra[2])))
+        point.body_frame_damping, orientation, frame, io.pos))
     velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
     eqs = [
         D.(collect(io.pos)) .~ velocity
@@ -2575,6 +2610,6 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
         point_wind_eqs(s, params, idx, io)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force, extra...]
+            io.wind_vec, io.net_force, extra..., (based ? (base_pos,) : ())...]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
