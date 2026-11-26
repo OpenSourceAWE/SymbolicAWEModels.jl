@@ -33,6 +33,12 @@ function stretch!(sam, factor)
     return sam
 end
 
+# `init!` writes the assembled model under the data path; an earlier test file may
+# have left it on a directory it has since removed.
+data_path = joinpath(mktempdir(), "2plate_kite")
+cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
+set_data_path(data_path)
+
 particle = kernel_2plate("particle_structural_geometry.yaml")
 rigid = kernel_2plate("rigid_structural_geometry.yaml")
 
