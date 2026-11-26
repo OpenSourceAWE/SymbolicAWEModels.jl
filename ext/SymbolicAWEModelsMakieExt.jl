@@ -17,7 +17,7 @@ using KiteUtils
 using KiteUtils: SysLog
 using SymbolicAWEModels
 using SymbolicAWEModels: wing_body, point_wing, wing_node, tube_anchors_b, tube_rest,
-    tube_columns, quaternion_to_rotation_matrix
+    tube_columns, quaternion_to_rotation_matrix, body_position_slot
 using VortexStepMethod
 using GeometryBasics
 
@@ -77,13 +77,12 @@ wing_point(sam, i, wing_idx) =
 """
     wing_log_pos(sl, sam, wing_idx, k)
 
-World position of wing `wing_idx` of the run `sam` at log frame `k`, read from its
-dedicated slot appended after the structural points and panel corners in the
-`SysLog`. Older logs lack that slot; in that case fall back to the
+World position of wing `wing_idx` of the run `sam` at log frame `k`, read from the slot
+of its body in the `SysLog`. Older logs lack that slot; in that case fall back to the
 mean of the wing's wing-node structural points (or all points).
 """
 function wing_log_pos(sl, sam, wing_idx, k)
-    i = sam.topology.slots.wings[wing_idx]
+    i = body_position_slot(sam, wing_body(sam, wing_idx))
     if i <= length(sl.X[k])
         return SVector{3, Float64}(
             sl.X[k][i], sl.Y[k][i], sl.Z[k][i])

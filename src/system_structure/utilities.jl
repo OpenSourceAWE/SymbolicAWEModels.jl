@@ -388,8 +388,8 @@ end
 Copy the state a `SysState` carries (point positions, wing and body poses, winch
 lengths, twist angles, segment spring forces, the wings' circulation) into the run `sam`,
 e.g. to plot one snapshot of a `SysLog` with the Makie extension or to resume from it,
-reading each wing's pose at its wing slot and frame and every other body's at its body
-slot and frame, as [`update_sys_state!`](@ref) logs them. Fields `SysState` cannot supply
+reading each body's pose, a wing's among them, at its body slot and frame, as
+[`update_sys_state!`](@ref) logs them. Fields `SysState` cannot supply
 (winch forces) are left as they are, a log without spring forces leaves them `NaN`.
 
 `sam` must have been created with the same model configuration as the simulation that
@@ -398,11 +398,9 @@ produced the log; its point count must match the parametric type `P` of `SysStat
 function update_from_sysstate!(sam::SymbolicAWEModel, sys_state::SysState{P}) where P
     sys = sam.definition
     slots = sam.topology.slots
-    n_wings = length(sys.wings)
     P == slots.total || error("$(sys.metadata.name) logs $(slots.total) positions " *
         "($(length(slots.points)) points, $(length(slots.panel_corners)) aero log " *
-        "points, $n_wings wings and $(length(sys.bodies)) bodies), but the SysState " *
-        "has $P")
+        "points and $(length(sys.bodies)) bodies), but the SysState has $P")
 
     # Logs written before the velocity columns existed restart from rest.
     has_velocity = length(sys_state.VX) == length(sys_state.X)
@@ -416,8 +414,7 @@ function update_from_sysstate!(sam::SymbolicAWEModel, sys_state::SysState{P}) wh
     end
 
     for b in eachindex(sys.bodies)
-        w = body_wing(sam, b)
-        slot, frame = w == 0 ? (slots.bodies[b], n_wings + b) : (slots.wings[w], w)
+        slot, frame = body_position_slot(sam, b), body_frame(sam, b)
         set_run_value!(sam, :bodies, b, :pos_w, logged((:X, :Y, :Z), slot))
         has_velocity && set_run_value!(sam, :bodies, b, :vel_w,
                                        logged((:VX, :VY, :VZ), slot))
@@ -425,7 +422,7 @@ function update_from_sysstate!(sam::SymbolicAWEModel, sys_state::SysState{P}) wh
         frame <= length(sys_state.turn_rate_x) && set_run_value!(sam, :bodies, b, :ω_b,
             logged((:turn_rate_x, :turn_rate_y, :turn_rate_z), frame))
     end
-    if n_wings == 1
+    if length(sys.wings) == 1
         set_run_value!(sam, :wings, 1, :elevation, Float64(sys_state.elevation))
         set_run_value!(sam, :wings, 1, :azimuth, Float64(sys_state.azimuth))
         set_run_value!(sam, :wings, 1, :heading, Float64(sys_state.heading))

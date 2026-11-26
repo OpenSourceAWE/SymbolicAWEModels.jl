@@ -21,8 +21,8 @@ item_slot(sam, i) = i
 """The position slot of body `body_idx` in the `SysState` of `sam`."""
 body_position_slot(sam, body_idx) = getfield(sam, :topology).body_slot0 + body_idx
 
-"""The orientation frame of body `body_idx` in the `SysState` of `sam`: after the wings'."""
-body_frame(sam, body_idx) = getfield(sam, :topology).n_wings + body_idx
+"""The orientation frame of body `body_idx` in the `SysState` of `sam`."""
+body_frame(sam, body_idx) = body_idx
 
 """
     Parameter(default)
@@ -430,8 +430,7 @@ function run_topology(sys, n_corners)
             wing_stations = [station_indices(sys, wing_idx)
                              for wing_idx in eachindex(sys.wings)],
             wing_bodies = [Int(wing.body) for wing in sys.wings], body_wings, slots,
-            body_slot0 = first(slots.bodies) - 1,
-            n_wings = length(sys.wings))
+            body_slot0 = first(slots.bodies) - 1)
 end
 
 """The indices of the segments on each point of `sys`."""

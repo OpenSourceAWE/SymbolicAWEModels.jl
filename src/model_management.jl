@@ -32,9 +32,6 @@ end
 """The position slot before the first body's in the `SysState` of run `sam`."""
 @inline body_slot0(sam) = getfield(sam, :topology).body_slot0
 
-"""The number of wings of run `sam`, whose orientation frames come before the bodies'."""
-@inline wing_count(sam) = getfield(sam, :topology).n_wings
-
 """
     generate_prob_getters(sam, sys)
 
@@ -123,9 +120,9 @@ function generate_prob_getters(sam, sys, param_registry=nothing,
     if length(bodies) > 0
         push!(specs, scatter_spec(
             sys.body_Q_b_to_w => (st, v) -> write_columns!(
-                xyz(run_columns(st), :Qw, :Qx, :Qy, :Qz), v, wing_count(st)),
+                xyz(run_columns(st), :Qw, :Qx, :Qy, :Qz), v),
             sys.body_ω_b      => (st, v) -> write_columns!(xyz(run_columns(st),
-                :turn_rate_x, :turn_rate_y, :turn_rate_z), v, wing_count(st)),
+                :turn_rate_x, :turn_rate_y, :turn_rate_z), v),
             sys.body_pos_w    => (st, v) -> write_columns!(
                 xyz(run_columns(st), :X, :Y, :Z), v, body_slot0(st)),
             sys.body_vel_w    => (st, v) -> write_columns!(

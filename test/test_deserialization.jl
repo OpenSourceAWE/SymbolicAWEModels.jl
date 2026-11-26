@@ -200,6 +200,17 @@ system:
             @test sam_cached.aero[1].vsm_wing === vsm_wing
         end
 
+        @testset "a log holds a wing's pose at its body's slot and frame" begin
+            logged = SysState(sam_fresh; precision=Float64)
+            body = SymbolicAWEModels.wing_body(sam_fresh, 1)
+            slot = sam_fresh.topology.slots.bodies[body]
+            @test [logged.X[slot], logged.Y[slot], logged.Z[slot]] ≈
+                  run_value(sam_fresh, :bodies, body, :pos_w)
+            @test norm(run_value(sam_fresh, :bodies, body, :pos_w)) > 1.0
+            @test collect(logged.orients[body]) ≈
+                  run_value(sam_fresh, :bodies, body, :Q_b_to_w)
+        end
+
         @testset "a logged point force reaches a run that does not solve the aero" begin
             restored = build_refine(; remake=false)
             update_from_sysstate!(restored, SysState(sam_fresh; precision=Float64))

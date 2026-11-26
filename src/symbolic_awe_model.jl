@@ -403,8 +403,8 @@ end
 
 Update a `SysState` from the model's integrator: converts units (e.g. radians to
 degrees) and computes derived values like AoA. Roll, pitch and yaw are
-`KiteUtils.euler_KS(ss.orient)`. Each wing's pose is logged at its wing slot and
-frame, every other body's at its body slot and frame.
+`KiteUtils.euler_KS(ss.orient)`. Each body's pose, a wing's among them, is logged at
+its body slot and frame.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
@@ -465,12 +465,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     end
     write_flap_deflections!(ss, sam)
 
-    slots = sam.topology.slots
     for b in eachindex(sys.bodies)
-        w = body_wing(sam, b)
-        slot, frame = w == 0 ? (slots.bodies[b], length(sys.wings) + b) :
-            (slots.wings[w], w)
-        write_body_state!(ss, sam, b, slot, frame, zoom)
+        write_body_state!(ss, sam, b, zoom)
     end
     copyto!(ss.pulley_len, run.pulley_len)
     copyto!(ss.pulley_vel, run.pulley_vel)
@@ -480,13 +476,14 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
 end
 
 """
-    write_body_state!(ss, sam, b, slot, frame, zoom)
+    write_body_state!(ss, sam, b, zoom)
 
 Log the pose and rates of body `b` of `sam` into `ss`: position and velocity in
-`X/Y/Z` and `VX/VY/VZ` at `slot`, orientation and turn rate in `orients` and
-`turn_rate_x/y/z` at `frame`.
+`X/Y/Z` and `VX/VY/VZ` at its position slot, orientation and turn rate in `orients` and
+`turn_rate_x/y/z` at its frame.
 """
-function write_body_state!(ss, sam, b, slot, frame, zoom)
+function write_body_state!(ss, sam, b, zoom)
+    slot, frame = body_position_slot(sam, b), body_frame(sam, b)
     pos_w = run_value(sam, Val(:bodies), b, Val(:pos_w))
     ss.X[slot] = pos_w[1] * zoom
     ss.Y[slot] = pos_w[2] * zoom
@@ -505,27 +502,23 @@ end
 
 Index layout of a `SysState`'s `X/Y/Z` position arrays for a run of definition `sys`
 whose wings log `n_corners` aero points: structural `points`, then the aero log
-`panel_corners`, then `wings` origins, then `bodies` origins. Each field is the
+`panel_corners`, then `bodies`, a wing's body logging the wing's pose. Each field is the
 `UnitRange` of slots for that group (empty if none); `total` is the position count.
-Orientation frames (`orients`) are laid out wings-first, then bodies — i.e. wing `w`
-uses frame `w`, body `b` uses frame `n_wings + b`. A run holds its layout in
+Body `b` uses orientation frame (`orients`) `b`. A run holds its layout in
 `sam.topology.slots`.
 """
 function position_slots(sys, n_corners)
     n_points = length(sys.points)
-    n_wings = length(sys.wings)
     n_bodies = length(sys.bodies)
-    base_wings = n_points + n_corners
-    base_bodies = base_wings + n_wings
+    base_bodies = n_points + n_corners
     return (points        = 1:n_points,
-            panel_corners = (n_points + 1):(n_points + n_corners),
-            wings         = (base_wings + 1):(base_wings + n_wings),
+            panel_corners = (n_points + 1):base_bodies,
             bodies        = (base_bodies + 1):(base_bodies + n_bodies),
             total         = base_bodies + n_bodies)
 end
 
-"""Number of orientation frames (wings + rigid bodies, at least 1)."""
-n_orient_frames(sys) = max(1, length(sys.wings) + length(sys.bodies))
+"""Number of orientation frames, one per body, at least 1."""
+n_orient_frames(sys) = max(1, length(sys.bodies))
 
 """
     SysState(s::SymbolicAWEModel, zoom=1.0)
