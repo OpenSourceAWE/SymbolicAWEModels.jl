@@ -675,10 +675,12 @@ function get_model_name(set::Settings, sys_struct::SystemState; precompile=false
     n_winches = length(sys_struct.winches)
     n_bodies = length(sys_struct.bodies)
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
+    n_membranes = length(sys_struct.membranes)
+    membrane_tag = n_membranes > 0 ? "_$(n_membranes)mbr" : ""
     sparse_tag = sparse ? "_sparse" : ""
     jacobian_tag = analytic_jacobian ? "_analytic" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(membrane_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end
 
 """

@@ -69,6 +69,7 @@ export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
 export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
+export Membrane
 export segment_role
 export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
@@ -219,6 +220,7 @@ include("backends.jl")
 include("kernel_backend/codegen/mtk_codegen.jl")
 include("components/kernels.jl")
 include("components/components.jl")
+include("components/membrane.jl")
 include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")

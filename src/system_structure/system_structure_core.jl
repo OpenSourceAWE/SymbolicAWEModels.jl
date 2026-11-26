@@ -28,6 +28,7 @@ physical model, from points and segments to winches and wings.
 - [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
   `sys.wings` holds the subset of `sys.bodies` that does.
 - [`Tube`](@ref): Inflated tubes between two bodies; a chain of them forms a beam.
+- [`Membrane`](@ref): Fabric triangles spanned between three points.
 """
 mutable struct SystemStructure
     const name::String
@@ -43,6 +44,7 @@ mutable struct SystemStructure
     position here equals its `idx`. The same objects, not copies."
     const wings::NamedCollection{Body}
     const tubes::NamedCollection{Tube}
+    const membranes::NamedCollection{Membrane}
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "The KiteGeometry definition of the system in its initial pose."
     definition::Union{Nothing, SystemDefinition}
@@ -771,7 +773,7 @@ carried_position_b(point, body) = point.body_idx == body.idx ? Vector(point.anch
 
 """
     SystemStructure(name, set; points, stations, segments, pulleys, tethers,
-                    winches, wings, bodies, tubes)
+                    winches, wings, bodies, tubes, membranes)
 
 Constructs a `SystemStructure` object representing a complete mechanical system.
 Resolves every symbolic reference to a numeric index, fills in derived properties
@@ -809,6 +811,7 @@ function SystemStructure(name, set;
         wings=Body[],
         bodies=Body[],
         tubes=Tube[],
+        membranes=Membrane[],
         ignore_l0::Bool=false,
         placed::Bool=false,
         vsm_set=nothing,
@@ -875,6 +878,12 @@ function SystemStructure(name, set;
         @assert segment.idx == i
         (segment.l0 ≈ 0) && (segment.l0 = segment_initial_length(segment, points))
         isnan(segment.density) && (segment.density = set.rho_tether)
+    end
+    for (i, membrane) in enumerate(membranes)
+        membrane.idx = i
+        membrane.point_idxs = Tuple(resolve_ref(ref, point_names_dict, "point")
+                                    for ref in membrane.point_refs)
+        init_membrane_rest_lengths!(membrane, points)
     end
     for (i, pulley) in enumerate(pulleys)
         @assert pulley.idx == i
@@ -998,6 +1007,7 @@ function SystemStructure(name, set;
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
+        NamedCollection{Membrane}(membranes, build_name_dict(membranes)),
         vsm_set, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)

@@ -14,6 +14,8 @@ const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out, :pulley_vel_out]
 const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
+const MEMBRANE_INPUTS = [:p1_pos, :p1_vel, :p2_pos, :p2_vel, :p3_pos, :p3_vel]
+const MEMBRANE_OUTPUTS = [:p1_force, :p2_force, :p3_force]
 const BODY_INPUTS = [:force_in, :moment_in]
 const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_velocity]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
@@ -355,6 +357,10 @@ function assemble(sam; verbose = false)
     for i in eachindex(sys_struct.segments)
         wire_segment!(builder, sys_struct, i, segment_roles[i],
                       point_instances, segment_instances, wrench_instances)
+    end
+    for idx in eachindex(sys_struct.membranes)
+        add_membrane!(builder, table, bindings, sam, idx, point_instances,
+                      wrench_instances)
     end
     for (idx, body) in enumerate(sys_struct.bodies)
         body.type == KINEMATIC || continue
@@ -1180,6 +1186,29 @@ function wire_segment!(builder, sys_struct, idx, role, point_instances,
             connect!(builder, segment, :dst_tension, winch_point, :tension_in)
     end
     return nothing
+end
+
+"""
+    add_membrane!(builder, table, bindings, sam, idx, points, wrenches) -> Int
+
+Add the instance for membrane `idx` and connect it to its three corners: their pose into
+its inputs, its force on each back into theirs.
+"""
+function add_membrane!(builder, table, bindings, sam, idx, point_instances,
+                       wrench_instances)
+    entry = kernel!(builder, table, sam, :membrane, idx,
+                    params -> MembraneTriangle(params, idx; name = :membrane),
+                    MEMBRANE_INPUTS, MEMBRANE_OUTPUTS)
+    membrane = add_instance!(builder, entry.index)
+    push!(bindings, (membrane, entry, Dict(:membranes => idx)))
+    for (k, corner) in enumerate(sam.state.membranes[idx].point_idxs)
+        point = point_instances[corner]
+        connect!(builder, point, :pos, membrane, Symbol(:p, k, :_pos))
+        connect!(builder, point, :vel, membrane, Symbol(:p, k, :_vel))
+        connect!(builder, membrane, Symbol(:p, k, :_force),
+                 load_target(point_instances, wrench_instances, corner), :force_in)
+    end
+    return membrane
 end
 
 """

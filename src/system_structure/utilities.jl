@@ -26,6 +26,23 @@ function segment_initial_length(segment, points)
 end
 
 """
+    init_membrane_rest_lengths!(membrane, points)
+
+Give each edge of `membrane` without a rest length its length between the corners'
+`pos_ENU`, refusing a triangle whose rest shape has no area.
+"""
+function init_membrane_rest_lengths!(membrane, points)
+    corners = [points[idx].pos_ENU for idx in membrane.point_idxs]
+    for edge in 1:3
+        iszero(membrane.rest_lengths[edge]) || continue
+        membrane.rest_lengths[edge] = norm(corners[mod1(edge + 1, 3)] - corners[edge])
+    end
+    membrane_rest_area(membrane.rest_lengths) > 0 ||
+        error("Membrane $(membrane.name) has no area at rest.")
+    return membrane
+end
+
+"""
     segment_world_length(segment, points)
 
 Compute segment length from endpoint `pos_w` positions.

@@ -99,6 +99,39 @@ KiteGeometry.model_columns(::Type{SegmentModel}) =
     (:unit_damping, :compression_frac, :compression_damping_frac)
 
 """
+    MembraneModel
+
+What SymbolicAWEModels holds of a membrane triangle beyond its KiteGeometry `canopy_faces`
+row: the fabric's columns, then what it derives when it builds the structure, which no
+document holds.
+
+$(TYPEDFIELDS)
+"""
+@kwdef mutable struct MembraneModel <: KiteGeometry.AbstractModel
+    "Young's modulus of the fabric [Pa]."
+    youngs_modulus::Float64
+    "Poisson's ratio of the fabric [-]."
+    poisson_ratio::Float64
+    "Thickness of the fabric [m]."
+    thickness::Float64
+    "Viscosity resisting the fabric's strain rate [Pa·s]."
+    damping::Float64
+    "Fraction of the taut energy kept where the fabric wrinkles or goes slack [-]."
+    slack_frac::Float64 = 1e-4
+    "Index in the structure's membranes."
+    idx::Int64 = 0
+    "Rest lengths of the edges from corner 1 to 2, 2 to 3 and 3 to 1 [m]; 0 takes the
+    edge's length in the built structure."
+    rest_lengths::Vector{SimFloat} = zeros(SimFloat, 3)
+end
+
+MembraneModel(youngs_modulus, poisson_ratio, thickness, damping) =
+    MembraneModel(; youngs_modulus, poisson_ratio, thickness, damping)
+
+KiteGeometry.model_columns(::Type{MembraneModel}) =
+    (:youngs_modulus, :poisson_ratio, :thickness, :damping)
+
+"""
     StationModel
 
 What SymbolicAWEModels holds of a station beyond its KiteGeometry `spanwise_stations` row:
@@ -407,8 +440,8 @@ end
 
 Register SymbolicAWEModels' models of each KiteGeometry block, so `load_authoring` and
 `load_structure` read its columns into them: the default model of points, segments, stations,
-wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the default, and
-`elastic`.
+wings, pulleys, bodies, tethers and winches, the tube models `timoshenko`, the default, and
+`elastic`, and the canopy face model `sam_membrane`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
@@ -436,5 +469,7 @@ function register_definition_models()
                     default=true)
     register_model!(:tubes, "elastic", ElasticTubeModel,
                     ("N/m", "N/m", "N*m/rad", "N*m/rad", "s", "m", "m"))
+    register_model!(:canopy_faces, "sam_membrane", MembraneModel,
+                    ("Pa", "-", "m", "Pa*s"))
     return nothing
 end

@@ -791,6 +791,48 @@ function Segment(_name, _set, _p_i, _p_j, _type::SegmentType;
           "`diameter_mm` kwargs, or a YAML material.")
 end
 
+# ==================== MEMBRANE ==================== #
+
+"""
+    Membrane
+
+A triangle of fabric spanned between three points: a KiteGeometry `canopy_faces` row whose
+model is a [`MembraneModel`](@ref). Its corner forces are the gradient of its strain energy
+([`membrane_strain_energy`](@ref)), whose wrinkling relaxation lets it carry no compressive
+stress. `point_refs` reads the corners the row gives, `point_idxs` the indices they resolve
+to.
+"""
+const Membrane = KiteGeometry.CanopyFace{MembraneModel}
+
+@inline Base.getproperty(membrane::Membrane, property::Symbol) =
+    row_property(membrane, Val(property))
+Base.setproperty!(membrane::Membrane, property::Symbol, value) =
+    set_row_property!(membrane, Val(property), value)
+
+@inline row_property(row::Membrane, ::Val{:point_refs}) = getfield(row, :points)
+@inline row_property(row::Membrane, ::Val{:point_idxs}) =
+    ntuple(i -> Int(getfield(row, :points)[i]), 3)
+set_row_property!(row::Membrane, ::Val{:point_idxs}, points) =
+    row.points = collect(NameRef, points)
+
+"""
+    Membrane(name, point_1, point_2, point_3; wing, youngs_modulus, poisson_ratio,
+             thickness, damping, slack_frac=1e-4, rest_lengths=zeros(3))
+
+A membrane triangle of the canopy of `wing`, with corners `point_1`, `point_2` and
+`point_3`, of a fabric with Young's modulus [Pa], Poisson's ratio, thickness [m] and
+strain-rate viscosity `damping` [Pa·s]. `rest_lengths` are the edges 1→2, 2→3 and 3→1 at
+rest [m], 0 taking an edge's built length. References are names or indices.
+"""
+function Membrane(name, point_1::NameRef, point_2::NameRef, point_3::NameRef;
+                  wing, youngs_modulus, poisson_ratio, thickness, damping,
+                  slack_frac=1e-4, rest_lengths=zeros(3))
+    model = MembraneModel(; youngs_modulus, poisson_ratio, thickness, damping, slack_frac,
+                          rest_lengths=collect(SimFloat, rest_lengths))
+    return KiteGeometry.CanopyFace(; name=Symbol(name), wing=cell_ref(wing),
+        points=NameRef[cell_ref(point) for point in (point_1, point_2, point_3)], model)
+end
+
 # ==================== PULLEY ==================== #
 
 """

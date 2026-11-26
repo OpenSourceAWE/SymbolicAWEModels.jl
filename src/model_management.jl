@@ -930,6 +930,9 @@ function get_sys_struct_hash(state::SystemState)
         push!(data_parts, ("tube", tube.idx, tube.body_a_idx, tube.body_b_idx,
                            nameof(typeof(tube.model)), rigidity_types...))
     end
+    for membrane in structure.membranes
+        push!(data_parts, ("membrane", membrane.idx, membrane.point_idxs))
+    end
     content = string(data_parts)
     return sha1(content)
 end
