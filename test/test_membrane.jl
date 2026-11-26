@@ -130,7 +130,8 @@ function membrane_geometry()
     source = read(joinpath(dirname(@__DIR__), "data", "2plate_kite",
                            "particle_structural_geometry.yaml"), String)
     path = joinpath(mktempdir(), "membrane_structural_geometry.yaml")
-    write(path, replace(source, r"canopy_faces:\n(  .*\n)*" => MEMBRANE_CANOPY))
+    # `\R`: a Windows checkout ends the geometry's lines in CRLF
+    write(path, replace(source, r"canopy_faces:\R(  .*\R)*" => MEMBRANE_CANOPY))
     return path
 end
 
