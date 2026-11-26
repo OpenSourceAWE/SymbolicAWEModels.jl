@@ -580,9 +580,27 @@ end
     end
 
     @testset "wing that does not exist is rejected at load" begin
-        @test_throws "wing 7 does not exist" load_authoring(
+        @test_throws "no wings 7" load_authoring(
             geometry_with_wing(:kcu, "7");
             name="wing_out_of_range", set)
+    end
+
+    # On main's physics, before a point's wing was taken only from stations and bodies.
+    @testset "free point naming a wing is damped in its frame" begin
+        tight = Settings("system.yaml")
+        tight.abs_tol = tight.rel_tol = 1e-9
+        sys, transforms = load_authoring(
+            joinpath(data_path, "particle_structural_geometry.yaml");
+            name="point_named_wing", set=tight)
+        sam = SymbolicAWEModel(tight, sys; transforms, vsm_set)
+        @test run_value(sam, :points, :steering_left, :wing_idx) ==
+              KiteGeometry.row_index(sys.wings, :main_wing)
+        init!(sam; prn=false)
+        next_step!(sam; dt=1e-3, vsm_interval=0)
+        equations = sam.integrator.sol.prob.f.sys
+        point = KiteGeometry.row_index(sys.points, :steering_left)
+        @test sam.integrator[equations.acc[:, point]] ≈
+              [88.43445212030957, 28.598992175209453, 100.62895429465938] rtol=1e-5
     end
 
     rm(tmpdir; recursive=true)

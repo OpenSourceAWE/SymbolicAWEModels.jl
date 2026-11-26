@@ -443,12 +443,17 @@ function point_segments(sys)
 end
 
 """The wing each point of `sys` belongs to, `nothing` for none: the wing of a station it is
-on, else the wing whose body it rides, `body_wings` giving each body's wing."""
+on, else the wing it names, else the wing whose body it rides, `body_wings` giving each
+body's wing."""
 function point_wings(sys, body_wings)
     wings = Union{Nothing, Int}[nothing for _ in sys.points]
     for (i, point) in enumerate(sys.points)
         body = point.body
-        isnothing(body) || body_wings[body] == 0 || (wings[i] = body_wings[body])
+        if !isnothing(point.wing)
+            wings[i] = point.wing
+        elseif !isnothing(body) && body_wings[body] != 0
+            wings[i] = body_wings[body]
+        end
     end
     for station in sys.spanwise_stations, point in station.points
         wings[point] = station.wing
