@@ -25,7 +25,7 @@
 
 ### Fixed
 
-- BREAKING: `reposition!(state)` turns each point and body velocity with the pose, so a re-posed run keeps the motion it had; it left them pointing where they did before. Runs that reposition, such as `sim_reposition!`, give different results.
+- `reposition!(state)` turns each point and body velocity with the pose, so a re-posed run keeps the motion it had; it left them pointing where they did before. Runs that reposition, such as `sim_reposition!`, give different results.
 
 ## SymbolicAWEModels v0.20.0 2026-10-08
 
