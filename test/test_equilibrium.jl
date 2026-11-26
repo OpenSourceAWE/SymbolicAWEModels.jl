@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_equilibrium.jl - find_equilibrium!, the structure's equilibrium at a held pose
+# test_equilibrium.jl - find_equilibrium!, the quasi-steady state at a held pose
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -12,7 +12,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, EquilibriumProblem, generalized_force, at_rest
+using SymbolicAWEModels: KernelBackend, EquilibriumProblem, loads_at!, aitken_factor
 using KiteUtils
 using LinearAlgebra
 
@@ -95,19 +95,39 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
         @test largest_distance(equilibrium, start) > 0.1
     end
 
-    @testset "a $name kite in wind returns from a stretched start" for (name, sam) in
-            (("particle", particle), ("rigid", rigid))
+    @testset "a $name kite in wind settles under the aerodynamics of its own shape" for
+            (name, sam) in (("particle", particle), ("rigid", rigid))
         start_at!(sam; elevation = 50.0, v_wind = 15.51)
         start = copy(sam.integrator.u)
         @test find_equilibrium!(sam).converged
         plain = point_positions(sam)
         SymbolicAWEModels.settle!(sam, start)
-        stretch!(sam, 1.01)
+        stretch!(sam, 1.05)
         result = find_equilibrium!(sam)
         @test result.converged
         @test largest_distance(point_positions(sam), plain) < 1e-3
         problem = EquilibriumProblem(sam)
         @test all(iszero, sam.integrator.u[problem.rows])
+        resolved = loads_at!(problem, copy(sam.integrator.u), 1e-4)
+        @test resolved.residual <= resolved.tolerance
+    end
+
+    @testset "a relaxed change lands where move takes it" begin
+        start_at!(rigid; elevation = 50.0, v_wind = 15.51)
+        problem = EquilibriumProblem(rigid)
+        u = copy(rigid.integrator.u)
+        step = 0.01 .* sin.(1:length(problem.inertia))
+        target = SymbolicAWEModels.move(problem, u, step)
+        change = SymbolicAWEModels.coordinate_change(problem, u, target)
+        @test change ≈ step
+        @test SymbolicAWEModels.move(problem, u, change) ≈ target
+    end
+
+    @testset "Aitken relaxation shrinks on an oscillation, within [0.05, 1]" begin
+        @test aitken_factor(0.5, nothing, [1.0, 0.0]) == 0.5
+        @test aitken_factor(1.0, [1.0, 0.0], [-0.9, 0.0]) ≈ 1 / 1.9
+        @test aitken_factor(1.0, [1.0, 0.0], [0.99, 0.0]) == 1.0
+        @test aitken_factor(0.06, [1.0, 0.0], [-10.0, 0.0]) == 0.05
     end
 
     @testset "damping does not move the equilibrium" begin
@@ -138,9 +158,9 @@ rigid = kernel_2plate("rigid_structural_geometry.yaml")
     @testset "a search cut short says so with what is left" begin
         start_at!(rigid; elevation = 50.0, v_wind = 15.51)
         stretch!(rigid, 1.01)
-        result = find_equilibrium!(rigid; max_iterations = 1)
+        result = find_equilibrium!(rigid; max_rounds = 1, max_iterations = 1)
         @test !result.converged
-        @test result.iterations == 1
+        @test result.rounds == 1 && result.iterations == 1
         @test isfinite(result.residual) && result.residual > 0
     end
 
