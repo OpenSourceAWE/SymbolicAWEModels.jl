@@ -28,8 +28,8 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
 """
     WindMode
 
-Where a model takes its wind from, chosen once per [`SystemStructure`](@ref) through
-its `wind_mode` field and baked into the equations: [`ProfileWind`](@ref) or
+Where a model takes its wind from, chosen once per [`SymbolicAWEModel`](@ref) through
+its `wind_mode` keyword and baked into the equations: [`ProfileWind`](@ref) or
 [`PerPointWind`](@ref). A further mode adds a `wind_source` method per consumer
 rather than a branch inside one.
 """
@@ -54,11 +54,11 @@ with `set.wind_vec`, so a model that is never written to flies in a uniform wind
 """
 struct PerPointWind <: WindMode end
 
-"""The [`WindMode`](@ref) of the structure a build-time `params` view reads."""
+"""The [`WindMode`](@ref) of the run a build-time `params` view reads."""
 wind_mode(params) = params.reg.sys_struct.wind_mode
 
-"""Whether `sys_struct` takes its wind per point ([`PerPointWind`](@ref))."""
-per_point_wind(sys_struct) = sys_struct.wind_mode isa PerPointWind
+"""Whether the run `state` takes its wind per point ([`PerPointWind`](@ref))."""
+per_point_wind(state) = state.wind_mode isa PerPointWind
 
 """
     AbstractWindSource

@@ -71,39 +71,34 @@ end
 """
     load_sys_struct_from_yaml(yaml_path; system_name="from_yaml", set=nothing,
                               ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
-                              vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
-        -> (sys, transforms)
+                              vsm_set=nothing, prn=true) -> (sys, transforms)
 
 The structure of an authoring YAML and its KiteGeometry transforms, read and placed by
 them with KiteGeometry's `load_authoring`. `set` defaults to the `base` settings;
-`dynamics_type` and `aero_mode` override every wing's. `wind_mode=PerPointWind()` gives
-each point its own settable wind. `prn=false` silences the messages loading a structure
-prints.
+`dynamics_type` and `aero_mode` override every wing's. `prn=false` silences the
+messages loading a structure prints.
 """
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml",
         set::Union{Nothing, Settings}=nothing, ignore_l0::Bool=false,
         dynamics_type::Union{Nothing, WingType}=nothing,
         aero_mode::Union{Nothing, AbstractAeroModel}=nothing,
-        vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing,
-        wind_mode::WindMode=ProfileWind(), prn::Bool=true)
+        vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing, prn::Bool=true)
     isnothing(set) && (set = load_settings("base"))
     definition, transforms = load_authoring(yaml_path; set, name=system_name, ignore_l0)
-    sys = SystemStructure(definition, set; dynamics_type, aero_mode, vsm_set, wind_mode,
-                          prn)
+    sys = SystemStructure(definition, set; dynamics_type, aero_mode, vsm_set, prn)
     return sys, transforms
 end
 
 """
     SystemStructure(definition::SystemDefinition, set; dynamics_type=nothing,
-                    aero_mode=nothing, vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
+                    aero_mode=nothing, vsm_set=nothing, prn=true)
 
 The structure of a KiteGeometry `definition`, in the pose the definition gives. Its
 components are read from the definition's rows and the models SymbolicAWEModels
 registers for them ([`register_definition_models`](@ref)).
 """
 function SystemStructure(definition::SystemDefinition, set::Settings;
-        dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing,
-        wind_mode::WindMode=ProfileWind(), prn=true)
+        dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing, prn=true)
     n_wings = length(definition.wings)
     stations = Station[definition_station(station)
                        for station in definition.spanwise_stations]
@@ -122,7 +117,7 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
         bodies=Body[definition_body(definition.bodies[b])
                     for b in n_wings+1:length(definition.bodies)],
         tubes=Tube[definition_tube(definition, tube) for tube in definition.tubes],
-        placed=true, vsm_set, wind_mode, prn, definition)
+        placed=true, vsm_set, prn, definition)
 end
 
 """A row's name as a `Symbol`, or its index where the authoring YAML gave it none."""

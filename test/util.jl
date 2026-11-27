@@ -213,10 +213,10 @@ function test_init!(
 end
 
 """
-    load_2plate_particle_sys(system_name) -> SystemStructure
+    load_2plate_particle_sys(system_name) -> (sys, set)
 
-The 2plate kite's particle `SystemStructure`, loaded from a scratch copy of
-`data/2plate_kite`; the global data path is left as it was.
+The 2plate kite's particle `SystemStructure` and its settings, loaded from a scratch
+copy of `data/2plate_kite`; the global data path is left as it was.
 """
 function load_2plate_particle_sys(system_name)
     data_path = joinpath(mktempdir(), "2plate_kite")
@@ -230,7 +230,7 @@ function load_2plate_particle_sys(system_name)
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name, set, vsm_set)
     set_data_path(data_path_before)
-    return sys
+    return sys, set
 end
 
 """
