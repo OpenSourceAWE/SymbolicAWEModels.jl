@@ -212,7 +212,6 @@ function sim_reposition!(
             transform.azimuth = target_azimuth
             transform.heading = target_heading
 
-            # Apply the transformation without changing velocities
             reposition!(sam)
             
             # Reinitialize the solver to handle the state discontinuity

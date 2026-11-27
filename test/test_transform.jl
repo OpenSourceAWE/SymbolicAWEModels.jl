@@ -76,6 +76,25 @@ using LinearAlgebra
         tf.turn_rate = 0.0
     end
 
+    # Each member's velocity against each member's position from base_pos: unchanged by
+    # a rigid rotation of positions and velocities about base_pos.
+    function motion_against_pose(sam, members, base_pos)
+        return [dot(run_value(sam, rows, i, :vel_w),
+                    run_value(sam, other_rows, j, :pos_w) .- base_pos)
+                for (rows, i) in members, (other_rows, j) in members]
+    end
+
+    # Give every member of `transform` in the run `sam` a distinct velocity and return
+    # them as (rows, index) pairs.
+    function set_member_velocities!(sam, transform)
+        members = [[(:points, i) for i in transform.points];
+                   [(:bodies, b) for b in transform.bodies]]
+        for (k, (rows, i)) in enumerate(members)
+            set_run_value!(sam, rows, i, :vel_w, [0.3k, -0.2k, 0.1k])
+        end
+        return members
+    end
+
     # Test both wing types
     sam_configs = [
         ("PARTICLE_DYNAMICS", particle_dynamics_sam, particle_dynamics_yaml_path),
@@ -436,6 +455,22 @@ using LinearAlgebra
             test_reposition_heading(
                 sam, KVec3(10.0, 5.0, 0.0),
                 "non-origin base")
+
+            @testset "Reposition turns velocities with the pose" begin
+                tf = sam.transforms[:main_transform]
+                reset_transform!(sam)
+                place!(sam)
+                test_init!(sam; prn=false)
+                members = set_member_velocities!(sam, tf)
+                base_pos = copy(base_position(Pose(sam), sam.transforms, tf))
+                before = motion_against_pose(sam, members, base_pos)
+
+                tf.heading = deg2rad(25)
+                tf.elevation = deg2rad(60)
+                reposition!(sam)
+
+                @test motion_against_pose(sam, members, base_pos) ≈ before atol=1e-8
+            end
         end
     end
 
@@ -652,6 +687,28 @@ using LinearAlgebra
         @testset "reposition! no crash" begin
             # Should not crash for chained transforms
             @test_nowarn reposition!(sam_c)
+        end
+
+        @testset "Chained reposition! turns each transform's velocities with it" begin
+            init!(sam_c; prn=false)
+            members = [set_member_velocities!(sam_c, transform)
+                       for transform in sam_c.transforms]
+            read(group, quantity) = [copy(run_value(sam_c, rows, i, quantity))
+                                     for (rows, i) in group]
+            pos_before = [read(group, :pos_w) for group in members]
+            vel_before = [read(group, :vel_w) for group in members]
+
+            sam_c.transforms[:main_tf].heading = deg2rad(20)
+            sam_c.transforms[:kite_tilt].elevation += deg2rad(5)
+            reposition!(sam_c)
+
+            for (transform, group, pos, vel) in
+                zip(sam_c.transforms, members, pos_before, vel_before)
+                base_pos = base_position(Pose(sam_c), sam_c.transforms, transform)
+                before = [dot(velocity, position .- base_pos)
+                          for velocity in vel, position in pos]
+                @test motion_against_pose(sam_c, group, base_pos) ≈ before atol=1e-8
+            end
         end
 
         @testset "Different child elevation changes pos" begin

@@ -305,16 +305,59 @@ end
 
 Turn the points and bodies of the running `sam` to the current elevation, azimuth and
 heading of each of `transforms` about its base where it stands, with KiteGeometry's
-`reposition!`, keeping their velocities. `update_vel` sets them to the transforms' rates
-instead ([`set_transform_velocities!`](@ref)).
+`reposition!`, and their velocities with them ([`turn_velocities!`](@ref)). `update_vel`
+sets the velocities to the transforms' rates instead ([`set_transform_velocities!`](@ref)).
 """
 function KiteGeometry.reposition!(sam::SymbolicAWEModel, transforms=sam.transforms;
                                   update_vel::Bool=false)
     fit_body_frames!(sam)
-    set_pose!(sam, reposition!(Pose(sam), transforms))
-    update_vel && set_transform_velocities!(sam, transforms)
+    before = Pose(sam)
+    after = reposition!(copy(before), transforms)
+    set_pose!(sam, after)
+    if update_vel
+        set_transform_velocities!(sam, transforms)
+    else
+        turn_velocities!(sam, transforms, before, after)
+    end
     fit_body_frames!(sam)
     return sam
+end
+
+"""
+    turn_velocities!(sam, transforms, before, after)
+
+Rotate the velocity of each point and body of the run `sam` that one of `transforms` moves
+as its members turned from the pose `before` to `after` ([`turn_rotation`](@ref)). A
+body's `ω_b` is in its own axes, which turn with it, and is left alone.
+"""
+function turn_velocities!(sam, transforms, before, after)
+    for transform in transforms
+        R = turn_rotation(transform, transforms, before, after)
+        for (rows, members) in ((:points, transform.points), (:bodies, transform.bodies))
+            for index in members
+                set_run_value!(sam, rows, index, :vel_w,
+                               R * run_value(sam, rows, index, :vel_w))
+            end
+        end
+    end
+    return sam
+end
+
+"""
+    turn_rotation(transform, transforms, before, after)
+
+The rotation KiteGeometry's `reposition!` gave the members of `transform`, one of
+`transforms`, from the pose `before` to `after`: that of the frame of its `body`, else the
+smallest rotation of what it turns about its base.
+"""
+function turn_rotation(transform, transforms, before, after)
+    (; body) = transform
+    isnothing(body) || return after.body_R[body] * before.body_R[body]'
+    base_pos = KiteGeometry.base_position(after, transforms, transform)
+    axis, angle = KiteGeometry.min_rotation(
+        normalize(KiteGeometry.turned_position(before, transform) - base_pos),
+        normalize(KiteGeometry.turned_position(after, transform) - base_pos))
+    return KiteGeometry.rotate_frame(KiteGeometry.Mat3(I), axis, angle)
 end
 
 """

@@ -11,6 +11,7 @@
 
 - A wing's `dynamics_type` is read without regard to case everywhere: `particle_dynamics` in lower case made a particle wing for the run but a rigid one when its frame and mass were completed.
 - On the `KernelBackend`, a pulley point that names a fitted wing is damped in that wing's frame by its `body_frame_damping`, as on the monolith; it was damped only in the world frame.
+- `reposition!(sam)` turns each point and body velocity with the pose, so a re-posed run keeps the motion it had; it left them pointing where they did before. Runs that reposition, such as `sim_reposition!`, give different results.
 
 ### Changed
 
