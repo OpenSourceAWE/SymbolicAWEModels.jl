@@ -593,6 +593,8 @@ SymbolicAWEModels.sym_calc_R_t_to_w
 ```@docs
 SymbolicAWEModels.set_pose!
 SymbolicAWEModels.set_transform_velocities!
+SymbolicAWEModels.turn_velocities!
+SymbolicAWEModels.turn_rotation
 SymbolicAWEModels.fit_body_frames!
 SymbolicAWEModels.transform_base_point
 ```
