@@ -21,8 +21,8 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod,
-    write_wing_scalars!, quaternion_to_rotation_matrix
+using SymbolicAWEModels: KVec3, VortexStepMethod, quaternion_to_rotation_matrix,
+    write_wing_scalars!
 using KiteUtils
 using SymbolicAWEModels.KiteGeometry: base_position
 using LinearAlgebra
@@ -74,6 +74,22 @@ using LinearAlgebra
         tf.elevation_vel = 0.0
         tf.azimuth_vel = 0.0
         tf.turn_rate = 0.0
+    end
+
+    # Each member's velocity against each member's position from base_pos: unchanged by
+    # a rigid rotation of positions and velocities about base_pos.
+    function motion_against_pose(members, base_pos)
+        return [dot(member.vel_w, other.pos_w .- base_pos)
+                for member in members, other in members]
+    end
+
+    # Give every member of `transform` in `state` a distinct velocity and return them.
+    function set_member_velocities!(state, transform)
+        members = [state.points[transform.points]; state.bodies[transform.bodies]]
+        for (i, member) in enumerate(members)
+            member.vel_w .= [0.3i, -0.2i, 0.1i]
+        end
+        return members
     end
 
     # Test both wing types
@@ -420,6 +436,23 @@ using LinearAlgebra
             test_reposition_heading(
                 sam, KVec3(10.0, 5.0, 0.0),
                 "non-origin base")
+
+            @testset "Reposition turns velocities with the pose" begin
+                sys = sam.state
+                tf = sys.transforms[:main_transform]
+                reset_transform!(sys)
+                place!(sam; prn=false)
+                test_init!(sam; prn=false)
+                members = set_member_velocities!(sys, tf)
+                base_pos = copy(base_position(Pose(sys), sys.transforms, tf))
+                before = motion_against_pose(members, base_pos)
+
+                tf.heading = deg2rad(25)
+                tf.elevation = deg2rad(60)
+                reposition!(sys)
+
+                @test motion_against_pose(members, base_pos) ≈ before atol=1e-8
+            end
         end
     end
 
@@ -643,6 +676,27 @@ using LinearAlgebra
             sys = sam_c.state
             # Should not crash for chained transforms
             @test_nowarn reposition!(sys)
+        end
+
+        @testset "Chained reposition! turns each transform's velocities with it" begin
+            sys = sam_c.state
+            init!(sam_c; prn=false)
+            members = [set_member_velocities!(sys, transform)
+                       for transform in sys.transforms]
+            pos_before = [[copy(member.pos_w) for member in group] for group in members]
+            vel_before = [[copy(member.vel_w) for member in group] for group in members]
+
+            sys.transforms[:main_tf].heading = deg2rad(20)
+            sys.transforms[:kite_tilt].elevation += deg2rad(5)
+            reposition!(sys)
+
+            for (transform, group, pos, vel) in
+                zip(sys.transforms, members, pos_before, vel_before)
+                base_pos = base_position(Pose(sys), sys.transforms, transform)
+                before = [dot(velocity, position .- base_pos)
+                          for velocity in vel, position in pos]
+                @test motion_against_pose(group, base_pos) ≈ before atol=1e-8
+            end
         end
 
         @testset "Different child elevation changes pos" begin
