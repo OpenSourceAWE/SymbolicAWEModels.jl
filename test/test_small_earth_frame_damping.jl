@@ -151,8 +151,8 @@ tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx)
 
     data_path_before = get_data_path()
     root = mktempdir()
-    @testset "$(nameof(typeof(backend))) leaves rigid flight on the small-earth frame undamped" for
-            backend in (KernelBackend(), MonolithBackend())
+    @testset "$(nameof(typeof(backend))) leaves rigid flight on the small-earth frame \
+              undamped" for backend in (KernelBackend(), MonolithBackend())
         sam = flying_two_plate(backend, "rigid_structural_geometry.yaml", root, 0.4)
         wing = sam.state.wings[1]
         @test norm(wing.ω_b) > 0.3
@@ -174,7 +174,8 @@ tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx)
         @test maximum(abs, damping_rate(sam, pitched)) > 1.0
     end
     @testset "$(nameof(typeof(backend))) leaves a fitted wing's nodes undamped in rigid \
-              flight on the small-earth frame" for backend in (KernelBackend(), MonolithBackend())
+              flight on the small-earth frame" for
+            backend in (KernelBackend(), MonolithBackend())
         sam = flying_two_plate(backend, "particle_structural_geometry.yaml", root, 0.4)
         @test maximum(norm, point.vel_w for point in sam.state.points) > 1.0
         @test maximum(abs, damping_rate(sam)) < 1e-9
