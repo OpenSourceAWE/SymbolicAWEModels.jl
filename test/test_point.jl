@@ -585,7 +585,8 @@ end
             name="wing_out_of_range", set)
     end
 
-    # A steering pulley point naming the wing; undamped, its velocity is off by 2e-3.
+    # A steering pulley point naming the wing: undamped, its velocity is 2e-3 off;
+    # the adaptive step scatters it by 1e-5 across platforms.
     @testset "free point naming a wing is damped in its frame" begin
         tight = Settings("system.yaml")
         tight.abs_tol = tight.rel_tol = 1e-9
@@ -598,7 +599,7 @@ end
         init!(sam; prn=false)
         next_step!(sam; dt=1e-3, vsm_interval=0)
         @test run_value(sam, :points, :steering_left, :vel_w) ≈
-              [0.04640912518639492, 0.017580741555751653, 0.04692554049876804] rtol=1e-5
+              [0.04640912518639492, 0.017580741555751653, 0.04692554049876804] rtol=1e-4
     end
 
     rm(tmpdir; recursive=true)
