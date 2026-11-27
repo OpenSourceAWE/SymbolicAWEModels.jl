@@ -8,8 +8,9 @@
 # radially with the tether. Steady flight over the sphere, a turn about the tether
 # and reel-out are not braked. A tether's inner points damp against the frame that
 # carries the tether's straight line from its anchor to its free end. Tested on the
-# frame and `body_integration` directly, then on the right-hand side of both backends: the damping a state gets is the rate
-# with the damping on minus the rate with it off, at the same state.
+# frame and `body_integration` directly, then on the right-hand side of both
+# backends: the damping a state gets is the rate with the damping on minus the rate
+# with it off, at the same state.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
