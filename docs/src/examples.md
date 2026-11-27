@@ -35,7 +35,8 @@ syslog = load_log("my_run")
 replay(syslog, sam.sys_struct)
 ```
 
-**Record to video** — save a simulation as an MP4 file:
+**Record to video** — save a simulation as an MP4 file under
+`get_output_path()`:
 ```julia
 record(syslog, sam.sys_struct, "simulation.mp4"; framerate=30)
 ```

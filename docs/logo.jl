@@ -20,6 +20,7 @@ using GeometryBasics
 using LinearAlgebra
 using Statistics
 using Colors
+using SymbolicAWEModels: get_output_path
 
 # Activate CairoMakie for proper display and PDF/SVG export
 CairoMakie.activate!()
@@ -124,8 +125,9 @@ text!(ax, text_x_center + TEXT_SPACING, text_y; text="AWE", color=JULIA_PURPLE,
 display(fig)
 
 # Save as PNG (small file size) and SVG
-save("kite_logo.png", fig; px_per_unit=3, backend=CairoMakie)
-save("kite_logo.svg", fig; pt_per_unit=1, backend=CairoMakie)
+output_dir = get_output_path()
+save(joinpath(output_dir, "kite_logo.png"), fig; px_per_unit=3, backend=CairoMakie)
+save(joinpath(output_dir, "kite_logo.svg"), fig; pt_per_unit=1, backend=CairoMakie)
 
 # Create square version
 fig_square = Figure(size=(FIG_WIDTH, FIG_WIDTH), backgroundcolor=:transparent)
@@ -141,8 +143,9 @@ text!(ax_square, text_x_center, text_y; text="Source", color=JULIA_GREEN,
       fontsize=TEXT_FONTSIZE, font=TEXT_FONT, align=(:center, :top))
 text!(ax_square, text_x_center + TEXT_SPACING, text_y; text="AWE", color=JULIA_PURPLE,
       fontsize=TEXT_FONTSIZE, font=TEXT_FONT, align=(:center, :top))
-save("kite_logo_square.png", fig_square; px_per_unit=3, backend=CairoMakie)
+save(joinpath(output_dir, "kite_logo_square.png"), fig_square; px_per_unit=3,
+     backend=CairoMakie)
 
-@info "Logo saved to kite_logo.png, kite_logo.svg, and kite_logo_square.png"
+@info "Logo saved to kite_logo.png, kite_logo.svg and kite_logo_square.png" output_dir
 
 nothing

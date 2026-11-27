@@ -12,6 +12,7 @@ using Makie: NoShading
 using LinearAlgebra
 using LaTeXStrings
 using GeometryBasics: Point2f, Point3f, Vec3f, Cylinder
+using SymbolicAWEModels: get_output_path
 
 # ============================================================================
 # Configuration variables (modify these as needed)
@@ -379,8 +380,9 @@ end
 
 if save_pdf
     CairoMakie.activate!()
-    save("reference_frames.pdf", fig_combined)
-    println("Saved: reference_frames.pdf")
+    pdf_path = joinpath(get_output_path(), "reference_frames.pdf")
+    save(pdf_path, fig_combined)
+    println("Saved: $pdf_path")
 end
 
 println("\nDone!")
