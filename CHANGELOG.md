@@ -22,10 +22,7 @@
 - BREAKING: `Point` no longer takes `vel_w`, and `Body` no longer takes `vel` or `ω_b`: a run's starting velocities come from its transforms' rates. The YAML loader no longer reads saved point and body velocities or station twist rates.
 - BREAKING: `load_sys_struct_from_yaml` reads the YAML with KiteGeometry's `load_authoring`, which refuses a column nothing reads: the saved-state columns pulley `sum_len`, station `twist`, tether `len` and wing `Q_b_to_w` are no longer read. It no longer takes the deprecated `wing_type`, nor the wing types `REFINE` and `QUATERNION`.
 - BREAKING: A structure document is KiteGeometry's awesIO 0.1.0 document (`structure_document` is KiteGeometry's, with a method for a `SystemStructure`) in place of SymbolicAWEModels' own 1.0.0 one, and takes no `description` or `note`. A body's `pos_ENU` there is the centre of its own mass.
-
-### Fixed
-
-- `reposition!(state)` turns each point and body velocity with the pose, so a re-posed run keeps the motion it had; it left them pointing where they did before. Runs that reposition, such as `sim_reposition!`, give different results.
+- BREAKING: `reposition!(state)` turns each point and body velocity with the pose, so a re-posed run keeps the motion it had; it left them pointing where they did before. Runs that reposition, such as `sim_reposition!`, give different results.
 
 ## SymbolicAWEModels v0.20.0 2026-10-08
 
