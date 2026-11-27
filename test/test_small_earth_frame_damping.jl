@@ -20,7 +20,7 @@ using LinearAlgebra
 using SymbolicAWEModels
 using SymbolicAWEModels: KernelBackend, MonolithBackend, sync_params!, sync_initial!,
                          body_integration, small_earth_frame, frame_velocity,
-                         damping_base, base_position, VortexStepMethod
+                         damping_base, damping_base_position, VortexStepMethod
 using KiteUtils
 
 """Rotation by `angle` [rad] about unit `axis`."""
@@ -90,8 +90,8 @@ function small_earth_axes(radius, span)
 end
 
 """Position [m] of the base point the model's first wing damps against."""
-tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx),
-                                 point -> sam.state.points[point].pos_w)
+tether_base(sam) = damping_base_position(damping_base(sam.state, sam.state.wings[1].idx),
+                                         point -> sam.state.points[point].pos_w)
 
 @testset "Damping against the kite's small-earth frame" begin
     base = [0.0, 0.0, -20.0]

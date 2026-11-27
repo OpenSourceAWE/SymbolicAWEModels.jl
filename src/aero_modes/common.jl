@@ -1165,8 +1165,8 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
     axes = (collect(x), collect(y), collect(z))
     wing.ω_b .= fitted_frame_omega(pos_z1, pos_z2, pos_y1, pos_y2,
         (vel_z1, vel_z2, vel_y1, vel_y2), axes)
-    frame = small_earth_frame(base_position(frame_base, point -> points[point].pos_w),
-                              wing.pos_w, wing.vel_w, R[:, 2], R * wing.ω_b)
+    base_w = damping_base_position(frame_base, point -> points[point].pos_w)
+    frame = small_earth_frame(base_w, wing.pos_w, wing.vel_w, R[:, 2], R * wing.ω_b)
     fill!(wing.acc_w, 0.0)
     for (idx, weight) in zip(origin.ids, origin.weights)
         wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, frame)
