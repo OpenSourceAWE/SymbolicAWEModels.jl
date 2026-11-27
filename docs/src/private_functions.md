@@ -132,6 +132,7 @@ SymbolicAWEModels.wing_frame_columns
 SymbolicAWEModels.wing_frame_rates
 SymbolicAWEModels.unit_vector_rate
 SymbolicAWEModels.body_frame_omega
+SymbolicAWEModels.fitted_frame_omega
 ```
 
 ## Equations and system management

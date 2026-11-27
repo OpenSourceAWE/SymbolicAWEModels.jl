@@ -4,17 +4,21 @@
 # Point dynamics equation generation
 
 """
-    flight_frame(state, body_idx, pos, body_com_w, body_com_vel)
+    flight_frame(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
+                 body_ω_b)
 
-The [`sphere_frame`](@ref) body `body_idx` of `state` damps against: that of the wing it
-flies with ([`damping_base`](@ref)), on the monolith's point positions `pos` and body
-COM state `body_com_w`/`body_com_vel`.
+The [`small_earth_frame`](@ref) body `body_idx` of `state` damps against: that of the
+wing it flies with ([`damping_base`](@ref)), on the monolith's point positions `pos` and
+body state.
 """
-function flight_frame(state, body_idx, pos, body_com_w, body_com_vel)
+function flight_frame(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
+                      body_ω_b)
     parent = state.bodies[body_idx].wing_idx
     wing = parent == 0 ? body_idx : parent
     base_w = base_position(damping_base(state, body_idx), point -> pos[:, point])
-    return sphere_frame(base_w, body_com_w[:, wing], body_com_vel[:, wing])
+    R_b_to_w = collect(body_R_b_to_w[:, :, wing])
+    return small_earth_frame(base_w, body_com_w[:, wing], body_com_vel[:, wing],
+                             R_b_to_w[:, 2], R_b_to_w * collect(body_ω_b[:, wing]))
 end
 
 """
@@ -22,8 +26,8 @@ end
 
 Per-mass damping acceleration for a DYNAMIC point at `pos_w`: a world-frame term against
 its world velocity `vel_w`, plus, for a point that belongs to a wing, the
-[`body_frame_damp_accel`](@ref) on that wing's axes against its [`sphere_frame`](@ref)
-`frame`.
+[`body_frame_damp_accel`](@ref) on that wing's axes against its
+[`small_earth_frame`](@ref) `frame`.
 """
 function point_damping_accel(point, params, R_b_to_w, frame, pos_w, vel_w)
     accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
@@ -314,8 +318,8 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, point.idx)
-            frame = point.wing_idx > 0 ? flight_frame(s.state, point.wing_idx, pos,
-                body_com_w, body_com_vel) : nothing
+            frame = point.wing_idx > 0 ? flight_frame(s.state, point.wing_idx, pos;
+                body_com_w, body_com_vel, body_R_b_to_w, body_ω_b) : nothing
             damp_accel = point_damping_accel(point, params, R_b_to_w, frame,
                 pos[:, point.idx], vel[:, point.idx])
             velocity, acceleration = confined_derivatives(

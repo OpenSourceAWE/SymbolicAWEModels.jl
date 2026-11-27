@@ -11,7 +11,7 @@ Generate the differential equations for each body of `state`, whose points are a
 tube equations) plus gravity (`-g·total_mass` at the COM) and the external wrench
 (`ext_force_w` world, `ext_force_b`/`ext_moment_b` body). `STATIC` bodies are frozen;
 the rest integrate through [`body_integration`](@ref), damped against the
-[`sphere_frame`](@ref) of the wing they fly with.
+[`small_earth_frame`](@ref) of the wing they fly with.
 """
 function body_eqs!(
     eqs, defaults, state, params, initial;
@@ -52,7 +52,8 @@ function body_eqs!(
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
         parent = rigid_body.wing_idx
-        frame = flight_frame(state, idx, pos, body_com_w, body_com_vel)
+        frame = flight_frame(state, idx, pos;
+            body_com_w, body_com_vel, body_R_b_to_w, body_ω_b)
         (; ω_kinematic, d_ω_p, d_com_w, d_com_vel) = body_integration(
             params, idx, body_com_w[:, idx], body_com_vel[:, idx],
             body_ω_p[:, idx], body_α_p[:, idx], body_com_acc[:, idx],

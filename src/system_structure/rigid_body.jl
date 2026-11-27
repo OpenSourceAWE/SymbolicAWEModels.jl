@@ -342,7 +342,7 @@ pose — e.g. a cantilever root). `wing` names the parent wing whose frame and
 motion the body-frame damping resolves against, as a `Point`'s `wing` does.
 
 `angular_damping` is a scalar (isotropic) or length-3 per-axis spin damping [1/s] of
-the spin relative to the [`sphere_frame`](@ref) of the wing the body flies with.
+the spin relative to the [`small_earth_frame`](@ref) of the wing the body flies with.
 `world_frame_damping` and `body_frame_damping` damp the COM velocity resolved on
 the world and body axes respectively; both are per-mass [1/s], like a `Point`'s.
 `fix_sphere=true` confines COM motion to a sphere about the world origin (radial

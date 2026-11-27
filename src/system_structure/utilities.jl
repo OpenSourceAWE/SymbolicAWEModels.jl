@@ -1522,7 +1522,7 @@ set_body_frame_damping(components::AbstractVector, damping::Union{Real, Abstract
     set_angular_damping(bodies::AbstractVector, damping[, idxs])
 
 Set the angular damping coefficient of rigid bodies: the spin relative to the
-[`sphere_frame`](@ref) of the wing a body flies with is resolved on the body's own
+[`small_earth_frame`](@ref) of the wing a body flies with is resolved on the body's own
 axes and damped per axis, `dω/dt -= c .* (ω - Rᵀ·Ω)`, so `[0, 20, 0]` resists rotation
 about the body `y` axis alone. Coefficients are [1/s]; a scalar applies to all three
 axes.

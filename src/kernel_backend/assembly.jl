@@ -15,7 +15,8 @@ const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
-const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_com; :wing_velocity]
+const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_com; :wing_velocity;
+                              :wing_spin]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
 const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
                      :pose_omega]
@@ -28,10 +29,10 @@ const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
 const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
 const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
-const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
-                          :origin_vel]
+const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :z1_vel, :z2_vel,
+                          :y1_vel, :y2_vel, :origin_pos, :origin_vel]
 const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame, :wing_com,
-                          :wing_velocity]
+                          :wing_velocity, :wing_spin]
 """A flap's two frames, nine scalars each rather than two vectors: a hinge axis
 leaves some entries unread, and `mtkcompile` will not take part of a declared
 array."""
@@ -111,7 +112,7 @@ function classify_points(sys_struct)
         point.type in (STATIC, DYNAMIC) || error(
             "KernelBackend: point $(point.name) has type $(point.type); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
-        wing = kinematic_wing_of(sys_struct, point)
+        wing = point.wing_idx
         kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
         roles[i] = PointRole(kind, 0, 0, 0, wing, 0)
     end
@@ -157,19 +158,6 @@ function station_of(sys_struct, idx)
         "KernelBackend: point $(sys_struct.points[idx].name) is in " *
         "$(length(found)) stations; expected 0 or 1.")
     return isempty(found) ? 0 : only(found)
-end
-
-"""
-    kinematic_wing_of(sys_struct, point) -> Int
-
-The fitted (`KINEMATIC`) wing whose frame `point` needs, or `0`. `point_eqs!` damps
-*any* DYNAMIC point against its wing's frame, not only aerodynamic surface nodes, so
-a steering or pulley point with `body_frame_damping` needs it too.
-"""
-function kinematic_wing_of(sys_struct, point)
-    idx = point.wing_idx
-    idx > 0 || return 0
-    return sys_struct.bodies[idx].type == KINEMATIC ? idx : 0
 end
 
 """
@@ -768,14 +756,15 @@ end
 """
     wire_wing_frame!(builder, wing_instance, instance)
 
-Wire a wing's frame, COM and COM velocity into the `wing_frame`, `wing_com` and
-`wing_velocity` inputs of an instance that damps against the wing's
-[`sphere_frame`](@ref).
+Wire a wing's frame, COM, COM velocity and spin into the `wing_frame`, `wing_com`,
+`wing_velocity` and `wing_spin` inputs of an instance that damps against the wing's
+[`small_earth_frame`](@ref).
 """
 function wire_wing_frame!(builder, wing_instance, instance)
     connect!(builder, wing_instance, :frame, instance, :wing_frame)
     connect!(builder, wing_instance, :com, instance, :wing_com)
     connect!(builder, wing_instance, :com_velocity, instance, :wing_velocity)
+    connect!(builder, wing_instance, :omega_w, instance, :wing_spin)
     return nothing
 end
 
@@ -841,8 +830,8 @@ end
 """
     wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
 
-Wire a fitted wing's reference points into it: the four frame references and the
-origin's position and velocity, each a weighted blend of point outputs.
+Wire a fitted wing's reference points into it: the four frame references' positions
+and velocities and the origin's, each a weighted blend of point outputs.
 """
 function wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
     wing = sys_struct.bodies[idx]
@@ -850,6 +839,10 @@ function wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_ins
                   (wing.z_ref_points[2], :z2_pos, :pos),
                   (wing.y_ref_points[1], :y1_pos, :pos),
                   (wing.y_ref_points[2], :y2_pos, :pos),
+                  (wing.z_ref_points[1], :z1_vel, :vel),
+                  (wing.z_ref_points[2], :z2_vel, :vel),
+                  (wing.y_ref_points[1], :y1_vel, :vel),
+                  (wing.y_ref_points[2], :y2_vel, :vel),
                   (wing.origin, :origin_pos, :pos),
                   (wing.origin, :origin_vel, :vel))
     for (reference, target, source) in references

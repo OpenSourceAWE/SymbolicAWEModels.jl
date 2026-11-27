@@ -1117,7 +1117,8 @@ end
 
 A free particle's world-frame acceleration, rebuilt from what the struct already
 carries: its net force per unit mass less the world-frame damping and the body-frame
-damping on the wing's axes `wing_frame` against its [`sphere_frame`](@ref) `frame`.
+damping on the wing's axes `wing_frame` against its [`small_earth_frame`](@ref)
+`frame`.
 The same expression `point_eqs!` binds to `acc`, which is where the monolith's
 fitted wing reads its own `acc_w` from.
 """
@@ -1137,9 +1138,9 @@ positions/velocities, for a backend that does not carry these quantities as stat
 `zp1`, `zp2`, `yp1`, `yp2` and `origin` are [`WeightedRefPoints`](@ref), so each
 reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
-`ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
-([`point_acceleration_w`](@ref), damped against the [`sphere_frame`](@ref) about the
-[`transform_base`](@ref) `frame_base`), the reported scalars
+`ω_b` ([`fitted_frame_omega`](@ref)), the origin's acceleration `acc_w`
+([`point_acceleration_w`](@ref), damped against the [`small_earth_frame`](@ref) about
+the [`transform_base`](@ref) `frame_base`), the reported scalars
 ([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
 `va_b = R'·(wind − vel)`, the wind coming from the height profile or, under
 [`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
@@ -1162,11 +1163,10 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
     wing.pos_w .= get_ref_position_from_points(points, origin)
     wing.vel_w .= get_ref_position_from_points(points, origin; field = :vel_w)
     axes = (collect(x), collect(y), collect(z))
-    wing.ω_b .= body_frame_omega(axes,
-        wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
-            (vel_z1, vel_z2, vel_y1, vel_y2), axes))
-    frame = sphere_frame(base_position(frame_base, point -> points[point].pos_w),
-                         wing.pos_w, wing.vel_w)
+    wing.ω_b .= fitted_frame_omega(pos_z1, pos_z2, pos_y1, pos_y2,
+        (vel_z1, vel_z2, vel_y1, vel_y2), axes)
+    frame = small_earth_frame(base_position(frame_base, point -> points[point].pos_w),
+                              wing.pos_w, wing.vel_w, R[:, 2], R * wing.ω_b)
     fill!(wing.acc_w, 0.0)
     for (idx, weight) in zip(origin.ids, origin.weights)
         wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, frame)
