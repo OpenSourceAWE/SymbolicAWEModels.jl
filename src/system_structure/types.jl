@@ -878,6 +878,7 @@ strain returning force [N]; a callable propagates to every auto-generated segmen
 
 The material fields (`unit_stiffness` through `compression_damping_frac`) describe the
 segments Route 2 generates; a Route 1 tether reads them off its own segments.
+`body_frame_damping` goes to every inner point that sets none, on either route.
 
 # Initial length
 Two distinct lengths, set independently at `place!`:
@@ -996,7 +997,7 @@ end
            start_point, end_point, n_segments,
            unit_stiffness=NaN, unit_damping=NaN, diameter=NaN,
            compression_frac=0.1, compression_damping_frac=1.0,
-           tether_force=nothing, stretch_frac=nothing)
+           body_frame_damping=nothing, tether_force=nothing, stretch_frac=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
@@ -1027,6 +1028,8 @@ points and segments by `expand_auto_tethers!`.
   (0-1) of every generated segment. See [`Segment`](@ref).
 - `compression_damping_frac::Float64=1.0`: Fraction of `unit_damping`
   still acting under compression (0-1). See [`Segment`](@ref).
+- `body_frame_damping=nothing`: Body-frame damping of the generated points
+  against the tether's frame [1/s]. See [`tether_frame`](@ref).
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 - `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
   exclusive with `tether_force`.
@@ -1036,8 +1039,8 @@ function Tether(name, stretched_length=nothing;
                 unit_stiffness=NaN, unit_damping=NaN,
                 diameter=NaN, density=NaN, youngs_modulus=NaN,
                 damping_per_stiffness=NaN, compression_frac=0.1,
-                compression_damping_frac=1.0, tether_force=nothing,
-                stretch_frac=nothing)
+                compression_damping_frac=1.0, body_frame_damping=nothing,
+                tether_force=nothing, stretch_frac=nothing)
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
     segments = [Symbol("$(name)_seg_$i") for i in 1:n_segments]
@@ -1047,7 +1050,7 @@ function Tether(name, stretched_length=nothing;
         init_tether_force=init_force, init_stretch_frac=init_frac,
         n_segments=Int64(n_segments), unit_stiffness=stiff, unit_damping, diameter,
         density, youngs_modulus, damping_per_stiffness, compression_frac,
-        compression_damping_frac)
+        compression_damping_frac, body_frame_damping)
     return tether_row(name, segments, start_point, end_point, model)
 end
 

@@ -6,7 +6,8 @@
 # Angular and body-frame damping act on motion relative to the kite's small-earth
 # frame: z from the tether's base point to the kite, y the kite's span, stretching
 # radially with the tether. Steady flight over the sphere, a turn about the tether
-# and reel-out are not braked. Tested on the frame and `body_integration` directly,
+# and reel-out are not braked. A tether's inner points damp against the frame that
+# carries the tether's straight line from its anchor to its free end. Tested on the frame and `body_integration` directly,
 # then on the right-hand side of both backends: the damping a state gets is the rate
 # with the damping on minus the rate with it off, at the same state.
 
@@ -20,7 +21,8 @@ using LinearAlgebra
 using SymbolicAWEModels
 using SymbolicAWEModels: KernelBackend, MonolithBackend, sync_params!, sync_initial!,
                          body_integration, small_earth_frame, frame_velocity,
-                         damping_base, base_position, VortexStepMethod
+                         damping_base, base_position, tether_frame,
+                         body_frame_damp_accel, damped_tether_ends, VortexStepMethod
 using KiteUtils
 
 """Rotation by `angle` [rad] about unit `axis`."""
@@ -28,15 +30,18 @@ rotation(axis, angle) = cos(angle) * I + sin(angle) * [0 -axis[3] axis[2];
     axis[3] 0 -axis[1]; -axis[2] axis[1] 0] + (1 - cos(angle)) * axis * axis'
 
 """
-    flying_two_plate(backend, geometry, root, elevation_vel) -> SymbolicAWEModel
+    flying_two_plate(backend, geometry, root, elevation_vel; tether_damping = nothing)
 
 The 2plate kite built from `geometry` on `backend`, initialised while its transform
 turns it over the sphere about the ground point at `elevation_vel` [rad/s].
+`tether_damping` [1/s] goes in the tether row's `body_frame_damping` column.
 """
-function flying_two_plate(backend, geometry, root, elevation_vel)
+function flying_two_plate(backend, geometry, root, elevation_vel; tether_damping = nothing)
     data_path = joinpath(root, string(nameof(typeof(backend))), geometry, "2plate_kite")
     mkpath(dirname(data_path))
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force = true)
+    isnothing(tether_damping) || add_tether_damping(joinpath(data_path, geometry),
+                                                    tether_damping)
     set_data_path(data_path)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
@@ -48,6 +53,16 @@ function flying_two_plate(backend, geometry, root, elevation_vel)
     sam = SymbolicAWEModel(set, sys; transforms, backend)
     init!(sam; prn = false, remake = true)
     return sam
+end
+
+"""Give the tethers of the structure document at `path` a `body_frame_damping` column."""
+function add_tether_damping(path, damping)
+    lines = readlines(path)
+    header = findfirst(contains("headers: [name, start_point"), lines)
+    lines[header] = replace(lines[header], "]" => ", body_frame_damping]")
+    row = findfirst(contains("- [main_tether"), lines)
+    lines[row] = replace(lines[row], r"\]$" => ", $damping]")
+    write(path, join(lines, "\n"))
 end
 
 """Rate of the model's state at its initial state after `change!(sam.state)`."""
@@ -149,6 +164,36 @@ tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx)
               -kite_axes * (coefficients .* extra)
     end
 
+    @testset "a tether frame carries its line from the anchor to the free end" begin
+        anchor, anchor_vel = [1.0, -2.0, 0.5], [0.3, 0.0, -0.1]
+        free, free_vel = [150.0, 40.0, 90.0], [-4.0, 25.0, 3.0]
+        frame = tether_frame(anchor, anchor_vel, free, free_vel)
+        line(s) = anchor .+ s .* (free .- anchor)
+        line_vel(s) = anchor_vel .+ s .* (free_vel .- anchor_vel)
+        damping(s, vel) = body_frame_damp_accel(vel, fill(3.0, 3), I, frame, line(s))
+        @test norm(damping(1.0, free_vel)) < 1e-12
+        @test maximum(s -> norm(damping(s, line_vel(s))), 0:0.25:1) < 1e-12
+        @test damping(0.4, line_vel(0.4) .+ [0.0, 0.0, 1.0]) ≈ [0.0, 0.0, 3.0]
+    end
+
+    @testset "a damped tether needs exactly one world-fixed end" begin
+        data_path_before = get_data_path()
+        set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
+        set = Settings("system.yaml")
+        set_data_path(data_path_before)
+        line(first_end) = SystemStructure("damped_line", set;
+            points = [SymbolicAWEModels.Point(:a, [0.0, 0.0, 0.0], first_end),
+                      SymbolicAWEModels.Point(:m, [0.0, 0.0, 5.0], DYNAMIC;
+                                              body_frame_damping = 1.0),
+                      SymbolicAWEModels.Point(:b, [0.0, 0.0, 10.0], DYNAMIC)],
+            segments = [Segment(:s1, :a, :m, 1e4, 10.0, 0.002),
+                        Segment(:s2, :m, :b, 1e4, 10.0, 0.002)],
+            tethers = [Tether(:t, [:s1, :s2])])
+        @test damped_tether_ends(line(STATIC), 2) == (1, 3)
+        @test damped_tether_ends(line(STATIC), 3) === nothing
+        @test_throws ErrorException damped_tether_ends(line(DYNAMIC), 2)
+    end
+
     data_path_before = get_data_path()
     root = mktempdir()
     @testset "$(nameof(typeof(backend))) leaves rigid flight on the small-earth frame \
@@ -173,10 +218,15 @@ tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx)
         pitched(state) = state.wings[1].ω_b .= flown .+ [0.0, 0.5, 0.0]
         @test maximum(abs, damping_rate(sam, pitched)) > 1.0
     end
-    @testset "$(nameof(typeof(backend))) leaves a fitted wing's nodes undamped in rigid \
-              flight on the small-earth frame" for
+    @testset "$(nameof(typeof(backend))) leaves a fitted wing's nodes and its tether \
+              undamped in rigid flight on the small-earth frame" for
             backend in (KernelBackend(), MonolithBackend())
-        sam = flying_two_plate(backend, "particle_structural_geometry.yaml", root, 0.4)
+        sam = flying_two_plate(backend, "particle_structural_geometry.yaml", root, 0.4;
+                               tether_damping = 2.0)
+        tether_points = [point for point in sam.state.points
+                         if startswith(string(point.name), "main_tether")]
+        @test length(tether_points) == 5
+        @test all(point.body_frame_damping == fill(2.0, 3) for point in tether_points)
         @test maximum(norm, point.vel_w for point in sam.state.points) > 1.0
         @test maximum(abs, damping_rate(sam)) < 1e-9
         base = tether_base(sam)
@@ -197,6 +247,11 @@ tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx)
         node = findfirst(point -> point.wing_idx > 0, sam.state.points)
         flutter(state) = state.points[node].vel_w .= flown[node] .+ [0.0, 0.0, 1.0]
         @test maximum(abs, damping_rate(sam, flutter)) > 1.0
+        wave = tether_points[3].idx
+        waved(state) = state.points[wave].vel_w .= flown[wave] .+ [0.0, 0.5, 0.0]
+        rate = damping_rate(sam, waved)
+        @test count(>(1e-9), abs.(rate)) == 1
+        @test maximum(abs, rate) ≈ 2.0 * 0.5
     end
     set_data_path(data_path_before)
 end

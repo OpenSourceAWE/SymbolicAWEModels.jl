@@ -9,6 +9,7 @@
 
 const PARTICLE_INPUTS = [:force_in, :mass_in, :drag_in]
 const PARTICLE_OUTPUTS = [:pos, :vel]
+const TETHER_NODE_INPUTS = [PARTICLE_INPUTS; :anchor_pos; :anchor_vel; :free_pos; :free_vel]
 const PULLEY_POINT_INPUTS = [PARTICLE_INPUTS; :tension_in; :line_in]
 const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out, :pulley_vel_out]
 const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
@@ -66,10 +67,11 @@ const STATION_INPUTS = [:aero_moment_in, :node_moment_in, :node_force_in,
 """
     PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, element_idx)
 
-How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch`,
-`:wing_node`, `:ride` or `:hermite`. A `:pulley` point carries the pulley it splits
-and one of that pulley's segments (whose material gives the rope mass); a `:winch`
-point carries its winch; a `:ride` point carries the body it is anchored to.
+How one point is realised: `kind` is `:particle`, `:tether_node` (a particle damped
+against its tether's frame), `:anchor`, `:pulley`, `:winch`, `:wing_node`, `:ride` or
+`:hermite`. A `:pulley` point carries the pulley it splits and one of that pulley's
+segments (whose material gives the rope mass); a `:winch` point carries its winch; a
+`:ride` point carries the body it is anchored to.
 `element_idx` is the Timoshenko tube a `:hermite` point rides, or the station of a
 `:twist_node`.
 """
@@ -113,7 +115,8 @@ function classify_points(sys_struct)
             "KernelBackend: point $(point.name) has type $(point.type); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
         wing = point.wing_idx
-        kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
+        kind = point.type == STATIC ? :anchor : wing != 0 ? :wing_node :
+            isnothing(damped_tether_ends(sys_struct, i)) ? :particle : :tether_node
         roles[i] = PointRole(kind, 0, 0, 0, wing, 0)
     end
     for pulley in sys_struct.pulleys
@@ -134,18 +137,6 @@ function classify_points(sys_struct)
 end
 
 """
-    rigid_wing_node(sys_struct, point) -> Bool
-
-Whether `point` is a structural node of a `RIGID_DYNAMICS` wing. `point_eqs!` takes
-such a node out of the anchor rule entirely — the wing *is* the rigid body, so the
-node is placed by a twist-deformed body-frame offset instead of riding anything —
-and so does [`classify_points`](@ref).
-"""
-rigid_wing_node(sys_struct, point) =
-    point.is_wing_node &&
-    sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
-
-"""
     station_of(sys_struct, idx) -> Int
 
 The one station point `idx` belongs to, or `0`. Two would make its section
@@ -158,21 +149,6 @@ function station_of(sys_struct, idx)
         "KernelBackend: point $(sys_struct.points[idx].name) is in " *
         "$(length(found)) stations; expected 0 or 1.")
     return isempty(found) ? 0 : only(found)
-end
-
-"""
-    pulley_point_index(sys_struct, pulley) -> Int
-
-The point a pulley splits its rope over: the single point its two segments share.
-"""
-function pulley_point_index(sys_struct, pulley)
-    first_points = sys_struct.segments[pulley.segment_idxs[1]].point_idxs
-    second_points = sys_struct.segments[pulley.segment_idxs[2]].point_idxs
-    shared = intersect(first_points, second_points)
-    length(shared) == 1 || error(
-        "KernelBackend: pulley $(pulley.name) segments share $(length(shared)) " *
-        "points; expected exactly 1.")
-    return only(shared)
 end
 
 """
@@ -352,9 +328,12 @@ function assemble(sam; verbose = false)
     for (idx, role) in enumerate(point_roles)
         role.kind === :wing_node || continue
         wire_wing_frame!(builder, body_instances[role.body_idx], point_instances[idx])
-        sys_struct.points[idx].body_frame_damping === nothing && continue
         wire_damping_base!(builder, sam, role.body_idx, point_instances,
                            point_instances[idx])
+    end
+    for (idx, role) in enumerate(point_roles)
+        role.kind === :tether_node || continue
+        wire_tether_ends!(builder, sys_struct, idx, point_instances)
     end
     for (idx, body) in enumerate(sys_struct.bodies)
         body.type == DYNAMIC || continue
@@ -769,6 +748,21 @@ function wire_wing_frame!(builder, wing_instance, instance)
 end
 
 """
+    wire_tether_ends!(builder, sys_struct, idx, point_instances)
+
+Wire the position and velocity of the [`damped_tether_ends`](@ref) of point `idx` into
+its `anchor_pos`/`anchor_vel`/`free_pos`/`free_vel` inputs.
+"""
+function wire_tether_ends!(builder, sys_struct, idx, point_instances)
+    anchor, free = damped_tether_ends(sys_struct, idx)
+    for (end_idx, prefix) in ((anchor, :anchor), (free, :free)), field in (:pos, :vel)
+        connect!(builder, point_instances[end_idx], field, point_instances[idx],
+                 Symbol(prefix, :_, field))
+    end
+    return nothing
+end
+
+"""
     wire_damping_base!(builder, sam, body_idx, point_instances, instance)
 
 Wire the tether base point of body `body_idx`'s [`damping_base`](@ref) into the
@@ -877,18 +871,20 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                                                              sam, idx, role, bodies,
                                                              wrenches)
     entry = if role.kind === :wing_node
-        with_damping = sys_struct.points[idx].body_frame_damping !== nothing
-        based = with_damping && !isnothing(damping_base(sam.state, role.body_idx))
-        key = !with_damping ? :wing_node_undamped :
-            based ? :wing_node : :wing_node_unbased
+        based = !isnothing(damping_base(sam.state, role.body_idx))
+        key = based ? :wing_node : :wing_node_unbased
         kernel!(builder, table, sam, key, idx,
-                params -> WingNodePoint(sam, params, idx; name = key, with_damping,
-                                        based),
+                params -> WingNodePoint(sam, params, idx; name = key, based),
                 [WING_NODE_INPUTS; based ? [:base_pos] : Symbol[]], PARTICLE_OUTPUTS)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),
                 PARTICLE_INPUTS, PARTICLE_OUTPUTS)
+    elseif role.kind === :tether_node
+        kernel!(builder, table, sam, :tether_node, idx,
+                params -> Particle(sam, params, idx; name = :tether_node,
+                                   tether_damped = true),
+                TETHER_NODE_INPUTS, PARTICLE_OUTPUTS)
     elseif role.kind === :anchor
         kernel!(builder, table, sam, :anchor, idx,
                 params -> Anchor(sam, params, idx; name = :anchor),
@@ -1406,7 +1402,7 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
     for (idx, role) in enumerate(point_roles)
         instance = point_instances[idx]
         point = sys_struct.points[idx]
-        if role.kind in (:particle, :pulley, :wing_node)
+        if role.kind in (:particle, :tether_node, :pulley, :wing_node)
             u0[buffer_slots(system, instance, :states, :pos)] .= point.pos_w
             u0[buffer_slots(system, instance, :states, :vel)] .= point.vel_w
         end

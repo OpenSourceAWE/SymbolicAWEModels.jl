@@ -281,15 +281,19 @@ $(TYPEDFIELDS)
     compression_frac::SimFloat = 0.1
     "Fraction of `unit_damping` still acting under compression, per segment."
     compression_damping_frac::SimFloat = 1.0
+    "Body-frame damping its inner points take where they set none, per axis [1/s]."
+    body_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
     len::SimFloat = 0.0
 end
 
-TetherModel(init_stretched_length, init_tether_force, init_stretch_frac) =
-    TetherModel(; init_stretched_length, init_tether_force, init_stretch_frac)
+TetherModel(init_stretched_length, init_tether_force, init_stretch_frac,
+            body_frame_damping) =
+    TetherModel(; init_stretched_length, init_tether_force, init_stretch_frac,
+                body_frame_damping)
 
 KiteGeometry.model_columns(::Type{TetherModel}) =
-    (:init_stretched_length, :init_tether_force, :init_stretch_frac)
+    (:init_stretched_length, :init_tether_force, :init_stretch_frac, :body_frame_damping)
 
 """
     WinchModel{W}
@@ -428,7 +432,8 @@ function register_definition_models()
     register_model!(:bodies, "sam_body", BodyModel,
                     ("-", "-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
                     default=true)
-    register_model!(:tethers, "sam_tether", TetherModel, ("m", "N", "-"); default=true)
+    register_model!(:tethers, "sam_tether", TetherModel, ("m", "N", "-", "1/s");
+                    default=true)
     register_model!(:winches, "sam_winch", WinchModel, ("m/s", "-", "-", "m/s");
                     default=true)
     register_model!(:tubes, "timoshenko", TimoshenkoTubeModel,

@@ -22,19 +22,37 @@ function flight_frame(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_t
 end
 
 """
-    point_damping_accel(point, params, R_b_to_w, frame, pos_w, vel_w)
+    point_frame_damping(state, point, pos, vel; R_b_to_w, body_com_w, body_com_vel,
+                        body_R_b_to_w, body_ω_b)
+
+The axes and frame a DYNAMIC point's body-frame damping acts on: a wing node's wing
+axes and [`flight_frame`](@ref), a damped tether point's world axes and
+[`tether_frame`](@ref) ([`damped_tether_ends`](@ref)); `nothing` for any other point.
+"""
+function point_frame_damping(state, point, pos, vel; R_b_to_w, body_com_w, body_com_vel,
+                             body_R_b_to_w, body_ω_b)
+    point.wing_idx > 0 && return (; axes = collect(R_b_to_w[:, :, point.wing_idx]),
+        frame = flight_frame(state, point.wing_idx, pos; body_com_w, body_com_vel,
+                             body_R_b_to_w, body_ω_b))
+    ends = damped_tether_ends(state, point.idx)
+    isnothing(ends) && return nothing
+    anchor, free = ends
+    return (; axes = I, frame = tether_frame(pos[:, anchor], vel[:, anchor],
+                                             pos[:, free], vel[:, free]))
+end
+
+"""
+    point_damping_accel(point, params, damping, pos_w, vel_w)
 
 Per-mass damping acceleration for a DYNAMIC point at `pos_w`: a world-frame term against
-its world velocity `vel_w`, plus, for a point that belongs to a wing, the
-[`body_frame_damp_accel`](@ref) on that wing's axes against its
-[`small_earth_frame`](@ref) `frame`.
+its world velocity `vel_w`, plus the [`body_frame_damp_accel`](@ref) on the axes and
+against the frame of its [`point_frame_damping`](@ref) `damping`, where it has one.
 """
-function point_damping_accel(point, params, R_b_to_w, frame, pos_w, vel_w)
+function point_damping_accel(point, params, damping, pos_w, vel_w)
     accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
-    point.wing_idx > 0 || return accel
+    isnothing(damping) && return accel
     return accel .+ body_frame_damp_accel(vel_w,
-        params.points[point.idx].body_frame_damping,
-        collect(R_b_to_w[:, :, point.wing_idx]), frame, pos_w)
+        params.points[point.idx].body_frame_damping, damping.axes, damping.frame, pos_w)
 end
 
 """
@@ -210,9 +228,8 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
         ]
 
         # A rigid wing's own VSM wrench replaces the per-node aero force.
-        rigid_wing_node = point.is_wing_node &&
-            s.state.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
-        aero_force_w = (!rigid_wing_node && point.is_wing_node &&
+        rigid_node = rigid_wing_node(s.state, point)
+        aero_force_w = (!rigid_node && point.is_wing_node &&
                         is_wing(s.state.bodies[point.wing_idx])) ?
             collect(R_b_to_w[:, :, point.wing_idx] *
                     aero_force_point_b[:, point.idx]) : zeros(Num, 3)
@@ -233,7 +250,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
         # section-twist DOF deforms the offset. Every other point follows the
         # anchor rule below (tube → beam, body → rigid ride, STATIC → fixed,
         # else → free particle).
-        if rigid_wing_node
+        if rigid_node
             found = 0
             station = nothing
             for station_ in stations
@@ -318,9 +335,9 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, point.idx)
-            frame = point.wing_idx > 0 ? flight_frame(s.state, point.wing_idx, pos;
-                body_com_w, body_com_vel, body_R_b_to_w, body_ω_b) : nothing
-            damp_accel = point_damping_accel(point, params, R_b_to_w, frame,
+            damping = point_frame_damping(s.state, point, pos, vel; R_b_to_w,
+                body_com_w, body_com_vel, body_R_b_to_w, body_ω_b)
+            damp_accel = point_damping_accel(point, params, damping,
                 pos[:, point.idx], vel[:, point.idx])
             velocity, acceleration = confined_derivatives(
                 pos[:, point.idx], vel[:, point.idx], collect(acc[:, point.idx]),

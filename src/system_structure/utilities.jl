@@ -254,6 +254,91 @@ function tether_anchor_free(tether, boundary)
 end
 
 """
+    world_fixed_points(points, winches, bodies, tubes) -> Set{Int64}
+
+The points fixed in the world: winch points, `STATIC` points, and `BODY_STATIC` points
+carried only by `STATIC` bodies.
+"""
+function world_fixed_points(points, winches, bodies, tubes)
+    fixed = Set{Int64}(winch.winch_point_idx for winch in winches)
+    for point in points
+        point.type == STATIC && push!(fixed, point.idx)
+        point.type == BODY_STATIC || continue
+        carriers = anchor_body_idxs(point, tubes)
+        isempty(carriers) && continue
+        all(bodies[body_idx].type == STATIC for body_idx in carriers) &&
+            push!(fixed, point.idx)
+    end
+    return fixed
+end
+
+"""
+    rigid_wing_node(sys_struct, point) -> Bool
+
+Whether `point` is a structural node of a `RIGID_DYNAMICS` wing, which is placed by a
+twist-deformed offset in the wing body frame instead of riding anything.
+"""
+rigid_wing_node(sys_struct, point) =
+    point.is_wing_node &&
+    sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
+
+"""
+    pulley_point_index(sys_struct, pulley) -> Int
+
+The point a pulley splits its rope over: the single point its two segments share.
+"""
+function pulley_point_index(sys_struct, pulley)
+    first_points = sys_struct.segments[pulley.segment_idxs[1]].point_idxs
+    second_points = sys_struct.segments[pulley.segment_idxs[2]].point_idxs
+    shared = intersect(first_points, second_points)
+    length(shared) == 1 || error(
+        "Pulley $(pulley.name) segments share $(length(shared)) points; expected " *
+        "exactly 1.")
+    return only(shared)
+end
+
+"""
+    damped_tether_ends(sys_struct, point_idx) -> Union{Tuple{Int, Int}, Nothing}
+
+The anchor and free end of the tether whose inner point `point_idx` is a free particle
+with a non-zero `body_frame_damping`; `nothing` otherwise.
+"""
+function damped_tether_ends(sys_struct, point_idx)
+    point = sys_struct.points[point_idx]
+    free_particle = point.type == DYNAMIC && point.wing_idx == 0 &&
+        point.body_idx == 0 && point.tube_idx == 0 &&
+        all(pulley -> pulley_point_index(sys_struct, pulley) != point_idx,
+            sys_struct.pulleys)
+    (free_particle && any(!iszero, point.body_frame_damping)) || return nothing
+    for tether in sys_struct.tethers
+        point_idx in tether_ordered_point_idxs(tether, sys_struct.segments)[2:end-1] ||
+            continue
+        return tether_damping_ends(sys_struct, tether)
+    end
+    return nothing
+end
+
+"""
+    tether_damping_ends(sys_struct, tether) -> Tuple{Int, Int}
+
+The anchor and free end of a tether whose inner points damp against its
+[`tether_frame`](@ref): erroring unless exactly one end is world-fixed
+([`world_fixed_points`](@ref)) and the free end is no rigid wing's node, whose own
+velocity the monolith does not carry.
+"""
+function tether_damping_ends(sys_struct, tether)
+    fixed = world_fixed_points(sys_struct.points, sys_struct.winches, sys_struct.bodies,
+                               sys_struct.tubes)
+    anchor, free = tether_anchor_free(tether, fixed)
+    isnothing(anchor) && error("Tether $(tether.name): body-frame damping of its " *
+        "points needs exactly one end on a winch or a world-fixed point.")
+    rigid_wing_node(sys_struct, sys_struct.points[free]) && error("Tether " *
+        "$(tether.name): body-frame damping of its points needs a free end that is " *
+        "not a rigid wing's node.")
+    return anchor, free
+end
+
+"""
     anchor_body_idxs(point, tubes) -> Tuple
 
 Body indices whose placement carries `point`: the node `Body` it rides
@@ -593,17 +678,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemState;
     root = connected_body_groups(length(bodies), tubes)
     rigid_siblings = rigid_point_siblings(points, wings, tubes, root)
 
-    # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC carried
-    # only by STATIC bodies.
-    boundary = Set{Int64}(w.winch_point_idx for w in winches)
-    for point in points
-        point.type == STATIC && push!(boundary, point.idx)
-        point.type == BODY_STATIC || continue
-        carriers = anchor_body_idxs(point, tubes)
-        isempty(carriers) && continue
-        all(bodies[body_idx].type == STATIC for body_idx in carriers) &&
-            push!(boundary, point.idx)
-    end
+    boundary = world_fixed_points(points, winches, bodies, tubes)
 
     # Both-fixed tethers (both endpoints on a boundary) are warned and skipped.
     both_fixed(tether) = tether.start_point_idx in boundary &&

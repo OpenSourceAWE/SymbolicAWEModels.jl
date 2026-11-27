@@ -891,6 +891,11 @@ function SystemStructure(name, set;
             tether.end_point_idx =
                 seg_last.point_idxs[2]
         end
+        damping = tether.body_frame_damping
+        isnothing(damping) && continue
+        inner = tether_ordered_point_idxs(tether, segments)[2:end-1]
+        set_body_frame_damping(points, damping,
+            filter(idx -> all(iszero, points[idx].body_frame_damping), inner))
     end
     for wing in wings
         wing_point_idxs = [point.idx for point in points
