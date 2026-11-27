@@ -248,7 +248,11 @@ tether_base(sam) = base_position(damping_base(sam.state, sam.state.wings[1].idx)
         flutter(state) = state.points[node].vel_w .= flown[node] .+ [0.0, 0.0, 1.0]
         @test maximum(abs, damping_rate(sam, flutter)) > 1.0
         wave = tether_points[3].idx
-        waved(state) = state.points[wave].vel_w .= flown[wave] .+ [0.0, 0.5, 0.0]
+        function waved(state)
+            state.wings[1].vel_w .= flown_wing
+            foreach((point, vel) -> point.vel_w .= vel, state.points, flown)
+            state.points[wave].vel_w .+= [0.0, 0.5, 0.0]
+        end
         rate = damping_rate(sam, waved)
         @test count(>(1e-9), abs.(rate)) == 1
         @test maximum(abs, rate) ≈ 2.0 * 0.5
