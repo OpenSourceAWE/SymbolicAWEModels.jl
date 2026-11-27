@@ -341,13 +341,15 @@ function diagnose_rhs(f, du, u, p, t)
 end
 
 """
-    build_plate_kite(data_root)
+    build_plate_kite(data_root; name="plate_aero_test", azimuth=0.0, tilt=nothing)
 
 The kps4 flat-plate kite built programmatically: three 1-point `STATIC` twist
-surfaces (`main`, `right_tip`, `left_tip`) carrying one shared CL/CD polar set.
+surfaces (`main`, `right_tip`, `left_tip`) carrying one shared CL/CD polar set,
+placed by `:main_tf` at `azimuth` [rad]. A `tilt` [rad] hangs `top`, `right` and
+`left` on a child `:kite_tilt` transform pitched by `tilt` about `top`.
 Returns `(set, sys, transforms)`.
 """
-function build_plate_kite(data_root)
+function build_plate_kite(data_root; name="plate_aero_test", azimuth=0.0, tilt=nothing)
     data_path = joinpath(data_root, "kps4")
     cp(joinpath(dirname(@__DIR__), "data", "kps4"), data_path; force=true)
     set_data_path(data_path)
@@ -403,11 +405,17 @@ function build_plate_kite(data_root)
         cl_interp, cd_interp; dynamics_type=PARTICLE_DYNAMICS,
         z_ref_points=([:right, :left], :top), y_ref_points=(:left, :right),
         origin=:kcu, drag_corr=0.93 * (1.0 - rel_side))
-    sys = SystemStructure("plate_aero_test", set; points, stations,
+    sys = SystemStructure(name, set; points, stations,
         segments, tethers, winches, wings=[wing])
-    transforms = [Transform(; name=:main_tf, elevation=deg2rad(set.elevation),
-        azimuth=0.0, heading=0.0, base_pos=zeros(3), base_point=1, body=1,
-        points=collect(2:length(sys.points)), bodies=[1])]
-    place!(sys, transforms)
+    elevation = deg2rad(set.elevation)
+    wing_idxs = [sys.points[point].idx for point in (:top, :right, :left)]
+    main_idxs = collect(2:length(sys.points))
+    isnothing(tilt) || setdiff!(main_idxs, wing_idxs)
+    transforms = [Transform(; name=:main_tf, elevation, azimuth, heading=0.0,
+        base_pos=zeros(3), base_point=1, body=1, points=main_idxs, bodies=[1])]
+    isnothing(tilt) || push!(transforms, Transform(; name=:kite_tilt,
+        elevation=elevation + tilt, azimuth, heading=0.0, base_transform=1,
+        rot_point=[wing_idxs[1] => 1.0], points=wing_idxs))
+    place!(sys, transforms; prn=false)
     return set, sys, transforms
 end

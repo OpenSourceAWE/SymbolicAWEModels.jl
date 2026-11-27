@@ -457,149 +457,15 @@ using LinearAlgebra
     end
 
     # ================================================================
-    # Chained Transform Tests (using kps4_plate-style programmatic API)
+    # Chained Transform Tests (kps4 plate kite with a tilted child transform)
     # ================================================================
     @testset "Chained Transforms" begin
-        using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, Station, SystemStructure, create_plate_interpolations
-
-        # Use kps4 settings (2plate_kite has no tethers)
-        kps4_data = joinpath(tmpdir, "kps4")
-        cp(joinpath(pkg_root, "data", "kps4"),
-            kps4_data; force=true)
-        set_data_path(kps4_data)
-        set_c = Settings("system.yaml")
-        set_c.upwind_dir = rad2deg(-pi/2)
-
-        # Geometry from KiteUtils
-        particles = KiteUtils.get_particles(
-            set_c.height_k, set_c.h_bridle,
-            set_c.width, set_c.m_k)
-        pos_kcu = particles[2]
-        pos_nose = particles[3]
-        pos_top = particles[4]
-        pos_right = particles[5]
-        pos_left = particles[6]
-
-        kite_mass = set_c.mass
-        k_nose = set_c.rel_nose_mass * kite_mass
-        k_top = set_c.rel_top_mass *
-            (1.0 - set_c.rel_nose_mass) * kite_mass
-        k_side = 0.5 * (1.0 - set_c.rel_top_mass) *
-            (1.0 - set_c.rel_nose_mass) * kite_mass
-        set_c.mass = 0.0
-
-        pre_stress = 0.9975
-        pos_map = Dict(:kcu => pos_kcu, :nose => pos_nose,
-            :top => pos_top, :right => pos_right,
-            :left => pos_left)
-        bridle_l0(a, b) =
-            norm(pos_map[b] - pos_map[a]) * pre_stress
-
-        points_c = [
-            Point(:ground, zeros(3), STATIC),
-            Point(:kcu, pos_kcu, DYNAMIC;
-                extra_mass=set_c.kcu_mass),
-            Point(:nose, pos_nose, DYNAMIC;
-                extra_mass=k_nose),
-            Point(:top, pos_top, DYNAMIC;
-                extra_mass=k_top, wing=:plate_wing),
-            Point(:right, pos_right, DYNAMIC;
-                extra_mass=k_side, wing=:plate_wing),
-            Point(:left, pos_left, DYNAMIC;
-                extra_mass=k_side, wing=:plate_wing),
-        ]
-
-        segments_c = [
-            Segment(:kcu_nose, set_c, :kcu, :nose;
-                l0=bridle_l0(:kcu, :nose),
-                diameter_mm=set_c.d_line),
-            Segment(:right_nose, set_c, :right, :nose;
-                l0=bridle_l0(:right, :nose),
-                diameter_mm=set_c.d_line),
-            Segment(:right_left, set_c, :right, :left;
-                l0=bridle_l0(:right, :left),
-                diameter_mm=set_c.d_line),
-            Segment(:top_right, set_c, :top, :right;
-                l0=bridle_l0(:top, :right),
-                diameter_mm=set_c.d_line),
-            Segment(:left_kcu, set_c, :left, :kcu;
-                l0=bridle_l0(:left, :kcu),
-                diameter_mm=set_c.d_line),
-            Segment(:right_kcu, set_c, :right, :kcu;
-                l0=bridle_l0(:right, :kcu),
-                diameter_mm=set_c.d_line),
-            Segment(:top_left, set_c, :top, :left;
-                l0=bridle_l0(:top, :left),
-                diameter_mm=set_c.d_line),
-            Segment(:left_nose, set_c, :left, :nose;
-                l0=bridle_l0(:left, :nose),
-                diameter_mm=set_c.d_line),
-            Segment(:nose_top, set_c, :nose, :top;
-                l0=bridle_l0(:nose, :top),
-                diameter_mm=set_c.d_line),
-        ]
-
-        tethers_c = [Tether(:main_tether,
-            set_c.l_tethers[1];
-            start_point=:ground, end_point=:kcu,
-            n_segments=set_c.segments)]
-
-        winches_c = [Winch(:winch, set_c,
-            [:main_tether]; winch_point=:ground)]
-
-        rel_side = set_c.rel_side_area / 100.0
-        K = 1.0 - rel_side
-        stations_c = [
-            Station(:main, [:top], STATIC, 0.0;
-                x_airf=[1,0,0], y_airf=[0,1,0],
-                area=set_c.area, twist=deg2rad(set_c.alpha_zero)),
-            Station(:right_tip, [:right], STATIC, 0.0;
-                x_airf=[1,0,0], y_airf=[0,0,-1],
-                area=set_c.area * rel_side,
-                twist=deg2rad(set_c.alpha_ztip)),
-            Station(:left_tip, [:left], STATIC, 0.0;
-                x_airf=[1,0,0], y_airf=[0,0,1],
-                area=set_c.area * rel_side,
-                twist=deg2rad(set_c.alpha_ztip)),
-        ]
-        cl_interp, cd_interp =
-            create_plate_interpolations(
-                set_c.alpha_cl, set_c.cl_list,
-                set_c.cd_list; alpha_cd=set_c.alpha_cd)
-
-        wing_c = PlateWing(:plate_wing,
-            [:main, :right_tip, :left_tip],
-            cl_interp, cd_interp;
-            dynamics_type=PARTICLE_DYNAMICS,
-            z_ref_points=([:right, :left], :top),
-            y_ref_points=(:left, :right),
-            origin=:kcu, drag_corr=0.93 * K)
-
-        elev = deg2rad(set_c.elevation)
-        azim = deg2rad(10.0)
         kite_angle = deg2rad(3.83)
-
-        sys_c = SystemStructure("chained_test", set_c;
-            points=points_c, stations=stations_c,
-            segments=segments_c,
-            tethers=tethers_c, winches=winches_c,
-            wings=[wing_c])
-
-        point_idx(name) = sys_c.points[name].idx
-        tether_idxs = [point.idx for point in sys_c.points
-                       if startswith(String(point.name), "main_tether_point")]
-        transforms_c = [
-            Transform(; name=:main_tf, elevation=elev, azimuth=azim, heading=0.0,
-                base_pos=zeros(3), base_point=point_idx(:ground), body=1,
-                points=[point_idx(:kcu), point_idx(:nose), tether_idxs...],
-                bodies=[1]),
-            Transform(; name=:kite_tilt, elevation=elev + kite_angle, azimuth=azim,
-                heading=0.0, base_transform=1, rot_point=[point_idx(:top) => 1.0],
-                points=point_idx.([:top, :right, :left])),
-        ]
-        place!(sys_c, transforms_c; prn=false)
-
+        set_c, sys_c, transforms_c = build_plate_kite(tmpdir; name="chained_test",
+            azimuth=deg2rad(10.0), tilt=kite_angle)
+        particles = KiteUtils.get_particles(set_c.height_k, set_c.h_bridle,
+            set_c.width, set_c.m_k)
+        pos_top, pos_right, pos_left = particles[4], particles[5], particles[6]
         sam_c = SymbolicAWEModel(set_c, sys_c; transforms=transforms_c)
         init!(sam_c)
 
@@ -637,12 +503,6 @@ using LinearAlgebra
             @test norm(top_pos - wing_pos) < 50.0
             @test norm(right_pos - wing_pos) < 50.0
             @test norm(left_pos - wing_pos) < 50.0
-
-            println("  wing_pos=" *
-                "$(round.(wing_pos, digits=2))")
-            dist = round(
-                norm(top_pos - wing_pos), digits=2)
-            println("  dist(top, wing)=$dist")
         end
 
         @testset "Distances preserved (rigid body)" begin
@@ -702,6 +562,7 @@ using LinearAlgebra
         @testset "Different child elevation changes pos" begin
             sys = sam_c.state
             tf_child = sys.transforms[:kite_tilt]
+            elev = tf_child.elevation - kite_angle
 
             # Elevation 1
             tf_child.elevation = elev + kite_angle
@@ -717,10 +578,6 @@ using LinearAlgebra
 
             # Different elevation should give different pos
             @test !(top_pos1 ≈ top_pos2)
-            println("  top_pos(tilt1)=" *
-                "$(round.(top_pos1, digits=2))")
-            println("  top_pos(tilt2)=" *
-                "$(round.(top_pos2, digits=2))")
         end
     end
 
