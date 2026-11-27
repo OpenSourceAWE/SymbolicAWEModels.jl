@@ -2613,12 +2613,12 @@ function tether_frame(anchor_pos, anchor_vel, free_pos, free_vel)
 end
 
 """
-    base_position(base, position_of)
+    damping_base_position(base, position_of)
 
 The position [m] of the [`transform_base`](@ref) `base`, `position_of(base)` for a
 point: zeros for the world origin, `nothing` for no base.
 """
-base_position(base, position_of) =
+damping_base_position(base, position_of) =
     isnothing(base) ? nothing : base == 0 ? zeros(3) : collect(position_of(base))
 
 """

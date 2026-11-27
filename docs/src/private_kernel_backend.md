@@ -167,7 +167,7 @@ SymbolicAWEModels.body_frame_damp_accel
 SymbolicAWEModels.small_earth_frame
 SymbolicAWEModels.frame_velocity
 SymbolicAWEModels.tether_frame
-SymbolicAWEModels.base_position
+SymbolicAWEModels.damping_base_position
 SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.ParticleWingAero
 SymbolicAWEModels.WagnerLag

@@ -15,7 +15,7 @@ function flight_frame(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_t
                       body_ω_b)
     parent = state.bodies[body_idx].wing_idx
     wing = parent == 0 ? body_idx : parent
-    base_w = base_position(damping_base(state, body_idx), point -> pos[:, point])
+    base_w = damping_base_position(damping_base(state, body_idx), point -> pos[:, point])
     R_b_to_w = collect(body_R_b_to_w[:, :, wing])
     return small_earth_frame(base_w, body_com_w[:, wing], body_com_vel[:, wing],
                              R_b_to_w[:, 2], R_b_to_w * collect(body_ω_b[:, wing]))
