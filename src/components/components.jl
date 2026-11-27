@@ -2625,8 +2625,8 @@ base_position(base, position_of) =
     frame_velocity(frame, pos)
 
 The velocity [m/s] at `pos` [m] of a point fixed in the [`small_earth_frame`](@ref) or
-[`tether_frame`](@ref) `frame`, which stretches radially with the tether: `vel + spin × d + stretch · d` with
-`d = pos − frame.pos`.
+[`tether_frame`](@ref) `frame`, which stretches radially with the tether:
+`vel + spin × d + stretch · d` with `d = pos − frame.pos`.
 """
 function frame_velocity(frame, pos)
     offset = collect(pos) .- frame.pos
