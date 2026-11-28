@@ -1142,9 +1142,9 @@ reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`point_acceleration_w`](@ref), damped against the [`small_earth_frame`](@ref) about
 the [`transform_base`](@ref) `frame_base`), the reported scalars
 ([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
-`va_b = R'·(wind − vel)`, the wind coming from the height profile or, under
-[`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
-owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
+`va_b = R'·(wind − vel)`, the wind coming from the height profile or, under a
+[`PrescribedWind`](@ref) mode, from `point.wind_vec` and `wing.wind_vec` — the same
+quantities the monolith's `get_all_state` copies out of the integrator.
 """
 function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode;
         zp1, zp2, yp1, yp2, origin, aero_points,
@@ -1171,7 +1171,7 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
     for (idx, weight) in zip(origin.ids, origin.weights)
         wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, frame)
     end
-    profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)
+    profile = wind_mode isa PrescribedWind ? nothing : WindFactor(am, set.profile_law)
     isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)
     wing.va_b .= R' * (wing.wind_vec .- wing.vel_w .+ wing.wind_disturb)
     for point_idx in aero_points

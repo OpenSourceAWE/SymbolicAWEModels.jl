@@ -857,8 +857,9 @@ Includes all structural properties that affect the symbolic equations:
 - The transform base point each wing's elevation and azimuth are measured from, and
   the one each body damps against ([`damping_base`](@ref))
 - The wind mode, which decides whether the wind is a height profile or a per-point
-  parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
-  default [`ProfileWind`](@ref) keep the cached models they already have.
+  parameter. Only [`PrescribedWind`](@ref) enters the hash, as one entry: its modes
+  build identical equations, and structures on the default [`ProfileWind`](@ref) keep
+  the cached models they already have.
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """

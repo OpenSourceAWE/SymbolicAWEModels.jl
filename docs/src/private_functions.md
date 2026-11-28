@@ -79,6 +79,9 @@ SymbolicAWEModels.point_wind_source
 SymbolicAWEModels.segment_wind_source
 SymbolicAWEModels.wing_wind_source
 SymbolicAWEModels.seed_per_point_wind!
+SymbolicAWEModels.PrescribedWind
+SymbolicAWEModels.update_turbulent_wind!
+SymbolicAWEModels.sample_position
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_v_to_w
