@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
+    find_steady_state!(sam::SymbolicAWEModel; t=2.0, dt=t/10, vsm_interval=1)
 
 Run the simulation for a short period to allow the system to settle.
 
@@ -12,26 +12,31 @@ dynamic components of the bridle and tethers to settle into a stable, steady-sta
 equilibrium before starting a maneuver or analysis.
 
 # Arguments
-- `s::SymbolicAWEModel`: The model to be stabilized.
-- `integ`: The integrator to use. Defaults to `s.integrator`.
+- `sam::SymbolicAWEModel`: The model to be stabilized.
 
 # Keywords
-- `t::Float64=1.0`: The duration [s] for which to run the settling simulation.
+- `t::Float64=2.0`: The duration [s] for which to run the settling simulation.
 - `dt::Float64`: The time step [s] for the settling simulation.
+- `vsm_interval`: Steps between VSM updates.
 """
-function find_steady_state!(sam::SymbolicAWEModel; 
-                            t=2.0, dt=t/10, vsm_interval=1)
-    (; winches, wings) = sam.state
-    old_brakes = [winch.brake for winch in winches]
-    old_fixes = [wing.fix_sphere for wing in wings]
-    [winch.brake=1.0 for winch in winches]
-    [wing.fix_sphere=true for wing in wings]
+function find_steady_state!(sam::SymbolicAWEModel; t=2.0, dt=t/10, vsm_interval=1)
+    winch_idxs = eachindex(sam.definition.winches)
+    body_idxs = [wing_body(sam, wing_idx) for wing_idx in eachindex(sam.definition.wings)]
+    old_brakes = [run_value(sam, :winches, i, :brake) for i in winch_idxs]
+    old_fixes = [run_value(sam, :bodies, body_idx, :fix_sphere) for body_idx in body_idxs]
+    foreach(i -> set_run_value!(sam, :winches, i, :brake, 1.0), winch_idxs)
+    foreach(body_idx -> set_run_value!(sam, :bodies, body_idx, :fix_sphere, true),
+            body_idxs)
     for _ in 1:Int(round(t ÷ dt))
         next_step!(sam; dt, vsm_interval)
     end
-    [winch.brake=old_brakes[winch.idx] for winch in winches]
-    [wing.fix_sphere=old_fixes[wing.idx] for wing in wings]
-    update_sys_struct!(sam.prob, sam.integrator, sam.state)
+    for (i, brake) in zip(winch_idxs, old_brakes)
+        set_run_value!(sam, :winches, i, :brake, brake)
+    end
+    for (body_idx, fix) in zip(body_idxs, old_fixes)
+        set_run_value!(sam, :bodies, body_idx, :fix_sphere, fix)
+    end
+    update_run_state!(sam.prob, sam.integrator, sam)
     return nothing
 end
 

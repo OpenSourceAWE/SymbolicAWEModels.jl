@@ -1,24 +1,18 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Scattering the runtime's buffers back into the `SystemStructure`, and
+# Scattering the runtime's buffers into a run's `SysState`, and
 # writing the control setpoints into the parameter buffer. Every value has a fixed
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
 """
-    PointReadout(point, pos, vel, drag, wind, force, mass, va, va_frame, aero)
+    PointReadout(point, pos, vel, drag, wind, force, aero)
 
 Where one point's results live: its `pos`/`vel` in the output buffer and its
 `total_drag`, `wind_vec` and `net_force` in the observable buffer — all three from
 the instance that owns its loads, which for a point riding a body is its wrench
-half. A name that instance does not observe gets no slots and is left alone.
-
-`mass` is the slot its segments sum their half-masses into, which with `extra_mass`
-is the monolith's `point_mass`.
-
-`va` is the point's `va_b` from its [`AeroInflowPoint`](@ref), the apparent wind the
-aero is solved on, and is empty for a point that has no aero instance. `va_frame` is
-then the body whose frame to rebuild it in ([`va_frame_body`](@ref)).
+half — and its world aerodynamic force in the output buffer. A name that instance
+does not observe gets no slots and is left alone.
 """
 struct PointReadout
     point::Int
@@ -27,21 +21,17 @@ struct PointReadout
     drag::Vector{Int}
     wind::Vector{Int}
     force::Vector{Int}
-    mass::Int
-    va::Vector{Int}
-    va_frame::Int
     aero::Vector{Int}
 end
 
 """
-    SegmentReadout(segment, spring_force, l0)
+    SegmentReadout(segment, spring_force)
 
 Where one segment's diagnostics live in the observable buffer.
 """
 struct SegmentReadout
     segment::Int
     spring_force::Int
-    l0::Int
 end
 
 """
@@ -89,22 +79,19 @@ struct BodyReadout
 end
 
 """
-    KinematicWingReadout(body, z1, z2, y1, y2, origin, aero_points)
+    KinematicWingReadout(wing, body, frame, aero_points)
 
-The reference points a fitted (`KINEMATIC`) wing's kinematics are rebuilt from after
-a step. Such a wing has no state of its own — its frame, apparent wind and per-point
-apparent wind are functions of where its points ended up, which is what
-[`wing_kinematics_from_points!`](@ref) computes. Each reference is the wing's own
-[`WeightedRefPoints`](@ref), so a blend of several points is rebuilt at the same
-weights the [`Wiring`](@ref) feeds the kinematic body kernel.
+The reference points the kinematics of fitted (`KINEMATIC`) wing `wing`, whose body is
+`body`, are rebuilt from after a step. Such a wing has no state of its own — its
+frame, apparent wind and per-point apparent wind are functions of where its points
+ended up, which is what [`wing_kinematics_from_points!`](@ref) computes. `frame` is
+the wing's KiteGeometry `WingFrame`, so a blend of several points is rebuilt at the
+same weights the [`Wiring`](@ref) feeds the kinematic body kernel.
 """
 struct KinematicWingReadout
+    wing::Int
     body::Int
-    z1::WeightedRefPoints
-    z2::WeightedRefPoints
-    y1::WeightedRefPoints
-    y2::WeightedRefPoints
-    origin::WeightedRefPoints
+    frame::KiteGeometry.WingFrame
     aero_points::Vector{Int}
 end
 
@@ -125,55 +112,45 @@ struct StationReadout
 end
 
 """
-    WingAeroReadout(wing, force, moment, apparent, wind)
+    WingAeroReadout(wing, body, force, moment, wind)
 
-`wing` is the body index, as `Body.idx` is. Where one wing's aero component observes
-the quantities the struct carries: its
-lumped body-frame `aero_force_b`/`aero_moment_b`, and — for a rigid wing, whose
-apparent wind the component computes rather than the getter — its `va_b` and
+Where the aero component of wing `wing`, whose body is `body`, observes what the run
+holds of it: its lumped body-frame `aero_force_b`/`aero_moment_b`, and — for a rigid
+wing, whose wind the component computes rather than the getter — its body's
 `wind_vec`. A name the component does not observe gets no slots and is left alone.
 """
 struct WingAeroReadout
     wing::Int
+    body::Int
     force::Vector{Int}
     moment::Vector{Int}
-    apparent::Vector{Int}
     wind::Vector{Int}
 end
 
 """
-    RigidWingReadout(wing, frame, alpha_b, base_point)
+    RigidWingReadout(wing, alpha_b, base_point)
 
-`wing` is the body index, as `Body.idx` is. Where a `RIGID_DYNAMICS` wing's
-reported scalars come from: its body's `frame` output and its observed angular
-acceleration, plus the transform base point the elevation and azimuth are measured
-against. Its pose, spin and apparent wind are already scattered by the body and
-aero readouts, so these are all that is missing to fill the same scalars the
-monolith reads out of the integrator.
+Where the reported scalars of `RIGID_DYNAMICS` wing `wing` come from: the observed
+angular acceleration of its body, plus the transform base point the elevation and
+azimuth are measured against. Its pose, spin and apparent wind are already scattered
+by the body and aero readouts, so these are all that is missing to fill the same
+scalars the monolith reads out of the integrator.
 """
 struct RigidWingReadout
     wing::Int
-    frame::Vector{Int}
     alpha_b::Vector{Int}
     base_point::Int
 end
 
 """
-    KernelStateGetter(model)
+    KernelStateGetter(model, rhs, sam)
 
-Callable `(integrator, sys_struct)` that scatters the runtime's results back into
-the struct, mirroring the monolith's `get_all_state`: point positions, velocities,
-apparent wind and drag, segment tension/length/rest length, pulley splits, winch
-state, tether lengths, and every wing's reported scalars. It re-runs the output and
-observable maps for the integrator's current state first, since the last RHS
-evaluation need not correspond to it. A point's `total_mass` comes from the
-half-masses its segments gather into it, so it follows their rest lengths as the
-monolith's `point_mass` does.
-
-A point's `va_b` is copied from its [`AeroInflowPoint`](@ref) after the fitted-wing
-pass, so the value the aero is actually solved on is the compiled model's rather
-than a refit of it. A point with no such instance gets the monolith's fallback, its
-apparent wind in its own wing's frame, or the first body's if it is not a wing node.
+Callable `(integrator, sam)` that scatters the runtime's results into the `SysState`
+of the run `sam`, mirroring the monolith's `get_all_state`: point positions,
+velocities, wind, loads and drag, segment tension, pulley splits, winch state, tether
+lengths, body poses, station twist, and every wing's reported scalars. It re-runs the
+output and observable maps for the integrator's current state first, since the last
+RHS evaluation need not correspond to it.
 """
 struct KernelStateGetter{R}
     rhs::R
@@ -189,76 +166,69 @@ struct KernelStateGetter{R}
     alpha_b::KVec3
 end
 
-function KernelStateGetter(model::KernelModel, rhs, sys_struct)
+function KernelStateGetter(model::KernelModel, rhs, sam)
     system = model.system
-    points = [PointReadout(idx,
+    points = [PointReadout(i,
                   buffer_slots(system, instance, :outputs, :pos),
                   buffer_slots(system, instance, :outputs, :vel),
-                  buffer_slots(system, drag_source(model, idx), :observables,
+                  buffer_slots(system, drag_source(model, i), :observables,
                                :total_drag),
-                  observed_slots(system, drag_source(model, idx), :wind_vec),
-                  observed_slots(system, drag_source(model, idx), :net_force),
-                  mass_slot(system, drag_source(model, idx)),
-                  inflow_slots(model, idx), va_frame_body(sys_struct, idx),
-                  aero_force_slots(model, idx))
-              for (idx, instance) in enumerate(model.point_instances)]
-    segments = [SegmentReadout(idx,
-                    only(buffer_slots(system, instance, :observables, :spring_force)),
-                    only(buffer_slots(system, instance, :observables, :l0)))
-                for (idx, instance) in enumerate(model.segment_instances)]
+                  observed_slots(system, drag_source(model, i), :wind_vec),
+                  observed_slots(system, drag_source(model, i), :net_force),
+                  aero_force_slots(model, i))
+              for (i, instance) in enumerate(model.point_instances)]
+    segments = [SegmentReadout(k,
+                    only(buffer_slots(system, instance, :observables, :spring_force)))
+                for (k, instance) in enumerate(model.segment_instances)]
     pulleys = PulleyReadout[]
-    for (idx, role) in enumerate(model.point_roles)
+    for (i, role) in enumerate(model.point_roles)
         role.kind === :pulley || continue
-        instance = model.point_instances[idx]
+        instance = model.point_instances[i]
         push!(pulleys, PulleyReadout(role.pulley_idx,
             only(buffer_slots(system, instance, :states, :pulley_len)),
             only(buffer_slots(system, instance, :states, :pulley_vel))))
     end
-    return KernelStateGetter(rhs, points, segments, pulleys,
-                                winch_readouts(model, sys_struct),
-                                body_readouts(model),
-                                kinematic_wing_readouts(sys_struct),
-                                rigid_wing_readouts(model, sys_struct),
-                                wing_aero_readouts(model, sys_struct),
-                                station_readouts(model), zero(KVec3))
+    return KernelStateGetter(rhs, points, segments, pulleys, winch_readouts(model, sam),
+                             body_readouts(model), kinematic_wing_readouts(sam),
+                             rigid_wing_readouts(model, sam),
+                             wing_aero_readouts(model, sam), station_readouts(model),
+                             zero(KVec3))
 end
 
 """
-    rigid_wing_readouts(model, sys_struct)
+    rigid_wing_readouts(model, sam)
 
-One [`RigidWingReadout`](@ref) per `RIGID_DYNAMICS` wing. A fitted wing is covered
-by [`kinematic_wing_readouts`](@ref) instead.
+One [`RigidWingReadout`](@ref) per `RIGID_DYNAMICS` wing of `sam`. A fitted wing is
+covered by [`kinematic_wing_readouts`](@ref) instead.
 """
-function rigid_wing_readouts(model::KernelModel, sys_struct)
+function rigid_wing_readouts(model::KernelModel, sam)
     readouts = RigidWingReadout[]
-    for wing in sys_struct.wings
-        wing.dynamics_type == RIGID_DYNAMICS || continue
-        instance = model.body_instances[wing.idx]
+    for (wing_idx, wing) in enumerate(sam.definition.wings)
+        wing_dynamics_type(wing) == RIGID_DYNAMICS || continue
+        body_idx = wing_body(sam, wing_idx)
+        instance = model.body_instances[body_idx]
         instance == 0 && continue
-        base_point = transform_base_point(sys_struct.transforms, wing.idx)
-        push!(readouts, RigidWingReadout(wing.idx,
-            buffer_slots(model.system, instance, :outputs, :frame),
+        push!(readouts, RigidWingReadout(wing_idx,
             buffer_slots(model.system, instance, :observables, :alpha_b),
-            base_point))
+            transform_base_point(sam.transforms, body_idx)))
     end
     return readouts
 end
 
 """
-    kinematic_wing_readouts(sys_struct)
+    kinematic_wing_readouts(sam)
 
-One [`KinematicWingReadout`](@ref) per `KINEMATIC` body, holding its weighted
-reference points and its aerodynamic surface points, resolved once.
+One [`KinematicWingReadout`](@ref) per wing of `sam` whose body is `KINEMATIC`,
+holding its weighted reference points and its aerodynamic surface points, resolved
+once.
 """
-function kinematic_wing_readouts(sys_struct)
+function kinematic_wing_readouts(sam)
     readouts = KinematicWingReadout[]
-    for (idx, body) in enumerate(sys_struct.bodies)
-        body.type == KINEMATIC || continue
-        aero = [i for (i, point) in enumerate(sys_struct.points)
-                if point.is_wing_node && point.wing_idx == idx]
-        push!(readouts, KinematicWingReadout(idx, body.z_ref_points[1],
-            body.z_ref_points[2], body.y_ref_points[1],
-            body.y_ref_points[2], body.origin, aero))
+    for wing_idx in eachindex(sam.definition.wings)
+        body_idx = wing_body(sam, wing_idx)
+        body_type(sam, body_idx) == KINEMATIC || continue
+        push!(readouts, KinematicWingReadout(wing_idx, body_idx,
+            wing_frame(sam, wing_idx), collect(Int, wing_points(sam, wing_idx))))
     end
     return readouts
 end
@@ -268,15 +238,15 @@ end
 
 One [`StationReadout`](@ref) per station that has a twist instance. A
 `KINEMATIC` surface has none — its deflection is a [`FlapDelta`](@ref), which the
-aero reads directly and the struct does not carry.
+aero reads directly and the run does not carry.
 """
 function station_readouts(model::KernelModel)
     readouts = StationReadout[]
-    for (idx, instance) in enumerate(model.twist_instances)
+    for (station_idx, instance) in enumerate(model.twist_instances)
         instance == 0 && continue
         output(name) = only(buffer_slots(model.system, instance, :outputs, name))
         observed(name) = only(buffer_slots(model.system, instance, :observables, name))
-        push!(readouts, StationReadout(idx, output(:twist_angle),
+        push!(readouts, StationReadout(station_idx, output(:twist_angle),
             output(:twist_vel), observed(:tether_force), observed(:tether_moment),
             observed(:aero_moment)))
     end
@@ -284,18 +254,18 @@ function station_readouts(model::KernelModel)
 end
 
 """
-    wing_aero_readouts(model, sys_struct) -> Vector{WingAeroReadout}
+    wing_aero_readouts(model, sam) -> Vector{WingAeroReadout}
 
-One [`WingAeroReadout`](@ref) per wing that has an aero instance, resolving whichever
-of the four names that instance observes.
+One [`WingAeroReadout`](@ref) per wing of `sam` that has an aero instance, resolving
+whichever of its names that instance observes.
 """
-function wing_aero_readouts(model::KernelModel, sys_struct)
+function wing_aero_readouts(model::KernelModel, sam)
     readouts = WingAeroReadout[]
-    for (idx, instance) in enumerate(model.aero_instances)
+    for (wing_idx, instance) in enumerate(model.aero_instances)
         instance == 0 && continue
         observed(name) = observed_slots(model.system, instance, name)
-        push!(readouts, WingAeroReadout(idx, observed(:aero_force_b),
-            observed(:aero_moment_b), observed(:va_b), observed(:wind_vel)))
+        push!(readouts, WingAeroReadout(wing_idx, wing_body(sam, wing_idx),
+            observed(:aero_force_b), observed(:aero_moment_b), observed(:wind_vel)))
     end
     return readouts
 end
@@ -308,67 +278,44 @@ function observed_slots(system, instance::Int, name::Symbol)
     return buffer_slots(system, instance, :observables, name)
 end
 
-"""The body whose frame point `idx`'s `va_b` is expressed in when the point has no
-[`AeroInflowPoint`](@ref) to read it from: the wing it belongs to, or 0 for a point
-belonging to none, where `va_b` stays zero as it does in the monolith."""
-va_frame_body(sys_struct, idx) = sys_struct.points[idx].wing_idx
+"""The instance that observes point `i`'s `total_drag`: its own, or its wrench half
+when the point rides a body."""
+drag_source(model::KernelModel, i) =
+    model.wrench_instances[i] == 0 ? model.point_instances[i] : model.wrench_instances[i]
 
-"""The slot `instance` gathers its incident segments' half-masses into, or 0 if it
-has no `mass_in` input. With `extra_mass` this is the monolith's `point_mass`, which
-moves as the segments' rest lengths do."""
-function mass_slot(system, instance::Int)
-    kernel = system.kernels[system.instances[instance].kernel]
-    has_slot(kernel.inputs, :mass_in) || return 0
-    return only(buffer_slots(system, instance, :inputs, :mass_in))
-end
-
-"""The instance that observes point `idx`'s `total_drag`: its own, or its wrench
-half when the point rides a body."""
-drag_source(model::KernelModel, idx) =
-    model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
-    model.wrench_instances[idx]
-
-"""The output slots of point `idx`'s body-frame aerodynamic force, or none when it
-has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing."""
-function aero_force_slots(model::KernelModel, idx)
-    instance = model.aero_force_instances[idx]
+"""The output slots of point `i`'s world aerodynamic force, or none when it has no
+[`AeroPointForce`](@ref) — a point outside a panel-decomposed wing."""
+function aero_force_slots(model::KernelModel, i)
+    instance, output = model.aero_force_outputs[i]
     instance == 0 && return Int[]
-    return buffer_slots(model.system, instance, :outputs, :force_b)
-end
-
-"""The output slots of point `idx`'s `va_b`, or none when it has no
-[`AeroInflowPoint`](@ref). This is the apparent wind the compiled model solves the
-aero on; reading it keeps the struct on the same value rather than a refit."""
-function inflow_slots(model::KernelModel, idx)
-    instance = model.inflow_instances[idx]
-    instance == 0 && return Int[]
-    return buffer_slots(model.system, instance, :outputs, :va_b)
+    return buffer_slots(model.system, instance, :outputs, output)
 end
 
 """One [`BodyReadout`](@ref) per body."""
 function body_readouts(model::KernelModel)
     system = model.system
-    return [BodyReadout(idx,
+    return [BodyReadout(body_idx,
                 buffer_slots(system, instance, :outputs, :pos),
                 buffer_slots(system, instance, :outputs, :vel),
                 buffer_slots(system, instance, :observables, :acc),
                 buffer_slots(system, instance, :observables, :orientation),
                 buffer_slots(system, instance, :observables, :omega_b))
-            for (idx, instance) in enumerate(model.body_instances)]
+            for (body_idx, instance) in enumerate(model.body_instances)]
 end
 
-"""One [`WinchReadout`](@ref) per winch, resolving its per-tether length slots."""
-function winch_readouts(model::KernelModel, sys_struct)
+"""One [`WinchReadout`](@ref) per winch of `sam`, resolving its per-tether length
+slots."""
+function winch_readouts(model::KernelModel, sam)
     system = model.system
     readouts = WinchReadout[]
-    for (idx, role) in enumerate(model.point_roles)
+    for (i, role) in enumerate(model.point_roles)
         role.kind === :winch || continue
-        instance = model.point_instances[idx]
-        winch = sys_struct.winches[role.winch_idx]
-        alias = length(winch.tether_idxs) == 1 ? Symbol("motor₊len") : nothing
+        instance = model.point_instances[i]
+        tethers = sam.definition.winches[role.winch_idx].tethers
+        alias = length(tethers) == 1 ? Symbol("motor₊len") : nothing
         lengths = [(tether, only(winch_state_slots(system, instance,
                                                    Symbol(:tether_len_, k), alias)))
-                   for (k, tether) in enumerate(winch.tether_idxs)]
+                   for (k, tether) in enumerate(tethers)]
         push!(readouts, WinchReadout(role.winch_idx,
             only(winch_state_slots(system, instance, :winch_vel,
                                    Symbol("motor₊vel"))),
@@ -380,118 +327,118 @@ function winch_readouts(model::KernelModel, sys_struct)
     return readouts
 end
 
-function (getter::KernelStateGetter)(integrator, sys_struct)
+"""
+    read_station_aero_moment(getter::KernelStateGetter, prob, integrator, s)
+
+The aerodynamic twist moment on station `s` [N·m] at `integrator`'s state, from the
+kernels `getter` reads its run's state with; `0.0` for a station without twist.
+"""
+function read_station_aero_moment(getter::KernelStateGetter, prob, integrator, s)
+    readout = findfirst(readout -> readout.surface == s, getter.twist)
+    isnothing(readout) && return 0.0
     scratch = refresh_outputs!(getter.rhs, integrator.u, integrator.p, integrator.t)
+    return scratch.observable[getter.twist[readout].aero_moment]
+end
+
+function (getter::KernelStateGetter)(integrator, sam)
+    scratch = refresh_outputs!(getter.rhs, integrator.u, integrator.p, integrator.t)
+    output, observable, u = scratch.output, scratch.observable, integrator.u
+    columns = run_columns(sam)
     for readout in getter.points
-        point = sys_struct.points[readout.point]
-        copy_slots!(point.pos_w, scratch.output, readout.pos)
-        copy_slots!(point.vel_w, scratch.output, readout.vel)
-        copy_slots!(point.drag_force, scratch.observable, readout.drag)
-        copy_slots!(point.wind_vec, scratch.observable, readout.wind)
-        copy_slots!(point.force, scratch.observable, readout.force)
-        isempty(readout.aero) ||
-            copy_slots!(point.aero_force_b, scratch.output, readout.aero)
-        readout.mass == 0 || (point.total_mass =
-            point.extra_mass + scratch.input[readout.mass])
+        i = readout.point
+        copy_slots!(xyz(columns, :X, :Y, :Z), i, output, readout.pos)
+        copy_slots!(xyz(columns, :VX, :VY, :VZ), i, output, readout.vel)
+        copy_slots!(xyz(columns, :drag_force_x, :drag_force_y, :drag_force_z), i,
+                    observable, readout.drag)
+        copy_slots!(xyz(columns, :wind_x, :wind_y, :wind_z), i, observable,
+                    readout.wind)
+        copy_slots!(xyz(columns, :force_x, :force_y, :force_z), i, observable,
+                    readout.force)
+        copy_slots!(xyz(columns, :aero_force_x, :aero_force_y, :aero_force_z), i,
+                    output, readout.aero)
     end
     for readout in getter.segments
-        segment = sys_struct.segments[readout.segment]
-        segment.force = scratch.observable[readout.spring_force]
-        segment.l0 = scratch.observable[readout.l0]
+        columns.spring_force[readout.segment] = observable[readout.spring_force]
     end
     for readout in getter.pulleys
-        pulley = sys_struct.pulleys[readout.pulley]
-        pulley.len = integrator.u[readout.len]
-        pulley.vel = integrator.u[readout.vel]
+        columns.pulley_len[readout.pulley] = u[readout.len]
+        columns.pulley_vel[readout.pulley] = u[readout.vel]
     end
     for readout in getter.winches
-        winch = sys_struct.winches[readout.winch]
-        winch.vel = integrator.u[readout.vel]
-        winch.acc = scratch.observable[readout.acc]
-        winch.friction = scratch.observable[readout.friction]
-        winch.set_value = integrator.p.numeric[readout.set_value]
-        fill!(winch.force, 0.0)
-        winch.force[1] = scratch.observable[readout.force]
+        columns.v_reelout[readout.winch] = u[readout.vel]
+        columns.winch_acc[readout.winch] = observable[readout.acc]
+        columns.winch_friction[readout.winch] = observable[readout.friction]
+        columns.set_torque[readout.winch] = integrator.p.numeric[readout.set_value]
         for (tether, slot) in readout.tether_lengths
-            sys_struct.tethers[tether].len = integrator.u[slot]
+            columns.l_tether[tether] = u[slot]
         end
     end
     for readout in getter.bodies
-        body = sys_struct.bodies[readout.body]
-        copy_slots!(body.pos_w, scratch.output, readout.pos)
-        copy_slots!(body.vel_w, scratch.output, readout.vel)
-        copy_slots!(body.acc_w, scratch.observable, readout.acc)
-        copy_slots!(body.Q_b_to_w, scratch.observable, readout.orientation)
-        copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
+        slot = body_position_slot(sam, readout.body)
+        frame = body_frame(sam, readout.body)
+        copy_slots!(xyz(columns, :X, :Y, :Z), slot, output, readout.pos)
+        copy_slots!(xyz(columns, :VX, :VY, :VZ), slot, output, readout.vel)
+        copy_slots!(xyz(columns, :acc_x, :acc_y, :acc_z), slot, observable, readout.acc)
+        copy_slots!(xyz(columns, :Qw, :Qx, :Qy, :Qz), frame, observable,
+                    readout.orientation)
+        copy_slots!(xyz(columns, :turn_rate_x, :turn_rate_y, :turn_rate_z), frame,
+                    observable, readout.omega_b)
     end
     for readout in getter.twist
-        surface = sys_struct.stations[readout.surface]
-        surface.twist = scratch.output[readout.angle]
-        surface.twist_ω = scratch.output[readout.rate]
-        surface.tether_force = scratch.observable[readout.tether_force]
-        surface.tether_moment = scratch.observable[readout.tether_moment]
-        surface.aero_moment = scratch.observable[readout.aero_moment]
+        columns.twist_angles[readout.surface] = output[readout.angle]
+        columns.twist_vel[readout.surface] = output[readout.rate]
     end
     for readout in getter.aero
-        wing = sys_struct.bodies[readout.wing]
-        copy_slots!(wing.aero_force_b, scratch.observable, readout.force)
-        copy_slots!(wing.aero_moment_b, scratch.observable, readout.moment)
-        copy_slots!(wing.va_b, scratch.observable, readout.apparent)
-        copy_slots!(wing.wind_vec, scratch.observable, readout.wind)
+        copy_slots!(xyz(columns, :aero_force_KA_x, :aero_force_KA_y, :aero_force_KA_z),
+                    readout.wing, observable, readout.force)
+        copy_slots!(xyz(columns, :aero_moment_KA_x, :aero_moment_KA_y,
+                        :aero_moment_KA_z), readout.wing, observable, readout.moment)
+        copy_slots!(xyz(columns, :wind_x, :wind_y, :wind_z),
+                    body_position_slot(sam, readout.body), observable, readout.wind)
     end
     for readout in getter.kinematic
-        wing = sys_struct.bodies[readout.body]
-        base_point = transform_base_point(sys_struct.transforms, wing.idx)
-        wing_kinematics_from_points!(wing, sys_struct.points, sys_struct.set,
-            sys_struct.am, sys_struct.wind_mode;
-            zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
-            yp2 = readout.y2, origin = readout.origin,
-            aero_points = readout.aero_points, base_point,
-            frame_base = damping_base(sys_struct, wing.idx),
-            stations = sys_struct.stations)
+        wing_kinematics_from_points!(sam, readout.wing, readout.frame,
+            readout.aero_points;
+            base_point = transform_base_point(sam.transforms, readout.body),
+            frame_base = damping_base(sam, readout.body))
     end
     for readout in getter.rigid
-        wing = sys_struct.bodies[readout.wing]
-        copy_slots!(wing.R_b_to_w, scratch.output, readout.frame)
-        copy_slots!(getter.alpha_b, scratch.observable, readout.alpha_b)
-        write_wing_scalars!(wing, sys_struct.points;
-            base_point = readout.base_point, alpha_b = getter.alpha_b,
-            stations = sys_struct.stations)
-    end
-    for readout in getter.points
-        point = sys_struct.points[readout.point]
-        if !isempty(readout.va)
-            copy_slots!(point.va_b, scratch.output, readout.va)
-        elseif readout.va_frame != 0
-            frame = sys_struct.bodies[readout.va_frame].R_b_to_w
-            mul!(point.va_b, frame', point.wind_vec .- point.vel_w)
+        alpha_b = getter.alpha_b
+        @inbounds for k in eachindex(readout.alpha_b)
+            alpha_b[k] = observable[readout.alpha_b[k]]
         end
-    end
-    return nothing
-end
-
-"""Copy `buffer[slots]` into `target`, component by component."""
-function copy_slots!(target, buffer, slots)
-    @inbounds for k in eachindex(slots)
-        target[k] = buffer[slots[k]]
+        write_wing_scalars!(sam, readout.wing; base_point = readout.base_point, alpha_b)
     end
     return nothing
 end
 
 """
-    KernelControlSetter(model)
+    copy_slots!(columns, entry, buffer, slots)
+
+Copy `buffer[slots[k]]` into entry `entry` of `columns[k]`, one column of a run's
+`SysState` per component; nothing for no slots.
+"""
+@inline function copy_slots!(columns::Tuple, entry, buffer, slots)
+    @inbounds for k in eachindex(slots)
+        columns[k][entry] = buffer[slots[k]]
+    end
+    return nothing
+end
+
+"""
+    KernelControlSetter(model, sam)
 
 Callable `(target, values)` writing each winch's control setpoint into the
-parameter buffer, mirroring the monolith's `set_set_values`. `values[winch.idx]` is
-the setpoint for that winch.
+parameter buffer, mirroring the monolith's `set_set_values`. `values[i]` is the
+setpoint for winch `i`.
 """
 struct KernelControlSetter
     slots::Vector{Tuple{Int, Int}}
 end
 
-function KernelControlSetter(model::KernelModel, sys_struct)
+function KernelControlSetter(model::KernelModel, sam)
     slots = [(readout.winch, readout.set_value)
-             for readout in winch_readouts(model, sys_struct)]
+             for readout in winch_readouts(model, sam)]
     return isempty(slots) ? nothing : KernelControlSetter(slots)
 end
 

@@ -41,7 +41,7 @@ struct KernelBackend <: ModelBackend end
     backend_tag(backend) -> String
 
 The backend's mark in a serialized model's filename. Two backends assemble the
-same `SystemStructure` into different artefacts, so they need separate cache
+same `SystemDefinition` into different artefacts, so they need separate cache
 entries; the [`MonolithBackend`](@ref) tag is empty so its existing bins keep
 loading.
 """

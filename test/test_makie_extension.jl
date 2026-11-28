@@ -22,8 +22,8 @@ using Test
 
 # GLMakie requires OpenGL — skip tests on CI runners without GPU drivers
 const GLMAKIE_AVAILABLE = try
-    @eval using GLMakie
-    @eval using MakieControlPlots
+    @eval import GLMakie
+    @eval import MakieControlPlots
     GLMakie.activate!(; visible=false)
     true
 catch e
@@ -139,8 +139,8 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     set = Settings("system.yaml")
 
     # Build SAM once (expensive) and reuse
-    sys1, transforms = load_sys_struct_from_yaml(
-        yaml_path; system_name="makie_test_1", set=set)
+    sys1, transforms = load_authoring(
+        yaml_path; name="makie_test_1", set=set)
     sam = SymbolicAWEModel(set, sys1; transforms)
     test_init!(sam)
 
@@ -151,30 +151,30 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     test_init!(sam; prn=false)
     lg2 = build_test_syslog(sam, sys1, 5, 0.05)
 
-    # Second SystemStructure for multi-system tests
-    sys2, _ = load_sys_struct_from_yaml(
-        yaml_path; system_name="makie_test_2", set=set)
+    # Second SystemDefinition for multi-system tests
+    sys2, _ = load_authoring(
+        yaml_path; name="makie_test_2", set=set)
 
-    # Reset sys structs to first frame for plotting
-    state1, state2 = SystemState(sys1), SystemState(sys2)
-    update_from_sysstate!(state1, lg1.syslog[1])
-    update_from_sysstate!(state2, lg2.syslog[1])
+    # Runs of both structures set to the first frame for plotting
+    run1, run2 = SymbolicAWEModel(set, sys1; transforms), SymbolicAWEModel(set, sys2)
+    update_from_sysstate!(run1, lg1.syslog[1])
+    update_from_sysstate!(run2, lg2.syslog[1])
 
     # ================================================================
     # Test 1: Multi-system plot creates vector-typed colors
     # ================================================================
     @testset "Multi-system plot vector colors" begin
-        scene = MakieControlPlots.plot([state1, state2]; use_observables=true)
+        scene = MakieControlPlots.plot([run1, run2]; use_observables=true)
         @test scene isa GLMakie.Scene
     end
 
     @testset "segment_color takes one colour per segment, or a function of it" begin
         red, blue = GLMakie.to_color(:red), GLMakie.to_color(:blue)
-        plots = GLMakie.plot!(GLMakie.Scene(), state1; segment_color=[:red, :blue])
+        plots = GLMakie.plot!(GLMakie.Scene(), run1; segment_color=[:red, :blue])
         @test plots[:segment_colors_obs][] == [red, blue]
-        plots = GLMakie.plot!(GLMakie.Scene(), state1; segment_color=seg1_blue)
+        plots = GLMakie.plot!(GLMakie.Scene(), run1; segment_color=seg1_blue)
         @test plots[:segment_colors_obs][] == [blue, red]
-        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), state1;
+        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), run1;
             segment_color=[:red])
     end
 

@@ -35,29 +35,11 @@ KiteGeometry's `load_authoring` reads and places an authoring YAML, and the stru
 is built from the definition it returns, with the columns SymbolicAWEModels reads held
 by the models it registers with KiteGeometry.
 
-```@docs
-load_sys_struct_from_yaml
-SystemStructure(::SystemDefinition, ::Settings)
-```
-
 ## Structure documents
 
-A `SystemStructure` holds the KiteGeometry `SystemDefinition` of its initial pose,
-and reads and writes as that definition's awesIO *structure document*: one
-`headers`/`units`/`data` table per block, conforming to the `structure_schema.yml`
-KiteGeometry ships. YAML and JSON are two encodings of the one document, and the file
-extension picks between them. Every position is in the ENU world frame, each body at
+A `SystemDefinition` reads and writes as its awesIO *structure document* through KiteGeometry's `to_yaml`, `from_yaml`, `to_json` and `from_json`: one `headers`/`units`/`data` table per block, conforming to the `structure_schema.yml` KiteGeometry ships. Every position is in the ENU world frame, each body at
 the centre of its own mass; the authoring geometry, the transforms and the live state
-do not survive a round trip. `save_log(logger, sys, name)` writes a log that carries
-the document as JSON under the metadata key `topology`.
-
-```@docs
-structure_document(::SystemStructure)
-sys_struct_from_document
-save_structure_document
-load_structure_document
-save_log(::Logger, ::SystemStructure)
-```
+do not survive a round trip. `save_log(logger, sys, name)` writes a log that carries the document as JSON under the metadata key `topology`.
 
 ## System configuration
 
@@ -68,32 +50,22 @@ set_angular_damping
 calc_steady_torque
 ```
 
-## Placing a SystemStructure
+## Placing a SystemDefinition
 
-[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor runs it with none. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives mass properties and rest geometry from the initial pose ([`init_derived_properties!`](@ref)), so a run restarted from a logged state resumes. To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
+[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes where it lands its initial pose (`pos_ENU`, `Q_KA2ENU`); `system_definition` and `load_authoring` run it. A model, the run of a structure, starts there ([`start_run!`](@ref)), and `init!(sam)` takes the run as it stands, so a run restarted from a logged state resumes. Mass properties and rest geometry are not stored: the model works them out from its definition's initial pose whenever they are read ([`run_value`](@ref)). To move the system for a new run, change its transforms and `place!(sam)` it again. To change only part of it — a tether's unstretched length, say, without moving the kite — change the run before `init!`:
 
 ```julia
-set_unstretched_length!(sam.state, sam.state.tethers[1], 240.0)
+set_unstretched_length!(sam, 1, 240.0)
 init!(sam)
 ```
 
 ```@docs
 place!
-place_transforms!(::SystemState, ::Any)
-Pose(::SystemState)
+Pose(::SymbolicAWEModel)
 start_run!
 reset_to_initial_pose!
-apply_tether_init_stretched_lens!
-update_segment_lengths!
-apply_tether_init_forces!
-init_pulley_lengths!
 remake_wing_aero!
 init_wind!
-init_sys_struct!
-relax_segments!
-init_derived_properties!
-update_mass_properties!
-init_rest_geometry!
 set_unstretched_length!
 ```
 
@@ -102,21 +74,22 @@ set_unstretched_length!
 Where a model takes its wind from is a [`WindMode`](@ref) it is built with. The default [`ProfileWind`](@ref) scales the ground wind `set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref) instead gives every point its own wind vector, settable between steps.
 
 ```julia
-sys_struct, transforms = load_sys_struct_from_yaml(path; set)
-sam = SymbolicAWEModel(set, sys_struct; transforms, wind_mode=PerPointWind())
+sys, transforms = load_authoring(path; set)
+sam = SymbolicAWEModel(set, sys; transforms, wind_mode=PerPointWind())
 init!(sam)
 for _ in 1:steps
-    for point in sam.state.points    # a gust field, refreshed every step
-        point.wind_vec .= my_wind_field(point.pos_w, sam.integrator.t)
+    for i in eachindex(sam.definition.points)    # a gust field, refreshed every step
+        pos = run_value(sam, :points, i, :pos_w)
+        set_run_value!(sam, :points, i, :wind_vec, my_wind_field(pos, sam.integrator.t))
     end
-    sam.state.wings[1].wind_vec .= my_wind_field(...)
+    set_run_value!(sam, :wings, 1, :wind_vec, my_wind_field(...))
     next_step!(sam)
 end
 ```
 
 Each point's own drag and apparent wind read its `wind_vec` directly, and a
 segment's tether drag the mean of its two endpoints — the same averaging its
-drag already applies to their velocities. A wing reads its own `wing.wind_vec`,
+drag already applies to their velocities. A wing reads its own `wind_vec` (its body's),
 which is the wind a rigid wing's aerodynamics fly in; the per-point winds reach
 the VSM panels through the per-point inflow the panels already interpolate.
 `init!` seeds every point and wing with `set.wind_vec`, so a model that is never
@@ -132,7 +105,7 @@ per_point_wind
 ## Winch components
 
 The winch motor model is a pluggable [`AbstractWinchModel`](@ref) struct.
-Pass one to `Winch(...; model=...)` to override the default
+Pass one as the `dynamics` of a winch's [`WinchModel`](@ref) to override the default
 torque-driven motor ([`TorqueWinch`](@ref)). The builder is
 selected by dispatch on the model type, [`winch_component`](@ref); custom
 components must respect the connector contract enforced by
@@ -142,6 +115,25 @@ components must respect the connector contract enforced by
 winch_component
 is_builtin_winch
 validate_winch_component
+```
+
+## Run values
+
+A model is the run of its structure: every value of a point, segment, station, pulley,
+tether, winch, body, wing or tube of the run is read with [`run_value`](@ref) and
+written with [`set_run_value!`](@ref), by collection, index or row name, and quantity.
+A quantity the integrator holds as a parameter reads its definition's value before
+`init!`; write the definition row (`sam.definition.segments[k].rest_length = ...`) to
+change it before then.
+
+```julia
+pos = run_value(sam, :points, :kite, :pos_w)
+set_run_value!(sam, :segments, :steering_left, :rest_length, 10.0)
+```
+
+```@docs
+run_value
+set_run_value!
 ```
 
 ## State accessor functions
@@ -163,12 +155,14 @@ that loads once a Makie backend and `MakieControlPlots` are both available.
 
 ### 3D system visualization
 
-Plot the 3D structure of the system with interactive features:
+Plot a model, the run of a system, in 3D with interactive features:
 ```julia
 import GLMakie
 using MakieControlPlots
-plot(sys::SystemStructure; kwargs...)
+plot(sam::SymbolicAWEModel; kwargs...)
 ```
+To plot a structure that has no run yet, plot a model built on it without settings,
+`plot(SymbolicAWEModel(nothing, sys))`; building it compiles nothing.
 
 **Keyword arguments:**
 - `vector_scale::Float64=1.0`: Length scale of the force/orientation arrows
@@ -192,7 +186,7 @@ To tell the wing from the tethers and the free segments, colour the segments by
 ```julia
 role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
                winched_tether=:darkorange)
-plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
+plot(sam; segment_color=segment -> role_colors[segment_role(sam.definition, segment)])
 ```
 
 **Interactive features:**
@@ -204,12 +198,12 @@ plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 ### Static and vector figures
 
 For a figure with labelled axes, or a vector PDF, draw the system into an axis
-of your own with `plot!(ax, sys; kwargs...)`. It takes the drawing keywords of
+of your own with `plot!(ax, sam; kwargs...)`. It takes the drawing keywords of
 `plot` (colours, layers, styling) but not its camera ones, draws into any Makie
 axis (`Axis3`, `LScene`) and returns a `Dict` of the plot objects by layer
 (`:segments`, `:points`, …). With CairoMakie as the backend, `CairoMakie.save` writes
-the figure as vector graphics. Here `sys` is any `SystemStructure`, such as the one
-the [2-Plate Kite](@ref plate-kite-2) example loads:
+the figure as vector graphics. Here `sam` is any model, such as the one
+the [2-Plate Kite](@ref plate-kite-2) example builds:
 ```julia
 using SymbolicAWEModels, CairoMakie, MakieControlPlots
 CairoMakie.activate!()
@@ -218,7 +212,8 @@ role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
                winched_tether=:darkorange)
 fig = Figure(size=(600, 500))
 ax = Axis3(fig[1, 1]; aspect=:data, xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
-plot!(ax, sys; segment_color=segment -> role_colors[segment_role(sys, segment)],
+sys = sam.definition
+plot!(ax, sam; segment_color=segment -> role_colors[segment_role(sys, segment)],
       show_orient=false, show_wing_frame=false)
 Legend(fig[1, 2], [LineElement(color=color) for color in values(role_colors)],
        [string(role) for role in keys(role_colors)])
@@ -229,7 +224,7 @@ CairoMakie.save("kite.pdf", fig)
 
 Plot simulation results as multi-panel time-series:
 ```julia
-plot(sys::SystemStructure, log::SysLog; kwargs...)
+plot(sam::SymbolicAWEModel, log::SysLog; kwargs...)
 ```
 
 **Keyword arguments** — `plot_default::Bool=true` switches the default panel
@@ -261,11 +256,11 @@ same panels for comparison.
     plot commands; the scene-mutating `plot!` extends `Makie.plot!`. A Makie
     backend exports a `plot` and a `save` of its own, so with both packages
     brought in by `using` those two names are ambiguous: call them qualified,
-    as `MakieControlPlots.plot(sys)` and `CairoMakie.save("kite.pdf", fig)`.
+    as `MakieControlPlots.plot(sam)` and `CairoMakie.save("kite.pdf", fig)`.
 
 ## Inflated-tube rigidity laws
 
-Rigidities for the [`TimoshenkoTube`](@ref)s of a beam wing whose leading edge
+Rigidities for the Timoshenko tubes ([`TimoshenkoTubeModel`](@ref)) of a beam wing whose leading edge
 and struts are pressurised fabric tubes. [`tube_bending_law`](@ref) and
 [`tube_torsion_law`](@ref) come from the empirical Breukels correlations;
 [`comer_levy_bending_law`](@ref) is the analytical alternative that stays valid
@@ -302,4 +297,9 @@ apply_apparent_mass!
 ```@docs
 init_module
 segment_role
+point_type
+body_type
+body_dynamics_type
+station_type
+pulley_type
 ```

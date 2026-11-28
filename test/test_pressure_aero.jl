@@ -26,7 +26,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
                          loft_contour_node, aero_inflow_groups, wing_points,
                          aero_scatter_entries, surface_node_forces,
-                         pressure_couple
+                         pressure_couple, wing_body, initial_rotation, origin_ENU
 using KiteUtils
 using LinearAlgebra
 
@@ -34,17 +34,18 @@ using LinearAlgebra
     include(joinpath(@__DIR__, "pressure_fixture.jl"))
 
 """
-    panel_node_forces(mode, wing, panel, i, column) -> NamedTuple
+    panel_node_forces(mode, va_b, panel, i, column) -> NamedTuple
 
 One panel's contour nodes and the forces its scatter actually puts on them —
 frozen traction, residual share and the [`pressure_couple`](@ref) that carries the
-pitching moment. `column` is the panel's first column in `mode.traction`.
+pitching moment, at the wing's apparent wind `va_b`. `column` is the panel's first
+column in `mode.traction`.
 """
-function panel_node_forces(mode, wing, panel, i, column)
-    sol = wing.vsm_solver.sol
+function panel_node_forces(mode, va_b, panel, i, column)
+    sol = mode.vsm_solver.sol
     xc, yc, _, _ = VortexStepMethod.section_surface(panel.section_aero, 0.0,
                                                     panel.delta)
-    q_dyn = 0.5 * wing.vsm_solver.density * dot(wing.va_b, wing.va_b)
+    q_dyn = 0.5 * mode.vsm_solver.density * dot(va_b, va_b)
     x_axis = Vector(panel.x_airf)
     y_axis = Vector(panel.y_airf)
     z_axis = Vector(panel.z_airf)
@@ -67,23 +68,25 @@ end
     cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
     n_node = write_pressure_fixture(data_path)
 
-    set, sys = load_pressure_sys(data_path, AeroPressure())
-    wing = sys.wings[1]
-    mode = wing.aero
-    wing_pts = [p for p in sys.points if p.is_wing_node && p.wing_idx == wing.idx]
+    set, sam = load_pressure_sys(data_path, AeroPressure())
+    sys = sam.definition
+    wing_idx = 1
+    body_idx = wing_body(sam, wing_idx)
+    mode = sam.aero[wing_idx]
+    va_b() = run_value(sam, :wings, wing_idx, :va_b)
+    wing_pts = wing_points(sam, wing_idx)
 
     @testset "surface→point map" begin
         @test mode isa AeroPressure
         @test !isempty(mode.station_point)
-        @test length(mode.station_point) == length(wing.vsm_aero.panels)
+        @test length(mode.station_point) == length(mode.vsm_aero.panels)
         @test all(length(sp) == n_node for sp in mode.station_point)
-        @test all(idx -> idx in [p.idx for p in wing_pts],
-                  reduce(vcat, mode.station_point))
-        @test all(p.section_aero !== nothing for p in wing.vsm_aero.panels)
+        @test all(idx -> idx in wing_pts, reduce(vcat, mode.station_point))
+        @test all(p.section_aero !== nothing for p in mode.vsm_aero.panels)
     end
 
     @testset "per-section inflow groups" begin
-        groups, section_group = aero_inflow_groups(mode, wing, wing_points(sys, wing))
+        groups, section_group = aero_inflow_groups(mode, sam, wing_idx)
         @test length(groups) == length(mode.section_left_strut)
         @test length(unique(section_group)) == length(groups)
         @test length(unique(groups)) > 1
@@ -96,19 +99,16 @@ end
     end
 
     # Exercise the refresh directly (no ODE compile): set the operating point the
-    # way update_sys_struct!/sync_aero_density! would, then distribute. Alpha is
+    # way update_run_state!/sync_aero_density! would, then distribute. Alpha is
     # 13°, clear of the α ≈ 8° sign change of the body-origin moment.
-    wing.va_b .= SimFloat[15.0, 0.0, 3.5]
-    wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
-    wing.vsm_solver.density = 1.225
-    va_vals = zeros(SimFloat, 3, length(sys.points))
-    for p in sys.points
-        @views va_vals[:, p.idx] .= wing.va_b
-    end
-    refresh_particle_aero!(mode, wing, sys.points, va_vals)
+    set_apparent_wind!(sam, wing_idx, SimFloat[15.0, 0.0, 3.5])
+    set_run_value!(sam, :wings, wing_idx, :ω_b, SimFloat[0.0, 0.0, 0.0])
+    mode.vsm_solver.density = 1.225
+    va_vals = repeat(Vector(va_b()), 1, length(sys.points))
+    refresh_particle_aero!(mode, sam, wing_idx, va_vals)
 
     @testset "frozen traction pattern" begin
-        n_panels = length(wing.vsm_aero.panels)
+        n_panels = length(mode.vsm_aero.panels)
         @test size(mode.traction, 2) == sum(length, mode.station_point)
         @test size(mode.traction_net) == (3, n_panels)
         @test all(isfinite, mode.traction)
@@ -122,14 +122,14 @@ end
     # the same constants `aero_component` wires up — so this cannot drift from the
     # scatter it checks the way a re-derivation of the residual algebra would.
     @testset "correct total force (per VSM panel and total)" begin
-        sol = wing.vsm_solver.sol
-        nodes = wing_points(sys, wing)
-        entries = aero_scatter_entries(mode, wing, nodes)
-        point_force = Dict(p.idx => zeros(SimFloat, 3) for p in nodes)
-        panel_sum = [zeros(SimFloat, 3) for _ in eachindex(wing.vsm_aero.panels)]
+        sol = mode.vsm_solver.sol
+        nodes = wing_points(sam, wing_idx)
+        entries = aero_scatter_entries(mode, sam, wing_idx)
+        point_force = Dict(i => zeros(SimFloat, 3) for i in nodes)
+        panel_sum = [zeros(SimFloat, 3) for _ in eachindex(mode.vsm_aero.panels)]
         for (panel, column, force_weight, _) in entries
             share = force_weight .* Vector(sol.f_body_3D[:, panel])
-            point_force[nodes[column].idx] .+= share
+            point_force[nodes[column]] .+= share
             panel_sum[panel] .+= share
         end
         for (point_idx, offset) in mode.point_offset
@@ -155,27 +155,28 @@ end
     # range, so normalising by it would divide by a vanishing quantity. Both sides
     # use src (`aero_scatter_entries`, `surface_node_forces`), not a re-derivation.
     @testset "moment placement (per VSM panel and total)" begin
-        sol = wing.vsm_solver.sol
-        panels = wing.vsm_aero.panels
-        nodes = wing_points(sys, wing)
-        rot_to_body = SymbolicAWEModels.initial_rotation(wing)'
-        point_pos_b = Dict(p.idx => rot_to_body * (p.pos_ENU - wing.pos_ENU)
-                           for p in nodes)
+        sol = mode.vsm_solver.sol
+        panels = mode.vsm_aero.panels
+        nodes = wing_points(sam, wing_idx)
+        rot_to_body = initial_rotation(sys.bodies[body_idx])'
+        origin = origin_ENU(sam, body_idx)
+        point_pos_b = Dict(i => rot_to_body * (sys.points[i].pos_ENU - origin)
+                           for i in nodes)
 
         # The couple carries the pitching moment, so a comparison that dropped it
         # would score the scatter on half of what it applies.
         couples = SimFloat[]
         column = 0
         for (i, panel) in enumerate(panels)
-            push!(couples, panel_node_forces(mode, wing, panel, i, column).couple...)
+            push!(couples, panel_node_forces(mode, va_b(), panel, i, column).couple...)
             column += length(mode.station_point[i])
         end
         couples = reshape(couples, 3, length(panels))
 
         applied_total = zeros(SimFloat, 3)
         for (panel, column, force_weight, couple_weight) in
-                aero_scatter_entries(mode, wing, nodes)
-            applied_total .+= cross(point_pos_b[nodes[column].idx],
+                aero_scatter_entries(mode, sam, wing_idx)
+            applied_total .+= cross(point_pos_b[nodes[column]],
                 force_weight .* Vector(sol.f_body_3D[:, panel]) .+
                 couple_weight .* couples[:, panel])
         end
@@ -193,7 +194,7 @@ end
                 panel.section_aero, 0.0, panel.delta)
             assigned = mode.station_point[i]
             f_vsm = Vector(sol.f_body_3D[:, i])
-            node_forces = panel_node_forces(mode, wing, panel, i, column).nodes
+            node_forces = panel_node_forces(mode, va_b(), panel, i, column).nodes
             applied = zeros(SimFloat, 3)
             pattern = zeros(SimFloat, 3)
             for node in eachindex(assigned)
@@ -241,8 +242,8 @@ end
     # anchored and the polar's Cm never reached the structure.
     @testset "each panel's force and pitching moment are VSM's" begin
         column = 0
-        for (i, panel) in enumerate(wing.vsm_aero.panels)
-            p = panel_node_forces(mode, wing, panel, i, column)
+        for (i, panel) in enumerate(mode.vsm_aero.panels)
+            p = panel_node_forces(mode, va_b(), panel, i, column)
             le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
             moment = zeros(SimFloat, 3)
             for k in eachindex(p.xc)
@@ -265,8 +266,8 @@ end
     # would invert it while leaving the anchored total untouched), and the whole
     # pattern scales with dynamic pressure and nothing else.
     @testset "traction pattern algebra" begin
-        sol = wing.vsm_solver.sol
-        n_panels = length(wing.vsm_aero.panels)
+        sol = mode.vsm_solver.sol
+        n_panels = length(mode.vsm_aero.panels)
         column = 0
         for i in 1:n_panels
             node_sum = zeros(SimFloat, 3)
@@ -285,16 +286,16 @@ end
 
         # The pattern scales with dynamic pressure and nothing else.
         traction_before = copy(mode.traction)
-        wing.va_b .*= 2.0
-        refresh_particle_aero!(mode, wing, sys.points, 2.0 .* va_vals)
+        set_apparent_wind!(sam, wing_idx, 2.0 .* va_b())
+        refresh_particle_aero!(mode, sam, wing_idx, 2.0 .* va_vals)
         @test isapprox(mode.traction, 4.0 .* traction_before; rtol=1e-6)
 
         # Returning to the original inflow returns to the original pattern. Only
         # bounded, not exact: the circulation solve is warm-started from the
         # previous gamma (`use_gamma_prev`), so the converged state carries a
         # little history. A mode that latched state would drift by O(1).
-        wing.va_b ./= 2.0
-        refresh_particle_aero!(mode, wing, sys.points, va_vals)
+        set_apparent_wind!(sam, wing_idx, va_b() ./ 2.0)
+        refresh_particle_aero!(mode, sam, wing_idx, va_vals)
         @test isapprox(mode.traction, traction_before; rtol=1e-2)
     end
 
@@ -302,8 +303,8 @@ end
     # offsets included — those are what the symbolic scatter adds on top of the
     # live panel force, so leaving them stale keeps applying a load.
     @testset "no stale load below vsm_min_wind" begin
-        wing.va_b .= SimFloat[0.1, 0.0, 0.0]
-        refresh_particle_aero!(mode, wing, sys.points, 0.0 .* va_vals)
+        set_apparent_wind!(sam, wing_idx, SimFloat[0.1, 0.0, 0.0])
+        refresh_particle_aero!(mode, sam, wing_idx, 0.0 .* va_vals)
         @test all(iszero, mode.v_ind)
         @test all(iszero, mode.traction)
         @test all(iszero, mode.traction_net)
@@ -324,22 +325,19 @@ end
         cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
         write_pressure_fixture(data_path; camber, uniform_cp=1.0)
 
-        set, sys = load_pressure_sys(data_path, AeroPressure())
-        wing = sys.wings[1]
-        mode = wing.aero
-        wing.va_b .= SimFloat[15.0, 0.0, 3.5]
-        wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
-        wing.vsm_solver.density = 1.225
-        va_vals = zeros(SimFloat, 3, length(sys.points))
-        for p in sys.points
-            @views va_vals[:, p.idx] .= wing.va_b
-        end
-        refresh_particle_aero!(mode, wing, sys.points, va_vals)
+        set, sam = load_pressure_sys(data_path, AeroPressure())
+        mode = sam.aero[1]
+        set_apparent_wind!(sam, 1, SimFloat[15.0, 0.0, 3.5])
+        set_run_value!(sam, :wings, 1, :ω_b, SimFloat[0.0, 0.0, 0.0])
+        mode.vsm_solver.density = 1.225
+        va_b = run_value(sam, :wings, 1, :va_b)
+        va_vals = repeat(Vector(va_b), 1, length(sam.definition.points))
+        refresh_particle_aero!(mode, sam, 1, va_vals)
 
         # Scale by what one surface alone would contribute, so the tolerance is a
         # fraction of the force a flipped half would leave behind.
-        dynamic_pressure = 0.5 * wing.vsm_solver.density * dot(wing.va_b, wing.va_b)
-        for (i, panel) in enumerate(wing.vsm_aero.panels)
+        dynamic_pressure = 0.5 * mode.vsm_solver.density * dot(va_b, va_b)
+        for (i, panel) in enumerate(mode.vsm_aero.panels)
             scale = dynamic_pressure * panel.chord * panel.width
             @test norm(mode.traction_net[:, i]) / scale < 0.05
         end

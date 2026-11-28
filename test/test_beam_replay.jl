@@ -17,7 +17,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: update_from_sysstate!
+using SymbolicAWEModels: update_from_sysstate!, KiteGeometry
 using KiteUtils
 using LinearAlgebra
 
@@ -44,16 +44,20 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    make_bodies() = [Body(Symbol("seg_$i"); extra_mass=m,
-        inertia_principal=inertia, pos=[(i-0.5)*L, 0.0, 0.0],
-        type=(i==1 ? STATIC : DYNAMIC)) for i in 1:n]
-    make_tubes() = [Tube(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");
-        diameter=0.1, pressure=3e4, anchor_a=[L/2,0.0,0.0], anchor_b=[-L/2,0.0,0.0],
-        model=ElasticTube(stiffness_axial=1e5, stiffness_shear=1e5,
-                          stiffness_torsion=5e3, stiffness_bending=5e3, damping=0.05))
+    materials = [Material(; name=:breukels2011, law="breukels2011",
+                          parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
+    make_bodies() = [Body(; name=Symbol("seg_$i"), pos_ENU=[(i-0.5)*L, 0.0, 0.0],
+        extra_mass=m, extra_inertia_KA=Matrix(Diagonal(inertia)), fixed=(i==1))
+        for i in 1:n]
+    make_tubes() = [Tube(; name=Symbol("j_$i"),
+        bodies=(Symbol("seg_$i"), Symbol("seg_$(i+1)")), diameter=0.1, pressure=3e4,
+        material=:breukels2011,
+        model=ElasticTubeModel(; stiffness_axial=1e5, stiffness_shear=1e5,
+                               stiffness_torsion=5e3, stiffness_bending=5e3, damping=0.05,
+                               anchor_a=[L/2,0.0,0.0], anchor_b=[-L/2,0.0,0.0]))
         for i in 1:(n-1)]
 
-    sys = SystemStructure("beam_replay", set;
+    sys = system_definition("beam_replay", set; materials,
         bodies=make_bodies(), tubes=make_tubes())
     sam = SymbolicAWEModel(set, sys)
     init!(sam)
@@ -67,8 +71,8 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
         step > 0 && next_step!(sam; dt, vsm_interval=0)
         update_sys_state!(ss, sam); ss.time = step*dt; log!(logger, ss)
     end
-    tip = sam.state.bodies[:seg_6]
-    @test tip.pos_w[3] < -0.01           # beam sagged under gravity
+    tip_z = run_value(sam, :bodies, :seg_6, :pos_w)[3]
+    @test tip_z < -0.01           # beam sagged under gravity
 
     save_log(logger, "beam_replay_test")
     lg = load_log("beam_replay_test")
@@ -77,12 +81,12 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     @test norm(collect(lg.syslog.orient[end])) ≈ 1.0 atol=1e-3
 
     # Reconstruct geometry from the last frame (the path replay uses).
-    sys2 = SystemStructure("beam_replay", set;
+    sys2 = system_definition("beam_replay", set; materials,
         bodies=make_bodies(), tubes=make_tubes())
-    state2 = SystemState(sys2)
-    update_from_sysstate!(state2, lg.syslog[end])
-    @test state2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
-    @test state2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
+    replayed = SymbolicAWEModel(nothing, sys2)
+    update_from_sysstate!(replayed, lg.syslog[end])
+    @test run_value(replayed, :bodies, :seg_6, :pos_w)[3] ≈ tip_z atol=1e-3
+    @test run_value(replayed, :bodies, :seg_1, :pos_w)[1] ≈ 0.25 atol=1e-4  # fixed root
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end

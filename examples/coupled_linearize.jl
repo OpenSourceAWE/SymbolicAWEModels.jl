@@ -25,9 +25,9 @@ vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings");
     data_prefix=false)
 
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set, vsm_set)
-sam = SymbolicAWEModel(set, sys; transforms)
+sys, transforms = load_authoring(struc_yaml;
+    name="2plate_kite", set)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 
 @variables begin
     heading(t_nounits)[1:1]

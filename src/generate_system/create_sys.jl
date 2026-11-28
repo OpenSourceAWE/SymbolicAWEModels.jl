@@ -4,41 +4,39 @@
 # Main system creation entry point
 
 """
-    create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
+    create_sys!(s::SymbolicAWEModel; prn=true)
 
-Create the full `ModelingToolkit.ODESystem` for the AWE model: calls the per-part
+Create the full `ModelingToolkit.ODESystem` for the run `s`: calls the per-part
 equation generators (forces, wing dynamics, scalar kinematics, aerodynamics) and
 assembles their equations into a single `System`.
 
 # Arguments
-- `s::SymbolicAWEModel`: The main model object to be populated with the system.
-- `system::SystemStructure`: The physical structure definition.
+- `s::SymbolicAWEModel`: The run to be populated with the system.
 - `prn::Bool=true`: If true, print progress information during system creation.
 
 # Returns
 - `set_values`: The symbolic variable representing the control inputs (winch torques).
 """
-function create_sys!(s::SymbolicAWEModel, system::SystemState;
-                     prn=true, tunable_params::Bool=false)
+function create_sys!(s::SymbolicAWEModel; prn=true, tunable_params::Bool=false)
     eqs = Equation[]
     defaults = Pair{Num, Any}[]
 
-    (; points, stations, segments, pulleys, tethers, winches, wings,
-       bodies, tubes) = system
+    (; points, segments, pulleys, tethers, winches, wings, bodies) = s.definition
+    stations = s.definition.spanwise_stations
 
-    validate_station_modes(stations, bodies)
+    validate_station_modes(s)
 
     # Per-mode structural validation (e.g. VSM particle point↔panel mapping)
-    for wing in wings
-        validate_aero_structure(wing.aero, wing, points; prn)
+    for (wing_idx, mode) in enumerate(s.aero)
+        validate_aero_structure(mode, s, wing_idx; prn)
     end
 
     # Flattened-parameter registry + build-time `params` view (see flat_params.jl).
-    param_registry = ParamRegistry(system)
+    param_registry = ParamRegistry(s)
     params = ParamView(param_registry)
 
     # Initial-condition registry + build-time `initial` view (initial_conditions.jl).
-    initial_registry = InitialRegistry(system)
+    initial_registry = InitialRegistry(s)
     initial = InitialView(initial_registry)
 
     if tunable_params
@@ -112,7 +110,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     end
 
     # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
-    has_particle_dynamics_wings = any(wing.dynamics_type === PARTICLE_DYNAMICS for wing in wings)
+    has_particle_dynamics_wings =
+        any(wing_dynamics_type(wing) === PARTICLE_DYNAMICS for wing in wings)
 
     @variables begin
         # Point states
@@ -173,7 +172,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
 
     # 1. Point equations (also accumulate wing-node loads into body_force/moment).
     eqs, defaults = point_eqs!(
-        s, eqs, defaults, points, segments, stations, params, initial;
+        s, eqs, defaults, params, initial;
         R_b_to_w, com_w,
         wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -189,14 +188,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
 
     # 2. Station equations (deformable wing sections with twist dynamics)
     eqs, defaults = station_eqs!(
-        eqs, defaults, stations, bodies, params, initial;
+        s, eqs, defaults, params, initial;
         R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
         point_force, point_mass, station_y_airf, station_chord, station_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
     eqs, len, spring_force = segment_eqs!(
-        s, eqs, points, segments, pulleys, tethers, bodies, params;
+        s, eqs, params;
         pos, vel, wind_vec_gnd, wind_at_point, spring_force_vec, drag_force, l0,
         pulley_len, pulley_vel, tether_len, tether_vel
     )
@@ -205,25 +204,23 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     # mtkcompile may keep it as the surviving unknown. An unwinched tether's
     # length is a parameter, so that l0 is already determined and takes no
     # initial value.
-    winched_tethers = Set(idx for winch in winches for idx in winch.tether_idxs)
-    for tether in tethers
-        (length(tether.segment_idxs) == 1 && tether.idx in winched_tethers) ||
-            continue
-        segidx = only(tether.segment_idxs)
+    winched_tethers = Set(idx for winch in winches for idx in winch.tethers)
+    for (tether_idx, tether) in enumerate(tethers)
+        (length(tether.segments) == 1 && tether_idx in winched_tethers) || continue
+        segidx = only(tether.segments)
         defaults = [defaults;
-            bind_initial!(initial.segments[segidx].l0, l0[segidx])]
+            bind_initial!(initial.segments[segidx].rest_length, l0[segidx])]
     end
 
     # 4. Pulley equations (rope distribution)
     eqs, defaults = pulley_eqs!(
-        eqs, defaults, pulleys, segments, params, initial;
+        eqs, defaults, pulleys, params, initial;
         spring_force, pulley_len, pulley_vel, l0
     )
 
     # 5. Winch equations (motor dynamics, tether reeling)
     eqs, defaults, winch_subsystems = winch_eqs!(
-        eqs, defaults, winches, tethers, segments, points,
-        system, params, initial;
+        s, eqs, defaults, params, initial;
         spring_force_vec, set_values, tether_len, tether_vel,
         winch_vel, winch_acc, winch_force_vec, winch_force,
         winch_friction
@@ -232,12 +229,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     # 6. Tether equations (stretched length, average force)
     eqs = tether_eqs!(eqs, tethers; len, spring_force)
 
-    # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
-
     # Live flap deflection δ per station (derived from body orientations).
     if length(stations) > 0
-        eqs = station_delta_eqs!(
-            eqs, stations; station_delta, body_R_b_to_w, pos)
+        eqs = station_delta_eqs!(s, eqs; station_delta, body_R_b_to_w, pos)
     end
 
     # Aero: each wing's aero component is wired winch-style as a subsystem.
@@ -260,32 +254,32 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     )
 
     # Rigid wing aero wrench (body→world, transported to COM) into body loads.
-    for wing in wings
-        wing.dynamics_type == RIGID_DYNAMICS || continue
-        widx = wing.idx
-        Rbw = body_R_b_to_w[:, :, widx]
-        com_off = collect(params.bodies[widx].com_offset_b)
-        body_force[:, widx] .+= collect(Rbw * collect(aero_force_b[:, widx]))
-        body_moment[:, widx] .+= collect(Rbw * collect(
-            aero_moment_b[:, widx] .+ (aero_force_b[:, widx] × com_off)))
+    for wing_idx in eachindex(wings)
+        body_idx = wing_body(s, wing_idx)
+        body_dynamics_type(s, body_idx) == RIGID_DYNAMICS || continue
+        Rbw = body_R_b_to_w[:, :, body_idx]
+        com_off = collect(params.bodies[body_idx].total_com_offset_b)
+        body_force[:, body_idx] .+= collect(Rbw * collect(aero_force_b[:, wing_idx]))
+        body_moment[:, body_idx] .+= collect(Rbw * collect(
+            aero_moment_b[:, wing_idx] .+ (aero_force_b[:, wing_idx] × com_off)))
     end
 
     # Tubes accumulate wrenches into body loads; must precede body_eqs!.
     eqs = elastic_tube_eqs!(
-        eqs, tubes, params;
+        s, eqs, params;
         body_force, body_moment,
         body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
     )
 
     eqs = timoshenko_tube_eqs!(
-        eqs, tubes, params;
+        s, eqs, params;
         body_force, body_moment,
         body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
     )
 
     # Build standalone rigid body dynamics equations
     eqs, defaults = body_eqs!(
-        eqs, defaults, system, params, initial;
+        s, eqs, defaults, params, initial;
         pos, body_force, body_moment,
         body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
         body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
@@ -313,16 +307,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
         end
     end
     prn && println("\tCreated System in $time seconds.")
-
-    # set_values is seeded from the struct at init and set every step; no default.
-
-    # Debug: Check defaults for slice references
-    for (i, d) in enumerate(defaults)
-        d_str = string(d)
-        if occursin("Colon()", d_str)
-            @warn "Default $i contains Colon(): $d"
-        end
-    end
 
     s.defaults = defaults
     s.full_sys = sys

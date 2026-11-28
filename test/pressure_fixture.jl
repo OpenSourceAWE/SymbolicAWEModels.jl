@@ -3,7 +3,7 @@
 
 # The synthetic surface-aero fixture the AeroPressure tests and the cold-start
 # inference benchmark both build their model from, plus the loader that turns it
-# into a SystemStructure carrying a given aero mode.
+# into a SystemDefinition carrying a given aero mode.
 
 """
 Write a synthetic per-node surface aero fixture (`.dat` contour + Cp/cf CSVs) for
@@ -70,8 +70,8 @@ end
 """
     load_pressure_sys(data_path, aero_mode)
 
-`Settings` and the `SystemState` a run of the particle 2plate kite carrying
-`aero_mode` starts from, reading the fixture-patched geometry under `data_path`.
+`Settings` and a run of the particle 2plate kite carrying `aero_mode`, reading the
+fixture-patched geometry under `data_path`.
 """
 function load_pressure_sys(data_path, aero_mode)
     set_data_path(data_path)
@@ -79,7 +79,16 @@ function load_pressure_sys(data_path, aero_mode)
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
-    sys, _ = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
-        set, vsm_set, aero_mode)
-    return set, SystemState(sys)
+    sys, _ = load_authoring(particle_yaml; name="pressure_test", set)
+    aero = Dict{Symbol, SymbolicAWEModels.AbstractAeroModel}(:main_wing => aero_mode)
+    return set, SymbolicAWEModel(set, sys; vsm_set, aero)
+end
+
+"""Give wing `wing_idx` of `sam` the apparent wind `va_b` in its body frame, through the
+wind on its body."""
+function set_apparent_wind!(sam, wing_idx, va_b)
+    wing(quantity) = run_value(sam, :wings, wing_idx, quantity)
+    set_run_value!(sam, :wings, wing_idx, :wind_vec,
+                   wing(:R_b_to_w) * collect(va_b) .+ wing(:vel_w))
+    return nothing
 end

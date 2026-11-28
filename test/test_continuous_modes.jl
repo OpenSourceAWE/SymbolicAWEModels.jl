@@ -29,18 +29,18 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points,
-    AERO_SCALE_CHORD
+using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points
 using KiteUtils
 using LinearAlgebra
 
 """
     build_continuous_case(case, root)
 
-Fresh data directory, `Settings`, `SystemStructure` and its placing transforms
-for one continuous-mode case. The mode's spanwise distribution and its own
-fixture (AeroPressure's synthetic surface aero) are applied to that copy alone,
-so no case can disturb another's geometry or model cache.
+Fresh data directory, `Settings`, `SystemDefinition`, its placing transforms and
+its wings' aero modes for one continuous-mode case. The mode's spanwise
+distribution and its own fixture (AeroPressure's synthetic surface aero) are
+applied to that copy alone, so no case can disturb another's geometry or model
+cache.
 """
 function build_continuous_case(case, root)
     data_path = joinpath(root, case.system_name, "2plate_kite")
@@ -58,22 +58,23 @@ function build_continuous_case(case, root)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name=case.system_name, set, vsm_set, aero_mode=case.make())
-    return set, sys, transforms
+        name=case.system_name, set)
+    aero = Dict(wing.name => case.make() for wing in sys.wings)
+    return set, sys, transforms, vsm_set, aero
 end
 
 """
-    rigid_rotation_field(points, rate)
+    rigid_rotation_field(positions, rate)
 
-World-frame velocity every point of `points` picks up from a rigid rotation
-`rate` about their centroid. Its mean over `points` is exactly zero, so an inflow
+World-frame velocity every point at `positions` picks up from a rigid rotation
+`rate` about their centroid. Its mean over the points is exactly zero, so an inflow
 that averages the whole wing cannot see it while a per-section inflow can.
 """
-function rigid_rotation_field(points, rate)
-    centroid = sum(point.pos_w for point in points) / length(points)
-    return [cross(rate, point.pos_w - centroid) for point in points]
+function rigid_rotation_field(positions, rate)
+    centroid = sum(positions) / length(positions)
+    return [cross(rate, pos - centroid) for pos in positions]
 end
 
 """
@@ -105,30 +106,32 @@ group_means(groups, values) =
 
     for case in cases
         @testset "$(case.name)" begin
-            set, sys, transforms = build_continuous_case(case, root)
-            sam = SymbolicAWEModel(set, sys; transforms)
-            wing = sam.state.wings[1]
-            mode = wing.aero
-            nodes = wing_points(sam.state, wing)
-            n_panels = length(wing.vsm_aero.panels)
+            set, sys, transforms, vsm_set, aero = build_continuous_case(case, root)
+            sam = SymbolicAWEModel(set, sys; transforms, vsm_set, aero)
+            mode = sam.aero[1]
+            nodes = wing_points(sam, 1)
+            node_positions() = [run_value(sam, :points, i, :pos_w) for i in nodes]
+            node_velocity(i) = run_value(sam, :points, i, :vel_w)
+            wing_value(quantity) = run_value(sam, :wings, 1, quantity)
+            n_panels = length(mode.vsm_aero.panels)
 
             @testset "mesh maps" begin
                 @test size(mode.v_ind) == (3, n_panels)
                 @test length(mode.section_left_strut) == n_panels + 1
                 @test length(mode.section_left_weight) == n_panels + 1
                 @test all(0.0 .<= mode.section_left_weight .<= 1.0)
-                n_struts = length(wing.vsm_wing.unrefined_sections)
+                n_struts = length(mode.vsm_wing.unrefined_sections)
                 @test all(1 .<= mode.section_left_strut .<= n_struts - 1)
             end
 
             @testset "per-section inflow grouping" begin
-                groups, section_group = aero_inflow_groups(mode, wing, nodes)
+                groups, section_group = aero_inflow_groups(mode, sam, 1)
                 @test length(groups) == length(mode.section_left_strut)
                 @test length(unique(section_group)) == length(groups)
                 @test length(unique(groups)) > 1
                 @test all(g -> isapprox(sum(last, g), 1.0; atol=1e-10), groups)
 
-                velocity = rigid_rotation_field(nodes, roll_rate)
+                velocity = rigid_rotation_field(node_positions(), roll_rate)
                 largest = maximum(norm, velocity)
                 @test largest > 1.0
                 @test norm(sum(velocity) / length(velocity)) < 1e-10 * largest
@@ -145,14 +148,14 @@ group_means(groups, values) =
             # Sync the symbolic forces (computed with the frozen v_ind from the
             # init refresh) into the struct with a near-zero step.
             next_step!(sam; dt=1e-4, vsm_interval=0)
-            force_symbolic = copy(wing.aero_force_b)
+            force_symbolic = wing_value(:aero_force_b)
 
             # These modes leave the load in the equations; the struct reads it back.
             @testset "per-node force reaches the struct" begin
                 @test norm(force_symbolic) > 0.1
-                @test count(node -> !iszero(node.aero_force_b), nodes) > 0
-                @test isapprox(sum(node.aero_force_b for node in nodes),
-                               force_symbolic; rtol=1e-8)
+                node_force(i) = run_value(sam, :points, i, :aero_force_b)
+                @test count(i -> !iszero(node_force(i)), nodes) > 0
+                @test isapprox(sum(node_force, nodes), force_symbolic; rtol=1e-8)
             end
 
             # Every per-panel intermediate must match VSM, not just the span sum:
@@ -166,12 +169,11 @@ group_means(groups, values) =
             # builds its forces from the one its last iteration was handed;
             # `solver.lr.gamma_new` is already a step past it.
             @testset "per-panel equations reproduce VSM" begin
-                solver = wing.vsm_solver
-                VortexStepMethod.solve!(solver, wing.vsm_aero)
-                panels = wing.vsm_aero.panels
-                spanwise = collect(Float64, wing.vsm_wing.spanwise_direction)
-                scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
-                    wing.aero_scale_chord : AERO_SCALE_CHORD)
+                solver = mode.vsm_solver
+                VortexStepMethod.solve!(solver, mode.vsm_aero)
+                panels = mode.vsm_aero.panels
+                spanwise = collect(Float64, mode.vsm_wing.spanwise_direction)
+                scale = 1.0 + mode.aero_scale_chord
                 @test scale == 1.0
                 force_scale = maximum(norm(Vector(solver.sol.f_body_3D[:, i]))
                                       for i in eachindex(panels))
@@ -227,8 +229,8 @@ group_means(groups, values) =
                 # apparent wind the refresh used. Remaining differences: the
                 # per-panel va assignment (nearest strut vs interpolated) and the
                 # corrected-AoA direction triad.
-                VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
-                force_reference = vec(sum(wing.vsm_solver.sol.f_body_3D, dims=2))
+                VortexStepMethod.solve!(mode.vsm_solver, mode.vsm_aero)
+                force_reference = vec(sum(mode.vsm_solver.sol.f_body_3D, dims=2))
                 @test all(isfinite, force_symbolic)
                 @test norm(force_reference) > 1.0
                 rel_force = norm(force_symbolic - force_reference) /
@@ -251,26 +253,25 @@ group_means(groups, values) =
                 # reproduce the previous moment to the last bit. Per-section inflow
                 # turns it into a rate-damping moment.
                 v_ind_frozen = copy(mode.v_ind)
-                moment_before = copy(wing.aero_moment_b)
+                moment_before = wing_value(:aero_moment_b)
                 @test norm(moment_before) > 1.0
-                rotation = rigid_rotation_field(nodes, roll_rate)
-                intended = [Vector(point.vel_w) .+ rotation[k]
-                            for (k, point) in enumerate(nodes)]
-                for (point, velocity) in zip(nodes, rotation)
-                    point.vel_w .+= velocity
+                rotation = rigid_rotation_field(node_positions(), roll_rate)
+                intended = [node_velocity(i) .+ rotation[k] for (k, i) in enumerate(nodes)]
+                for (i, velocity) in zip(nodes, intended)
+                    set_run_value!(sam, :points, i, :vel_w, velocity)
                 end
                 init!(sam; lin_vsm=false, prn=false)
 
                 # The rotation only reaches the panels if the re-init actually
                 # carried it into the integrator state.
-                injected = maximum(norm(Vector(nodes[k].vel_w) .- intended[k])
-                                   for k in eachindex(nodes))
+                injected = maximum(norm(node_velocity(i) .- intended[k])
+                                   for (k, i) in enumerate(nodes))
                 @test injected < 1e-6 * maximum(norm, intended)
 
                 next_step!(sam; dt=1e-6, vsm_interval=0)
                 @test mode.v_ind == v_ind_frozen
-                @test all(isfinite, wing.aero_moment_b)
-                rel_moment = norm(wing.aero_moment_b - moment_before) /
+                @test all(isfinite, wing_value(:aero_moment_b))
+                rel_moment = norm(wing_value(:aero_moment_b) - moment_before) /
                     norm(moment_before)
                 println("  [$(case.name)] roll-rate moment response: ",
                     "rel_M=$(round(rel_moment; sigdigits=3)) ",
@@ -283,14 +284,14 @@ group_means(groups, values) =
                 # vsm_interval=0: the circulation is never re-solved. AeroDirect
                 # would hold the point forces exactly constant; a continuous mode's
                 # forces are live functions of the state and must respond.
-                force_before = copy(wing.aero_force_b)
+                force_before = wing_value(:aero_force_b)
                 v_ind_before = copy(mode.v_ind)
                 for _ in 1:10
                     next_step!(sam; dt=0.01, vsm_interval=0)
                 end
                 @test mode.v_ind == v_ind_before
-                @test norm(wing.aero_force_b - force_before) > 1e-6
-                @test all(isfinite, wing.aero_force_b)
+                @test norm(wing_value(:aero_force_b) - force_before) > 1e-6
+                @test all(isfinite, wing_value(:aero_force_b))
             end
 
             @testset "stepping with VSM refresh" begin
@@ -300,7 +301,7 @@ group_means(groups, values) =
                 end
                 @test mode.v_ind != v_ind_before
                 @test all(isfinite, mode.v_ind)
-                @test all(isfinite, wing.aero_force_b)
+                @test all(isfinite, wing_value(:aero_force_b))
             end
         end
     end

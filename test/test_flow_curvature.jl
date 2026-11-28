@@ -38,10 +38,11 @@ using LinearAlgebra
 """
     build_curvature_case(case, root, flow_curvature)
 
-Fresh data directory, `Settings`, `SystemStructure` and its placing transforms for
-one mode of the particle-dynamics 2plate kite, with the solver's `flow_curvature`
-flag set as given. Each build gets its own data copy and `system_name`: the flag
-changes the emitted equations, so the two must not share a compiled model.
+Fresh data directory, `Settings`, `SystemDefinition`, its placing transforms, VSM
+settings and its wings' aero modes for one mode of the particle-dynamics 2plate
+kite, with the solver's `flow_curvature` flag set as given. Each build gets its own
+data copy and `system_name`: the flag changes the emitted equations, so the two must
+not share a compiled model.
 """
 function build_curvature_case(case, root, flow_curvature)
     system_name = case.system_name * (flow_curvature ? "_on" : "_off")
@@ -61,20 +62,21 @@ function build_curvature_case(case, root, flow_curvature)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name, set, vsm_set, aero_mode=case.make())
-    return set, sys, transforms
+        name=system_name, set)
+    aero = Dict(wing.name => case.make() for wing in sys.wings)
+    return set, sys, transforms, vsm_set, aero
 end
 
 """
-    aero_subsystem(sam, wing)
+    aero_subsystem(sam, wing_idx)
 
-The wing's aero subsystem in the compiled model, whose `pitch_rate` and `y_airf`
+The aero subsystem of wing `wing_idx` in the compiled model, whose `pitch_rate` and `y_airf`
 columns are read rather than recomputed, so the assertions cannot drift from the
 equations they check.
 """
-aero_subsystem(sam, wing) = getproperty(sam.prob.sys, Symbol("aero_$(wing.idx)"))
+aero_subsystem(sam, wing_idx) = getproperty(sam.prob.sys, Symbol("aero_$(wing_idx)"))
 
 """
     has_panel_readout(sam) -> Bool
@@ -87,21 +89,21 @@ places on the wing — the moment increment itself — is checked on both.
 has_panel_readout(sam) = !isnothing(sam.prob.sys)
 
 """
-    panel_pitch_rates(sam, wing)
+    panel_pitch_rates(sam, wing_idx)
 
 Every refined panel's rotation rate about its own spanwise axis, as the compiled
 model computes it.
 """
-panel_pitch_rates(sam, wing) =
-    sam.integrator[collect(aero_subsystem(sam, wing).pitch_rate)]
+panel_pitch_rates(sam, wing_idx) =
+    sam.integrator[collect(aero_subsystem(sam, wing_idx).pitch_rate)]
 
 """
-    panel_spanwise_axes(sam, wing)
+    panel_spanwise_axes(sam, wing_idx)
 
 Every refined panel's body-frame `y_airf`, the axis its pitch rate is about.
 """
-function panel_spanwise_axes(sam, wing)
-    y_airf = sam.integrator[collect(aero_subsystem(sam, wing).y_airf)]
+function panel_spanwise_axes(sam, wing_idx)
+    y_airf = sam.integrator[collect(aero_subsystem(sam, wing_idx).y_airf)]
     return [Vector(y_airf[:, i]) for i in axes(y_airf, 2)]
 end
 
@@ -113,15 +115,15 @@ The columns of a `3 x n_panels` readout as plain vectors, one per panel.
 panel_columns(matrix) = [Vector(matrix[:, i]) for i in axes(matrix, 2)]
 
 """
-    panel_curvature_state(sam, wing)
+    panel_curvature_state(sam, wing_idx)
 
 Everything the moment increment is built from, read out of the compiled model per
 refined panel: the scalars `chord`, `width`, `q_dyn` and `pitch_rate`, the body
 frame `y_airf`/`z_airf`, the effective inflow `v_eff`, and the `curvature_couple`
 the increment alone contributes.
 """
-function panel_curvature_state(sam, wing)
-    aero = aero_subsystem(sam, wing)
+function panel_curvature_state(sam, wing_idx)
+    aero = aero_subsystem(sam, wing_idx)
     return (; chord = sam.integrator[collect(aero.chord)],
             width = sam.integrator[collect(aero.width)],
             q_dyn = sam.integrator[collect(aero.q_dyn)],
@@ -133,22 +135,20 @@ function panel_curvature_state(sam, wing)
 end
 
 """
-    panel_force_scale(wing)
+    panel_force_scale(mode)
 
 The chord-error compensation every panel force and couple carries, so a couple read
 out of the model can be turned back into the moment coefficient it came from.
 """
-panel_force_scale(wing) =
-    1.0 + (isfinite(wing.aero_scale_chord) ? wing.aero_scale_chord :
-           SymbolicAWEModels.AERO_SCALE_CHORD)
+panel_force_scale(mode) = 1.0 + mode.aero_scale_chord
 
 """
-    vsm_panels(wing)
+    vsm_panels(mode)
 
-The wing's VortexStepMethod panels, the geometry its own solver would apply the
-increment on.
+The VortexStepMethod panels of the wing flown with aero mode `mode`, the geometry its own
+solver would apply the increment on.
 """
-vsm_panels(wing) = SymbolicAWEModels.vsm_engine(wing.aero).vsm_aero.panels
+vsm_panels(mode) = SymbolicAWEModels.vsm_engine(mode).vsm_aero.panels
 
 """
     settle!(sam)
@@ -162,36 +162,37 @@ settle!(sam) = next_step!(sam; dt=1e-6, vsm_interval=0)
 """
     inject_velocity!(sam, nodes, velocities)
 
-Add a world-frame velocity to each wing node and carry it into the integrator
-state. Returns the largest injection error relative to the intended velocity,
-which must be small or the test is asserting about a state the model never saw.
-Measured before [`settle!`](@ref), since that step advances the state itself.
+Add a world-frame velocity to each wing node of `sam`, by point index, and carry it
+into the integrator state. Returns the largest injection error relative to the intended
+velocity, which must be small or the test is asserting about a state the model never
+saw. Measured before [`settle!`](@ref), since that step advances the state itself.
 """
 function inject_velocity!(sam, nodes, velocities)
-    intended = [Vector(node.vel_w) .+ velocities[k] for (k, node) in enumerate(nodes)]
-    for (node, velocity) in zip(nodes, velocities)
-        node.vel_w .+= velocity
+    velocity(i) = run_value(sam, :points, i, :vel_w)
+    intended = [velocity(i) .+ velocities[k] for (k, i) in enumerate(nodes)]
+    for (i, target) in zip(nodes, intended)
+        set_run_value!(sam, :points, i, :vel_w, target)
     end
     init!(sam; lin_vsm=false, prn=false)
-    error_norm = maximum(norm(Vector(nodes[k].vel_w) .- intended[k])
-                         for k in eachindex(nodes))
+    error_norm = maximum(norm(velocity(i) .- intended[k]) for (k, i) in enumerate(nodes))
     settle!(sam)
     return error_norm / maximum(norm, intended)
 end
 
 """
-    rigid_rotation_field(nodes, rate)
+    rigid_rotation_field(sam, nodes, rate)
 
-World-frame velocity each node picks up from a rigid rotation `rate` about their
-centroid.
+World-frame velocity each node of `sam`, by point index, picks up from a rigid rotation
+`rate` about their centroid.
 """
-function rigid_rotation_field(nodes, rate)
-    centroid = sum(node.pos_w for node in nodes) / length(nodes)
-    return [cross(rate, node.pos_w - centroid) for node in nodes]
+function rigid_rotation_field(sam, nodes, rate)
+    positions = [run_value(sam, :points, i, :pos_w) for i in nodes]
+    centroid = sum(positions) / length(positions)
+    return [cross(rate, pos - centroid) for pos in positions]
 end
 
 """
-    twist_rate_field(wing, nodes, speed)
+    twist_rate_field(sam, wing_idx, nodes, speed)
 
 World-frame velocity field that twists each strut about its own chord, the rate
 running as a full cosine along the span: each strut's trailing edge moves along the
@@ -203,10 +204,10 @@ no rigid motion reproduces this however the `y_airf` orientation convention runs
 which a simple left/right antisymmetric field does not guarantee, since `y_airf`
 already flips at mid span.
 """
-function twist_rate_field(wing, nodes, speed)
-    column = aero_section_columns(wing, nodes)
-    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
-    z_world = wing.R_b_to_w * [0.0, 0.0, 1.0]
+function twist_rate_field(sam, wing_idx, nodes, speed)
+    column = aero_section_columns(sam, wing_idx)
+    n_struts = Int(sam.aero[wing_idx].vsm_wing.n_unrefined_sections)
+    z_world = run_value(sam, :wings, wing_idx, :R_b_to_w) * [0.0, 0.0, 1.0]
     velocities = [zeros(3) for _ in nodes]
     for strut in 1:n_struts
         weight = cos(2pi * (strut - 1) / max(n_struts - 1, 1))
@@ -251,24 +252,29 @@ end
         @testset "$(case.name)" begin
             # Each model is built while its own case is the active data path, so
             # the two compiled models cache separately.
-            set_on, sys_on, transforms_on = build_curvature_case(case, root, true)
-            sam_on = SymbolicAWEModel(set_on, sys_on; transforms=transforms_on)
-            set_off, sys_off, transforms_off = build_curvature_case(case, root, false)
-            sam_off = SymbolicAWEModel(set_off, sys_off; transforms=transforms_off)
-            wing_on, wing_off = sam_on.state.wings[1], sam_off.state.wings[1]
+            set_on, sys_on, transforms_on, vsm_set_on, aero_on =
+                build_curvature_case(case, root, true)
+            sam_on = SymbolicAWEModel(set_on, sys_on; transforms=transforms_on,
+                                     vsm_set=vsm_set_on, aero=aero_on)
+            set_off, sys_off, transforms_off, vsm_set_off, aero_off =
+                build_curvature_case(case, root, false)
+            sam_off = SymbolicAWEModel(set_off, sys_off; transforms=transforms_off,
+                                      vsm_set=vsm_set_off, aero=aero_off)
+            mode_on = sam_on.aero[1]
+            wing_value(sam, quantity) = run_value(sam, :wings, 1, quantity)
 
             @testset "the flag reaches the wing" begin
-                @test SymbolicAWEModels.flow_curvature_enabled(wing_on)
-                @test !SymbolicAWEModels.flow_curvature_enabled(wing_off)
+                @test SymbolicAWEModels.flow_curvature_enabled(mode_on)
+                @test !SymbolicAWEModels.flow_curvature_enabled(sam_off.aero[1])
                 # The term is in the equations, so no shared cached model.
-                @test SymbolicAWEModels.get_sys_struct_hash(sam_on.state) !=
-                      SymbolicAWEModels.get_sys_struct_hash(sam_off.state)
+                @test SymbolicAWEModels.structure_hash(sam_on) !=
+                      SymbolicAWEModels.structure_hash(sam_off)
             end
 
             test_init!(sam_on)
             test_init!(sam_off)
-            nodes_on = wing_points(sam_on.state, wing_on)
-            nodes_off = wing_points(sam_off.state, wing_off)
+            nodes_on = wing_points(sam_on, 1)
+            nodes_off = wing_points(sam_off, 1)
             settle!(sam_on)
             settle!(sam_off)
 
@@ -278,13 +284,13 @@ end
                 # at init, so its stations carry a small genuine twist rate; what
                 # must hold is that it is negligible beside an injected rate, and
                 # that the moment it produces is negligible beside the total.
-                moment_scale = norm(wing_on.aero_moment_b)
+                moment_scale = norm(wing_value(sam_on, :aero_moment_b))
                 @test moment_scale > 1e-3
-                rel_moment = norm(wing_on.aero_moment_b - wing_off.aero_moment_b) /
-                    moment_scale
+                rel_moment = norm(wing_value(sam_on, :aero_moment_b) -
+                                  wing_value(sam_off, :aero_moment_b)) / moment_scale
                 rate_note = ""
                 if has_panel_readout(sam_on)
-                    rates = panel_pitch_rates(sam_on, wing_on)
+                    rates = panel_pitch_rates(sam_on, 1)
                     @test maximum(abs, rates) < 0.01 * pitch_rate
                     rate_note = "max|q|=$(round(maximum(abs, rates); sigdigits=3)) rad/s, "
                 end
@@ -296,7 +302,7 @@ end
             @testset "the flag off leaves the rate bound to zero" begin
                 has_panel_readout(sam_off) || @test_skip false
                 has_panel_readout(sam_off) &&
-                    @test all(iszero, panel_pitch_rates(sam_off, wing_off))
+                    @test all(iszero, panel_pitch_rates(sam_off, 1))
             end
 
             @testset "blind to translation" begin
@@ -307,11 +313,11 @@ end
                 # here only because re-initialising moves the structure a little,
                 # which is the same drift the at-rest rate already shows; a rigid
                 # rotation of the same magnitude moves the rate by O(pitch_rate).
-                before = panel_pitch_rates(sam_on, wing_on)
+                before = panel_pitch_rates(sam_on, 1)
                 uniform = [[4.0, -2.0, 1.0] for _ in nodes_on]
                 injected = inject_velocity!(sam_on, nodes_on, uniform)
                 @test injected < 1e-3
-                drift = maximum(abs, panel_pitch_rates(sam_on, wing_on) - before)
+                drift = maximum(abs, panel_pitch_rates(sam_on, 1) - before)
                 println("  [$(case.name)] translation drift: ",
                     "$(round(drift; sigdigits=3)) rad/s")
                 @test drift < 0.01 * pitch_rate
@@ -322,15 +328,15 @@ end
             @testset "rigid rotation gives omega dot y_airf" begin
                 has_panel_readout(sam_on) || @test_skip false
                 if has_panel_readout(sam_on)
-                before = panel_pitch_rates(sam_on, wing_on)
-                axes = panel_spanwise_axes(sam_on, wing_on)
+                before = panel_pitch_rates(sam_on, 1)
+                axes = panel_spanwise_axes(sam_on, 1)
                 # About the wing's own spanwise axis, so every panel sees it.
                 omega_body = [0.0, pitch_rate, 0.0]
-                omega_world = wing_on.R_b_to_w * omega_body
-                field = rigid_rotation_field(nodes_on, omega_world)
+                omega_world = wing_value(sam_on, :R_b_to_w) * omega_body
+                field = rigid_rotation_field(sam_on, nodes_on, omega_world)
                 injected = inject_velocity!(sam_on, nodes_on, field)
                 @test injected < 1e-3
-                measured = panel_pitch_rates(sam_on, wing_on) - before
+                measured = panel_pitch_rates(sam_on, 1) - before
                 expected = [dot(omega_body, axis) for axis in axes]
                 @test norm(expected) > 0.5 * pitch_rate * sqrt(length(expected))
                 rel_error = norm(measured - expected) / norm(expected)
@@ -352,14 +358,14 @@ end
                 # The modes re-derive the increment instead of running solve!
                 # every step, so what they owe VSM is the formula, the chord it
                 # divides by, the speed it divides by, and the axis of the rate.
-                panels = vsm_panels(wing_on)
-                before = panel_pitch_rates(sam_on, wing_on)
+                panels = vsm_panels(mode_on)
+                before = panel_pitch_rates(sam_on, 1)
                 omega_body = [0.0, pitch_rate, 0.0]
-                field = rigid_rotation_field(nodes_on,
-                                             wing_on.R_b_to_w * omega_body)
+                field = rigid_rotation_field(sam_on, nodes_on,
+                                             wing_value(sam_on, :R_b_to_w) * omega_body)
                 injected = inject_velocity!(sam_on, nodes_on, field)
                 @test injected < 1e-3
-                state = panel_curvature_state(sam_on, wing_on)
+                state = panel_curvature_state(sam_on, 1)
                 @test length(panels) == length(state.chord)
                 @test state.chord ≈ [panel.chord for panel in panels] rtol=1e-3
 
@@ -377,7 +383,7 @@ end
                                 state.pitch_rate[i], state.chord[i],
                                 norm(cross(state.v_eff[i], state.y_airf[i])))
                             for i in eachindex(panels)]
-                scale = panel_force_scale(wing_on)
+                scale = panel_force_scale(mode_on)
                 measured = [dot(state.couple[i], state.z_airf[i]) /
                             (scale * state.width[i] * state.q_dyn[i] *
                              state.chord[i]) for i in eachindex(panels)]
@@ -390,7 +396,7 @@ end
 
                 # And the rate is the one VSM builds from a body rate, up to the
                 # mesh the modes gather it on.
-                body_aero = SymbolicAWEModels.vsm_engine(wing_on.aero).vsm_aero
+                body_aero = SymbolicAWEModels.vsm_engine(mode_on).vsm_aero
                 saved = copy(body_aero.pitch_rate_dist)
                 VortexStepMethod.set_pitch_rate_dist!(body_aero, omega_body)
                 vsm_rates = Vector(body_aero.pitch_rate_dist)
@@ -404,12 +410,12 @@ end
             @testset "opposite twist rates no rigid omega reproduces" begin
                 has_panel_readout(sam_on) || @test_skip false
                 if has_panel_readout(sam_on)
-                before = panel_pitch_rates(sam_on, wing_on)
-                axes = panel_spanwise_axes(sam_on, wing_on)
-                field = twist_rate_field(wing_on, nodes_on, twist_speed)
+                before = panel_pitch_rates(sam_on, 1)
+                axes = panel_spanwise_axes(sam_on, 1)
+                field = twist_rate_field(sam_on, 1, nodes_on, twist_speed)
                 injected = inject_velocity!(sam_on, nodes_on, field)
                 @test injected < 1e-3
-                measured = panel_pitch_rates(sam_on, wing_on) - before
+                measured = panel_pitch_rates(sam_on, 1) - before
                 @test maximum(abs, measured) > 0.1
                 # The rate changes sign twice along the span, which no rigid
                 # omega can do.
@@ -431,19 +437,19 @@ end
                 powers = Float64[]
                 for sign in (1.0, -1.0)
                     omega_body = [0.0, sign * pitch_rate, 0.0]
-                    field_on = rigid_rotation_field(nodes_on,
-                                                    wing_on.R_b_to_w * omega_body)
-                    field_off = rigid_rotation_field(nodes_off,
-                                                     wing_off.R_b_to_w * omega_body)
+                    field_on = rigid_rotation_field(sam_on, nodes_on,
+                        wing_value(sam_on, :R_b_to_w) * omega_body)
+                    field_off = rigid_rotation_field(sam_off, nodes_off,
+                        wing_value(sam_off, :R_b_to_w) * omega_body)
                     inject_velocity!(sam_on, nodes_on, field_on)
                     inject_velocity!(sam_off, nodes_off, field_off)
-                    increment = Vector(wing_on.aero_moment_b) -
-                        Vector(wing_off.aero_moment_b)
+                    increment = wing_value(sam_on, :aero_moment_b) -
+                        wing_value(sam_off, :aero_moment_b)
                     push!(powers, dot(increment, omega_body))
                     println("  [$(case.name)] omega_y=$(sign * pitch_rate): ",
                         "dM=$(round(norm(increment); sigdigits=3)) N·m, ",
                         "dM·omega=$(round(powers[end]; sigdigits=3)) W")
-                    @test norm(increment) > 1e-6 * norm(wing_off.aero_moment_b)
+                    @test norm(increment) > 1e-6 * norm(wing_value(sam_off, :aero_moment_b))
                     inject_velocity!(sam_on, nodes_on, [-v for v in field_on])
                     inject_velocity!(sam_off, nodes_off, [-v for v in field_off])
                 end
@@ -456,10 +462,10 @@ end
                 for _ in 1:5
                     next_step!(sam_on; dt=0.01, vsm_interval=1)
                 end
-                @test all(isfinite, wing_on.aero_force_b)
-                @test all(isfinite, wing_on.aero_moment_b)
+                @test all(isfinite, wing_value(sam_on, :aero_force_b))
+                @test all(isfinite, wing_value(sam_on, :aero_moment_b))
                 has_panel_readout(sam_on) &&
-                    @test all(isfinite, panel_pitch_rates(sam_on, wing_on))
+                    @test all(isfinite, panel_pitch_rates(sam_on, 1))
             end
         end
     end

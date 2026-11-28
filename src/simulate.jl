@@ -176,10 +176,9 @@ function sim_reposition!(
     prn=true
 )
     # 1. --- Initialization ---
-    sys_struct = sam.state
     steps = Int(round(total_time / dt))
     reposition_interval_steps = Int(round(reposition_interval_s / dt))
-    set_values = zeros(Float64, steps, length(sys_struct.winches))
+    set_values = zeros(Float64, steps, length(sam.definition.winches))
     vsm_interval = 1 ÷ dt
     
     logger = Logger(sam, steps+1)
@@ -197,7 +196,7 @@ function sim_reposition!(
         t = step * dt
         
         # Hold the kite in place by countering the tether forces with winch torques
-        set_values[step, :] = -sam.set.drum_radius .* [norm(winch.force) for winch in sys_struct.winches]
+        set_values[step, :] = -sam.set.drum_radius .* winch_force(sam)
         
         # --- Repositioning Logic ---
         if step > 1 && (step - 1) % reposition_interval_steps == 0
@@ -213,7 +212,7 @@ function sim_reposition!(
             transform.azimuth = target_azimuth
             transform.heading = target_heading
 
-            reposition!(sam.state)
+            reposition!(sam)
             
             # Reinitialize the solver to handle the state discontinuity
             if sam.prob isa ProbWithAttributes
@@ -223,9 +222,9 @@ function sim_reposition!(
             if prn
                 # Verify the new pose after one step
                 next_step!(sam; dt=dt, set_values=set_values[step, :], vsm_interval)
-                updated_elevation_deg = rad2deg(sys_struct.wings[1].elevation)
-                updated_azimuth_deg = rad2deg(sys_struct.wings[1].azimuth)
-                updated_heading_deg = rad2deg(sys_struct.wings[1].heading)
+                updated_elevation_deg = rad2deg(run_value(sam, :wings, 1, :elevation))
+                updated_azimuth_deg = rad2deg(run_value(sam, :wings, 1, :azimuth))
+                updated_heading_deg = rad2deg(run_value(sam, :wings, 1, :heading))
                 println(">>> Pose updated." *
                         " Elevation: $(round(updated_elevation_deg, digits=2))°, " *
                         " Azimuth: $(round(updated_azimuth_deg, digits=2))°, " *
@@ -254,18 +253,6 @@ function sim_reposition!(
     return load_log("tmp_reposition_run")
 end
 
-
-"""
-    make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
-
-Construct a SysState for logging linear state-space simulation output y (ordered as
-sam.outputs).
-"""
-function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
-    sys_state = SysState(sam)
-    update_sys_state!(sys_state, y, sam, t)
-    return sys_state
-end
 
 """
     update_sys_state!(sys_state, y::AbstractVector, sam::SymbolicAWEModel, t::Real)

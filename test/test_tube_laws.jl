@@ -217,5 +217,18 @@ end
     @test tube_mass(0.075, 0.0; areal_density=0.15) == 0.0
 end
 
+@testset "A tube's rigidities follow its material's Breukels constants" begin
+    material(parameters) = KiteGeometry.Material(; name=:fabric, law="breukels2011",
+                                                 parameters)
+    default = KiteGeometry.tube_law_parameters("breukels2011")
+    diameter, pressure = 0.15, 0.3e5
+    @test tube_law_rigidities(material(default), diameter, pressure) ==
+          tube_linear_rigidities(diameter / 2, pressure / 1e5)
+    stiffer = copy(default)
+    stiffer["C13"] *= 2
+    @test tube_law_rigidities(material(stiffer), diameter, pressure)[4] >
+          tube_linear_rigidities(diameter / 2, pressure / 1e5)[4]
+end
+
 end
 nothing

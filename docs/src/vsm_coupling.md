@@ -136,23 +136,22 @@ system** — orthogonal to the wing type choice.
 ### `AeroDirect`
 
 A single VSM solve at the current operating point. The resulting forces are
-stored in the wing struct and read back as flat parameters during ODE
-evaluation:
+stored in the run and read back as flat parameters during ODE evaluation:
 
 1. `vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω from the live wing
    state and calls `VortexStepMethod.solve!`
 2. `apply_direct_forces!` reconstructs physical forces in the wind-axis basis:
    `F = q∞ · A · (CL · lift + CD · drag + CS · side)`
-3. Forces are stored in `wing.aero_force_b` and `wing.aero_moment_b`
-   (RIGID_DYNAMICS) or per-point via `distribute_panel_forces_to_points!`
+3. Forces are stored in the wing's run values `aero_force_b` and `aero_moment_b`
+   (`run_value(sam, :wings, wing_idx, :aero_force_b)`; RIGID_DYNAMICS) or per-point via `distribute_panel_forces_to_points!`
    (PARTICLE_DYNAMICS)
 4. Between VSM updates (controlled by `vsm_interval`), forces are held constant
 
 The component reads those buffers through its `params` view —
 `params.wings[i].aero_force_b` / `.aero_moment_b` for a rigid wing,
-`params.points[j].aero_force_b` for a particle wing — so the values are synced
-from the live `SystemStructure` once per step without a registered-function call
-in the RHS.
+`params.points[j].aero_force_b` for a particle wing — so the values reach the RHS
+without a registered-function call. A rigid wing's are synced from the run's state once
+per step, a particle wing's at each refresh, since they stay fixed in the body frame.
 
 ### `AeroLinearized`
 
@@ -204,7 +203,7 @@ exactly.
 
 It also supports a live flap deflection `\delta` — the signed angle between two
 structural bodies about a hinge, modelled by a `KINEMATIC`
-[`Station`](@ref) — which feeds the `(\alpha,
+spanwise station ([`StationModel`](@ref)) — which feeds the `(\alpha,
 \delta)` polars each RHS
 step.
 
@@ -241,7 +240,7 @@ surface and the deflection leaves the generated equations entirely — only
 ### `AeroPlate`
 
 Flat-plate lift and drag from a polar table (CL/CD vs α) evaluated by registered
-symbolic interpolants, one 1-point `STATIC` [`Station`](@ref) per plate. No
+symbolic interpolants, one 1-point `STATIC` spanwise station ([`StationModel`](@ref)) per plate. No
 VSM engine.
 
 ### `AeroNone`
@@ -269,11 +268,10 @@ A mode supports a wing dynamics exactly when it defines the matching
 `safe_vsm_solve!` solves under `VortexStepMethod`'s `throw_on_fail`, so a solve
 that missed the solver's tolerances or came back non-finite — a `ForwardDiff`
 partial included — throws `VortexStepMethod.SolveFailure` rather than returning.
-Before that failure leaves `safe_vsm_solve!` it restores the circulation and the
-two angle-of-attack distributions of the last converged solve, which `solve!` has
-already overwritten with the diverged ones. The restored circulation is the warm
-start of the next attempt, and the restored angles are what a live polar
-re-centres its knots on.
+The run's circulation, in its `SysState`'s `gamma_distribution`, is written only after
+a solve converged, so it still holds the last converged solve: it is the start of the
+next attempt, and what a live polar re-centres its knots on
+([`circulation_alpha`](@ref)).
 
 `next_step!(sam; vsm_warn_on_fail=true)` downgrades that to a warning and the
 simulation goes on. Each mode solves before it writes anything frozen, so the
@@ -287,25 +285,28 @@ frozen state — a non-finite point force or traction pattern — are
 
 ## Swappable aero components (dispatch)
 
-Each wing carries an `aero::AbstractAeroModel` field. The builder is selected by
-dispatch on **both** its type and the wing's dynamics, [`aero_component`](@ref)
-`(mode, wing::AbstractWing, sys_struct; name, params)`, returning a `System`
-exactly like a winch's [`Winch`](@ref) `model.dynamics`. The built-in subtypes
+Each wing of a model flies an aero mode, `sam.aero[wing_idx]::AbstractAeroModel`. The
+builder is selected by dispatch on **both** its type and the wing's dynamics,
+[`aero_component`](@ref) `(mode, dynamics::WingDynamics, sam, wing_idx; name, params)`,
+returning a `System`
+exactly like the `dynamics` of a winch's [`WinchModel`](@ref). The built-in subtypes
 [`AeroNone`](@ref), [`AeroDirect`](@ref), [`AeroLinearized`](@ref) ship their
 own methods. A mode supports a wing dynamics by defining the matching method,
-dispatched on [`RigidWing`](@ref) and/or [`ParticleWing`](@ref) — rigid,
+dispatched on [`RigidDynamics`](@ref) and/or [`ParticleDynamics`](@ref) — rigid,
 particle, or both. To plug in your own aerodynamics, subtype `AbstractAeroModel`
-and add a component builder (per dynamics you support) and a cache tag:
+and add a component builder (per dynamics you support) and a cache tag, then give
+the mode to the model under the wing's name:
 
 ```julia
 struct MyAero <: AbstractAeroModel end
 
-function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct; name, params)
+function SymbolicAWEModels.aero_component(::MyAero, ::SymbolicAWEModels.RigidDynamics,
+                                          sam, wing_idx; name, params)
     # ... build and return a System with the connectors below ...
 end
-SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
+SymbolicAWEModels.aero_mode_tag(::Type{MyAero}) = "myaero"
 
-Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia; aero = MyAero())
+sam = SymbolicAWEModel(set, sys; aero = Dict(:kite => MyAero()))
 ```
 
 Everything else is an **optional hook with a working default**, dispatched on
@@ -318,10 +319,7 @@ the mode:
 - **Low-frequency refresh** (every `vsm_interval` steps, orchestrated by
   [`refresh_aero!`](@ref)): [`refresh_rigid_aero!`](@ref) /
   [`refresh_particle_aero!`](@ref).
-- **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
-  [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
-  wing's own `extra_mass` at the single consumer (default: normalized point-mass inertia
-  from the wing's structural points).
+- **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`).
 - **Log-point visualization**: [`n_aero_log_points`](@ref) /
   [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /
   [`restore_aero_twist!`](@ref) — extra `SysState` slots for the mode's display
@@ -330,19 +328,20 @@ the mode:
   [`update_wing_aero_plot!`](@ref) — methods live in the Makie extension, so a
   custom mode draws with full Makie access (default: draws nothing).
 - **Traits**: [`couples_to_sections`](@ref) (needs per-section stations;
-  default `false`), [`provides_aero_override`](@ref), and the cache controls
+  default `false`) and the cache controls
   [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
 
 Subtyping [`AbstractVSMAero`](@ref) (a [`VSMEngine`](@ref) in an `engine` field,
-exposed via [`vsm_engine`](@ref)) inherits the VSM implementation of every hook.
+exposed via [`vsm_engine`](@ref), built by a model from an [`AeroSpec`](@ref) on the
+wing) inherits the VSM implementation of every hook.
 There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode is never
 excluded from a code path it cannot extend.
 
 The returned `System`'s connectors are fixed by the wing's dynamics type
-([`RigidWing`](@ref)/[`ParticleWing`](@ref); all quantities in the wing **body
+([`RigidDynamics`](@ref)/[`ParticleDynamics`](@ref); all quantities in the wing **body
 frame**):
 
-- **`RIGID_DYNAMICS`** (`ng = length(wing.station_idxs)`):
+- **`RIGID_DYNAMICS`** (`ng = length(wing_station_idxs(sam, wing_idx))`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, and — when
     `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
@@ -367,8 +366,8 @@ must be reported by [`aero_hash_id`](@ref); runtime-mutable fields must not
 ### Live-updating fields
 
 Put the mutable value on the mode struct and read it through the build-time
-`params` view: the field becomes a flat MTK parameter synced from the live
-`SystemStructure` once per step (no `@register_symbolic`, no `psys`):
+`params` view: the field becomes a flat MTK parameter read from the wing's mode in
+the model, `sam.aero[wing_idx]` (no `@register_symbolic`, no `psys`):
 
 ```julia
 mutable struct ConstantLiftAero <: AbstractAeroModel
@@ -376,16 +375,19 @@ mutable struct ConstantLiftAero <: AbstractAeroModel
 end
 
 function SymbolicAWEModels.aero_component(::ConstantLiftAero,
-                                          wing::RigidWing, sys_struct; name, params)
-    CL = params.wings[wing.idx].aero.CL   # flat param, synced live each step
+                                          ::SymbolicAWEModels.RigidDynamics,
+                                          sam, wing_idx; name, params)
+    CL = params.wings[wing_idx].aero.CL   # flat param, synced with the aero refresh
     # ... use CL in the force equation ...
 end
 ```
 
-Mutate the field between steps — no `remake`, picked up at the next sync:
+Mutate the field between steps — no `remake`. A mode's fields are synced into the
+integrator with each aerodynamic refresh (every `vsm_interval` steps of a model with a
+VSM wing) and at `init!`:
 
 ```julia
-sam.sys_struct.wings[1].aero.CL = 0.8
+sam.aero[1].CL = 0.8
 ```
 
 A numeric field becomes a scalar/array param; a **callable** field (an
@@ -479,8 +481,8 @@ The mapping enables:
   PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions including the
   `WingType` enum and `AbstractAeroModel` types
-- `src/system_structure/wing.jl`: Wing and VSMWing definitions,
-  station-to-section mapping
+- `src/system_structure/wing.jl`: VSM engine construction, VSM panel placement and
+  a wing's frame from its reference points
 - `src/aero_modes/`: one file per aero mode (`none.jl`, `direct.jl`,
   `linearized.jl`, `continuous.jl`, `pressure.jl`, `plate.jl`), plus `common.jl`
   with the dispatch interface, the connector scaffolding and the shared VSM

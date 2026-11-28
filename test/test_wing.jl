@@ -38,22 +38,22 @@ function reset_state!(sam, set)
     tf.elevation_vel = 0.0
     tf.azimuth_vel = 0.0
 
-    for point in sam.sys_struct.points
-        if point.type == SymbolicAWEModels.DYNAMIC
+    for point in sam.definition.points
+        if point_type(point) == SymbolicAWEModels.DYNAMIC
             point.fix_sphere = false
             point.fix_static = false
         end
     end
 
-    for wing in sam.state.wings
-        wing.fix_sphere = false
+    for wing in sam.definition.wings
+        sam.definition.bodies[wing.body].fix_sphere = false
     end
 
-    set_world_frame_damping(sam.sys_struct, 0.0)
+    set_world_frame_damping(sam.definition, 0.0)
 
-    sam.sys_struct.winches[:main_winch].brake = true
+    sam.definition.winches[:main_winch].brake = true
 
-    place!(sam; prn=false)
+    place!(sam)
     test_init!(sam; prn=false)
 end
 
@@ -86,18 +86,18 @@ end
     )
 
     # Build SAMs once (expensive symbolic compilation)
-    quat_sys, quat_transforms = load_sys_struct_from_yaml(
+    quat_sys, quat_transforms = load_authoring(
         quat_yaml_path;
-        system_name="wing_test_QUATERNION", set, vsm_set
+        name="wing_test_QUATERNION", set
     )
-    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms)
+    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms, vsm_set)
     test_init!(quat_sam)
 
-    refine_sys, refine_transforms = load_sys_struct_from_yaml(
+    refine_sys, refine_transforms = load_authoring(
         refine_yaml_path;
-        system_name="wing_test_REFINE", set, vsm_set
+        name="wing_test_REFINE", set
     )
-    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms)
+    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms, vsm_set)
     test_init!(refine_sam)
 
     sam_configs = [
@@ -116,12 +116,12 @@ end
             # Test 0: YAML Loading Verification
             # ========================================================
             @testset "YAML loading" begin
-                sys = sam.state
+                sys = sam.definition
 
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
-                wing = sys.wings[:main_wing]
-                @test wing.dynamics_type == expected_dynamics_type
+                @test body_dynamics_type(sam, SymbolicAWEModels.wing_body(sam, 1)) ==
+                      expected_dynamics_type
 
                 @test haskey(sys.points, :le_left)
                 @test haskey(sys.points, :te_left)
@@ -133,10 +133,10 @@ end
                 @test haskey(sys.points, :steering_left)
                 @test haskey(sys.points, :steering_right)
 
-                @test sys.points[:le_left].is_wing_node
+                @test run_value(sam, :points, :le_left, :is_wing_node)
 
-                @test length(sys.transforms) == 1
-                @test haskey(sys.transforms, :main_transform)
+                @test length(sam.transforms) == 1
+                @test haskey(sam.transforms, :main_transform)
             end
 
             # ========================================================
@@ -148,22 +148,21 @@ end
                 set.v_wind = 0.0
                 test_init!(sam; prn=false)
                 @show sam.set.wind_vec
-                @show sam.state.wings[1].heading
+                @show run_value(sam, :wings, 1, :heading)
 
-                sys = sam.state
-                wing = sys.wings[:main_wing]
-                init_wing_pos = copy(wing.pos_w)
-                init_kcu_pos = copy(sys.points[:kcu].pos_w)
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
+                init_wing_pos = copy(wing(:pos_w))
+                init_kcu_pos = run_value(sam, :points, :kcu, :pos_w)
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=0)
                 end
 
-                wing_drift = norm(wing.pos_w - init_wing_pos)
+                wing_drift = norm(wing(:pos_w) - init_wing_pos)
                 kcu_drift = norm(
-                    sys.points[:kcu].pos_w - init_kcu_pos
+                    run_value(sam, :points, :kcu, :pos_w) - init_kcu_pos
                 )
-                wing_speed = norm(wing.vel_w)
+                wing_speed = norm(wing(:vel_w))
 
                 @test wing_drift < 1.0
                 @test kcu_drift < 1.0
@@ -184,14 +183,14 @@ end
                 set.v_wind = 0.0
                 test_init!(sam; prn=false)
 
-                wing = sam.state.wings[:main_wing]
-                initial_z = wing.pos_w[3]
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
+                initial_z = wing(:pos_w)[3]
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=0)
                 end
 
-                final_z = wing.pos_w[3]
+                final_z = wing(:pos_w)[3]
 
                 @test final_z < initial_z
 
@@ -206,14 +205,14 @@ end
             @testset "Wind+gravity stable" begin
                 reset_state!(sam, set)
 
-                wing = sam.state.wings[:main_wing]
-                initial_norm = norm(wing.pos_w)
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
+                initial_norm = norm(wing(:pos_w))
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=1)
                 end
 
-                final_norm = norm(wing.pos_w)
+                final_norm = norm(wing(:pos_w))
 
                 @test final_norm < 2 * initial_norm
 
@@ -228,15 +227,15 @@ end
             @testset "Kite moves" begin
                 reset_state!(sam, set)
 
-                wing = sam.state.wings[:main_wing]
-                initial_pos = copy(wing.pos_w)
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
+                initial_pos = copy(wing(:pos_w))
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=1)
                 end
 
-                displacement = norm(wing.pos_w - initial_pos)
-                speed = norm(wing.vel_w)
+                displacement = norm(wing(:pos_w) - initial_pos)
+                speed = norm(wing(:vel_w))
 
                 @test displacement > 0.05
                 @test speed > 0.05
@@ -252,15 +251,15 @@ end
             @testset "Kite rotates" begin
                 reset_state!(sam, set)
 
-                wing = sam.state.wings[:main_wing]
-                initial_Q = copy(wing.Q_b_to_w)
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
+                initial_Q = copy(wing(:Q_b_to_w))
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=1)
                 end
 
-                q_diff = norm(wing.Q_b_to_w - initial_Q)
-                q_norm = norm(wing.Q_b_to_w)
+                q_diff = norm(wing(:Q_b_to_w) - initial_Q)
+                q_norm = norm(wing(:Q_b_to_w))
 
                 @test q_diff > 0.001
                 @test q_norm ≈ 1.0 atol = 1e-4
@@ -276,26 +275,26 @@ end
             @testset "fix_sphere" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                for point in sam.sys_struct.points
-                    if point.type == SymbolicAWEModels.DYNAMIC
-                        point.fix_sphere = true
+                test_init!(sam; prn=false)
+                for (i, point) in enumerate(sam.definition.points)
+                    if point_type(point) == SymbolicAWEModels.DYNAMIC
+                        set_run_value!(sam, :points, i, :fix_sphere, true)
                     end
                 end
-                for wing in sam.state.wings
-                    wing.fix_sphere = true
+                if expected_dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
+                    set_run_value!(sam, :wings, 1, :fix_sphere, true)
                 end
-                test_init!(sam; prn=false)
 
                 # RIGID_DYNAMICS: fix_sphere constrains com_w
                 # (not kcu, which shifts with rotation).
                 # PARTICLE_DYNAMICS: no separate COM, check kcu directly.
-                wing = sam.state.wings[:main_wing]
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
                 if expected_dynamics_type ==
                         SymbolicAWEModels.RIGID_DYNAMICS
-                    p0 = copy(wing.com_w)
+                    p0 = copy(wing(:com_w))
                 else
                     p0 = copy(
-                        sam.state.points[:kcu].pos_w
+                        run_value(sam, :points, :kcu, :pos_w)
                     )
                 end
                 r̂0 = normalize(p0)
@@ -305,9 +304,9 @@ end
                 end
 
                 if expected_dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
-                    p1 = copy(wing.com_w)
+                    p1 = copy(wing(:com_w))
                 else
-                    p1 = copy(sam.state.points[:kcu].pos_w)
+                    p1 = copy(run_value(sam, :points, :kcu, :pos_w))
                 end
 
                 Δp = p1 - p0
@@ -325,12 +324,12 @@ end
             @testset "fix_static" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                for point in sam.sys_struct.points
-                    if point.type == SymbolicAWEModels.DYNAMIC
-                        point.fix_static = true
+                test_init!(sam; prn=false)
+                for (i, point) in enumerate(sam.definition.points)
+                    if point_type(point) == SymbolicAWEModels.DYNAMIC
+                        set_run_value!(sam, :points, i, :fix_static, true)
                     end
                 end
-                test_init!(sam; prn=false)
 
                 # RIGID_DYNAMICS: kcu rides the wing body (BODY_STATIC),
                 # not a DYNAMIC point, so fix_static has no effect on it.
@@ -342,7 +341,7 @@ end
                         :steering_right]
                 end
                 initial_positions = Dict(
-                    n => copy(sam.state.points[n].pos_w)
+                    n => copy(run_value(sam, :points, n, :pos_w))
                     for n in check_names
                 )
 
@@ -352,7 +351,7 @@ end
 
                 for name in check_names
                     drift = norm(
-                        sam.state.points[name].pos_w -
+                        run_value(sam, :points, name, :pos_w) -
                         initial_positions[name]
                     )
                     drift_tol = if expected_dynamics_type ==
@@ -379,32 +378,32 @@ end
                 set.v_wind = 0.0
                 test_init!(sam; prn=false)
 
-                wing = sam.state.wings[:main_wing]
-                init_pos = copy(wing.pos_w)
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
+                init_pos = wing(:pos_w)
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=0)
                 end
 
-                undamped_speed = norm(wing.vel_w)
-                undamped_drift = norm(wing.pos_w - init_pos)
+                undamped_speed = norm(wing(:vel_w))
+                undamped_drift = norm(wing(:pos_w) - init_pos)
 
                 # Damped run
                 reset_state!(sam, set)
                 set.v_wind = 0.0
                 set_world_frame_damping(
-                    sam.sys_struct, 1000.0
+                    sam.definition, 1000.0
                 )
                 test_init!(sam; prn=false)
 
-                init_pos .= wing.pos_w
+                init_pos = wing(:pos_w)
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=0)
                 end
 
-                damped_speed = norm(wing.vel_w)
-                damped_drift = norm(wing.pos_w - init_pos)
+                damped_speed = norm(wing(:vel_w))
+                damped_drift = norm(wing(:pos_w) - init_pos)
 
                 @test damped_speed < 0.5 * undamped_speed
                 @test damped_drift < 0.5 * undamped_drift
@@ -427,34 +426,29 @@ end
                     next_step!(sam; dt, vsm_interval=1)
                 end
 
-                wing = sam.state.wings[:main_wing]
+                wing(quantity) = run_value(sam, :wings, :main_wing, quantity)
                 sol_force =
-                    Vector(wing.vsm_solver.sol.force)
+                    Vector(sam.aero[1].vsm_solver.sol.force)
 
                 # PARTICLE_DYNAMICS: sum distributed point forces
                 # (scaled by aero_scale_chord)
-                # RIGID_DYNAMICS: use wing.aero_force_b from
+                # RIGID_DYNAMICS: use wing(:aero_force_b) from
                 # the ODE (Jacobian-extrapolated)
                 if expected_dynamics_type ==
                         SymbolicAWEModels.PARTICLE_DYNAMICS
-                    scale = 1.0 + (
-                        isfinite(wing.aero_scale_chord) ?
-                        wing.aero_scale_chord : 0.0)
+                    scale = 1.0 + sam.aero[1].aero_scale_chord
                     sol_force .*= scale
                     total_force = zeros(3)
-                    for p in sam.state.points
-                        if p.is_wing_node &&
-                                p.wing_idx == wing.idx
-                            total_force .+= p.aero_force_b
-                        end
+                    for i in wing_nodes(sam, 1)
+                        total_force .+= run_value(sam, :points, i, :aero_force_b)
                     end
                 else
                     total_force =
-                        Vector(wing.aero_force_b)
+                        Vector(wing(:aero_force_b))
                 end
 
                 # Drag = along apparent wind
-                va = wing.va_b
+                va = wing(:va_b)
                 drag_dir = normalize(va)
 
                 # Lift = perpendicular to wind, in the

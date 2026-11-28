@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_makie_static_figure.jl - A SystemStructure drawn into a CairoMakie Axis3
-# and saved as a vector PDF, the route docs/src/exported_functions.md documents.
+# test_makie_static_figure.jl - A model of a SystemDefinition drawn into a CairoMakie
+# Axis3 and saved as a vector PDF, the route docs/src/exported_functions.md documents.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -33,7 +33,7 @@ import MakieControlPlots
     fig = CairoMakie.Figure(size=(600, 500))
     ax = CairoMakie.Axis3(fig[1, 1]; aspect=:data,
         xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
-    plots = CairoMakie.plot!(ax, sys; segment_color=role_color,
+    plots = CairoMakie.plot!(ax, SymbolicAWEModel(nothing, sys); segment_color=role_color,
         show_orient=false, show_wing_frame=false)
     legend = CairoMakie.Legend(fig[1, 2],
         [CairoMakie.LineElement(color=color) for color in values(role_colors)],

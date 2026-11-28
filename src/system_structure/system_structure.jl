@@ -1,31 +1,11 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-System Structure
-
-Defines the physical structure of the kite system, including:
-- Basic types: Point, Station, Segment, Pulley, Tether, Winch
-- Wing types: BaseWing, VSMWing with VSM aerodynamics coupling
-- SystemStructure container and initialization
-
-Files are organized as:
-- types.jl: Enums and struct definitions (Point, Segment, etc.)
-- wing.jl: Wing types and VSM-related code
-- system_structure_core.jl: SystemStructure type and constructor
-- utilities.jl: Helper functions and state management
-- tube_laws.jl: Inflated-tube rigidity laws for tubes
-- definition_models.jl: The models SymbolicAWEModels registers with KiteGeometry
-"""
-
 # Include files in dependency order
 include("definition_models.jl")  # KiteGeometry models of SAM's own columns
-include("types.jl")         # Enums, Point, Station, Segment, Pulley, Tether, Winch
-include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for TimoshenkoTube
-include("rigid_body.jl")    # Body (embedded in Wing and standalone)
-include("wing.jl")          # AbstractWing, Wing (embeds a Body)
-include("named_collection.jl")  # NamedCollection wrapper for symbol-based indexing
-include("system_state.jl")  # SystemState: what a run holds of each component
-include("system_structure_core.jl")  # SystemStructure type and constructor
-include("utilities.jl")     # Helpers, validation, state management
-include("definition.jl")         # The KiteGeometry definition of a structure
+include("types.jl")         # Enums, aero modes, dynamics types, segment springs
+include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for Timoshenko tubes
+include("rigid_body.jl")    # Body models and inertia, a tube's element frame, flaps
+include("wing.jl")
+include("run_values.jl")  # The quantities of a run and how it reads them
+include("system_structure_core.jl")  # system_definition and station mapping

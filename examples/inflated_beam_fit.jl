@@ -7,7 +7,7 @@
 # tube in closed form (parametrised by the slack-arc angle θ₀), from the linear
 # regime through wrinkling onset to collapse. We sample that curve as synthetic
 # "measurements", fit a smooth per-joint bending law to it, and build a
-# Body + ElasticTube chain. It is validated as a cantilever under a ramped
+# Body and elastic-tube chain. It is validated as a cantilever under a ramped
 # downward tip force, reproducing the P-vs-tip-deflection curve up to collapse.
 #
 # Isotropic by choice: Comer-Levy assumes one modulus E. A woven (orthotropic)
@@ -34,10 +34,11 @@
 using Pkg
 Pkg.activate(@__DIR__)
 using SymbolicAWEModels
-using SymbolicAWEModels: Point
+using LinearAlgebra: Diagonal
 using KiteUtils
 using GLMakie
 using MakieControlPlots
+import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
 
 # ----- tube geometry and fabric (the only required measured inputs) -----
 pressure_bar = 0.3               # internal gauge pressure [bar]
@@ -362,14 +363,18 @@ whose ground anchor sits `winch_depth` below the tip — the displacement actuat
 """
 function build_beam(name, n_seg, joint_law)
     seg_len = beam_length / n_seg
+    # Every segment and tube names its material in this table
+    materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+    push!(materials.rows, Material(; name = :breukels2011, law = "breukels2011",
+        parameters = KiteGeometry.tube_law_parameters(:breukels2011)))
     bodies = Body[]
     for i in 1:n_seg
         radius = station_radius((i - 0.5) / n_seg)
         inertia = [0.5 * seg_mass * radius^2,
                    seg_mass * seg_len^2 / 12, seg_mass * seg_len^2 / 12]
-        push!(bodies, Body(Symbol("seg_$i"); extra_mass = seg_mass,
-            inertia_principal = inertia, pos = [(i - 0.5) * seg_len, 0.0, 0.0],
-            type = i == 1 ? STATIC : DYNAMIC))
+        push!(bodies, Body(; name = Symbol("seg_$i"),
+            pos_ENU = [(i - 0.5) * seg_len, 0.0, 0.0], extra_mass = seg_mass,
+            extra_inertia_KA = Matrix(Diagonal(inertia)), fixed = i == 1))
     end
     # Each tube's β critically damps the bending mode of everything outboard of it
     # about the hinge (the root tube swings the whole beam, not one segment).
@@ -380,27 +385,32 @@ function build_beam(name, n_seg, joint_law)
                           seg_mass * ((j - 0.5) * seg_len - joint_x)^2
                           for j in (i + 1):n_seg)
         damping = critical_rayleigh_beta(linear_bending_stiffness(law), inertia_out)
-        Tube(Symbol("joint_$i"), Symbol("seg_$i"), Symbol("seg_$(i + 1)");
-            diameter = 2 * station_radius(i / n_seg), pressure,
-            anchor_a = [seg_len / 2, 0.0, 0.0], anchor_b = [-seg_len / 2, 0.0, 0.0],
-            model = ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
-                                stiffness_bending = law, damping))
+        Tube(; name = Symbol("joint_$i"),
+            bodies = (Symbol("seg_$i"), Symbol("seg_$(i + 1)")),
+            diameter = 2 * station_radius(i / n_seg), pressure, material = :breukels2011,
+            model = ElasticTubeModel(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                stiffness_bending = law, damping,
+                anchor_a = [seg_len / 2, 0.0, 0.0], anchor_b = [-seg_len / 2, 0.0, 0.0]))
     end
     joints = [make_joint(i) for i in 1:(n_seg - 1)]
     tip_body = Symbol("seg_$n_seg")
     points = [
-        Point(:ground, [beam_length, 0.0, -winch_depth], STATIC),
-        Point(:tip_anchor, [beam_length, 0.0, 0.0], BODY_STATIC;
-              body = tip_body, anchor_b = [seg_len / 2, 0.0, 0.0]),
+        Point(; name = :ground, pos_ENU = [beam_length, 0.0, -winch_depth], fixed = true),
+        Point(; name = :tip_anchor, pos_ENU = [beam_length, 0.0, 0.0], body = tip_body,
+              model = PointModel(; anchor_b = [seg_len / 2, 0.0, 0.0])),
     ]
-    segments = [Segment(:tether_seg, :ground, :tip_anchor,
-        tether_stiffness, tether_damping, tether_diameter; l0 = winch_depth)]
-    tethers = [Tether(:tether, [:tether_seg], winch_depth)]
-    winches = [Winch(:winch, set, [:tether]; winch_point = :ground,
-        model = CascadedLengthWinch(v_max = sweep_v_max,
-            position_gain = 20.0, velocity_gain = 20.0))]
-    winches[1].inertia_total = 1.0e-4     # tiny rotor → near-instant tracking
-    sys = SystemStructure(name, set; points, segments, tethers, winches,
+    segments = [KiteGeometry.line_segment(:tether_seg, (:ground, :tip_anchor), set,
+        materials; rest_length = winch_depth, diameter = tether_diameter,
+        unit_stiffness = tether_stiffness,
+        model = SegmentSpring(; unit_damping = tether_damping))]
+    tethers = [Tether(; name = :tether, segments = [:tether_seg],
+                      init_stretched_length = winch_depth)]
+    winches = [Winch(; name = :winch, tethers = [:tether], winch_point = :ground,
+        model = WinchModel(;
+            inertia_total = 1.0e-4,     # tiny rotor → near-instant tracking
+            dynamics = CascadedLengthWinch(v_max = sweep_v_max,
+                position_gain = 20.0, velocity_gain = 20.0)))]
+    sys = system_definition(name, set; points, segments, materials, tethers, winches,
         bodies = bodies, tubes = joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake = false, prn = true)
@@ -418,18 +428,17 @@ at every step. Optionally logs for replay.
 function winch_sweep(sam; force_cap, name = "sweep", log_to = nothing)
     dt = 0.02
     max_steps = 6000
-    tip = sam.state.points[:tip_anchor]
-    tether_seg = sam.state.segments[:tether_seg]
-    z0 = tip.pos_w[3]
-    target = sam.state.tethers[:tether].len - 0.6  # command a long reel-in
+    tip_z() = run_value(sam, :points, :tip_anchor, :pos_w)[3]
+    z0 = tip_z()
+    target = run_value(sam, :tethers, :tether, :len) - 0.6  # command a long reel-in
     logger = isnothing(log_to) ? nothing : Logger(sam, max_steps + 1)
     sys_state = isnothing(log_to) ? nothing : SysState(sam)
     deflection_mm, tension, sim_time = Float64[], Float64[], 0.0
     for _ in 1:max_steps
         next_step!(sam; set_values = [target], dt, vsm_interval = 0)
         sim_time += dt
-        push!(deflection_mm, 1.0e3 * (z0 - tip.pos_w[3]))
-        push!(tension, abs(tether_seg.force))
+        push!(deflection_mm, 1.0e3 * (z0 - tip_z()))
+        push!(tension, abs(run_value(sam, :segments, :tether_seg, :force)))
         if !isnothing(logger)
             update_sys_state!(sys_state, sam)
             sys_state.time = sim_time
@@ -550,7 +559,7 @@ display(fig)
 
 # ----- replay the Comer-Levy high-fi sweep -----
 scene = replay(load_log("inflated_beam_hf_comer"),
-    results[:comer].sam_hf.sys_struct; vector_scale = 0.03)
+    results[:comer].sam_hf; vector_scale = 0.03)
 display(scene)
 
 nothing

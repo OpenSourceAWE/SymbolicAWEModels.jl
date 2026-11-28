@@ -3,7 +3,7 @@
 
 # test_yaml_bodies.jl - Validate loading rigid bodies, a tube between them and a
 # body-anchored point from a struc_geometry YAML (the `bodies` and `tubes` blocks
-# and the point `body_idx`/`anchor_b` fields of load_sys_struct_from_yaml). A
+# and the point `body_idx`/`anchor_b` fields of load_authoring). A
 # clamped root body and a free tip body joined by one tube must load with
 # references resolved and sag under gravity to where the same beam settled when
 # it was written as a `timoshenko_joints` or `elastic_joints` row.
@@ -108,8 +108,8 @@ function load_beam(model_name)
     write(struc_yaml, replace(STRUC_YAML, "TUBES" => TUBE_ROWS[model_name]))
     set_data_path(data_path)
     set = Settings("system.yaml")
-    sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-        system_name="yaml_bodies_$model_name", set)
+    sys, transforms = load_authoring(struc_yaml;
+        name="yaml_bodies_$model_name", set)
     return set, sys, transforms
 end
 
@@ -118,32 +118,51 @@ end
 
     @testset "Structure wiring from YAML" begin
         @test length(sys.bodies) == 2
-        @test sys.bodies[:nodeA].type == STATIC
-        @test sys.bodies[:nodeB].type == DYNAMIC
+        @test sys.bodies[:nodeA].fixed
+        @test !sys.bodies[:nodeB].fixed
         @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.tubes) == 1
         tube = sys.tubes[:tube]
-        @test tube.body_a_idx == sys.bodies[:nodeA].idx
-        @test tube.body_b_idx == sys.bodies[:nodeB].idx
-        @test (tube.diameter, tube.pressure, tube.law) == (0.1, 30000.0, :breukels2011)
-        @test tube.model isa TimoshenkoTube
-        @test tube.model.rest_length ≈ 1.0     # taken from placed geometry
-        @test tube.model.EA ≈ 10000.0
+        run = SymbolicAWEModel(set, sys)
+        tube_value(quantity) = run_value(run, :tubes, :tube, quantity)
+        @test tube.bodies[1] == KiteGeometry.row_index(sys.bodies, :nodeA)
+        @test tube.bodies[2] == KiteGeometry.row_index(sys.bodies, :nodeB)
+        @test (tube.diameter, tube.pressure, sys.materials[tube.material].name) ==
+              (0.1, 30000.0, :breukels2011)
+        @test tube.model isa TimoshenkoTubeModel
+        @test tube_value(:rest_length) ≈ 1.0     # taken from placed geometry
+        @test tube_value(:EA) ≈ 10000.0
         anchor = sys.points[:tip_anchor]
-        @test anchor.type == BODY_STATIC
-        @test anchor.body_idx == sys.bodies[:nodeB].idx
+        @test !anchor.fixed
+        @test anchor.body == KiteGeometry.row_index(sys.bodies, :nodeB)
     end
 
     @testset "a tube row without rigidities takes them from its law" begin
-        tube = Tube(:strut, 1, 2; diameter=0.1, pressure=30000.0)
+        # A row leaves its rigidities unset; the run derives them.
+        material(law) = Material(; name=law, law=String(law),
+                                 parameters=KiteGeometry.tube_law_parameters(law))
+        function run_tube(tube, law=:breukels2011)
+            bodies = [Body(; name, pos_ENU, extra_mass=1.0,
+                           extra_inertia_KA=Matrix(Diagonal([0.01, 0.01, 0.01])))
+                      for (name, pos_ENU) in ((:a, [0.0, 0.0, 0.0]), (:b, [1.0, 0.0, 0.0]))]
+            strut = system_definition("yaml_bodies_strut", set;
+                materials=[material(law)], bodies, tubes=[tube])
+            run = SymbolicAWEModel(set, strut)
+            return (; (field => run_value(run, :tubes, 1, field)
+                       for field in (:EA, :GA, :GJ, :EIy, :EIz))...)
+        end
+        model = run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1, pressure=30000.0,
+                             material=:breukels2011))
         EA, GA, EI, GJ = tube_linear_rigidities(0.05, 0.3)
-        @test (tube.model.EA, tube.model.GA, tube.model.GJ) == (EA, GA, GJ)
-        @test tube.model.EIy == tube.model.EIz == EI
-        partial = Tube(:strut, 1, 2; diameter=0.1, pressure=30000.0,
-                       model=TimoshenkoTube(EA=1.0))
-        @test (partial.model.EA, partial.model.GA) == (1.0, GA)
-        @test_throws "unknown" Tube(:strut, 1, 2; diameter=0.1, pressure=3e4,
-                                    law=:no_such_law)
+        @test (model.EA, model.GA, model.GJ) == (EA, GA, GJ)
+        @test model.EIy == model.EIz == EI
+        partial = run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1,
+                                pressure=30000.0, material=:breukels2011,
+                                model=TimoshenkoTubeModel(; EA=1.0)))
+        @test (partial.EA, partial.GA) == (1.0, GA)
+        @test_throws "unknown" run_tube(Tube(; name=:strut, bodies=(1, 2), diameter=0.1,
+                                             pressure=3e4, material=:no_such_law),
+                                        :no_such_law)
     end
 
     for model_name in ("timoshenko", "elastic")
@@ -155,9 +174,9 @@ end
             for _ in 1:400
                 next_step!(sam; dt=0.005, vsm_interval=0)
             end
-            tip = sam.state.bodies[:nodeB]
-            @test tip.pos_w ≈ SETTLED_TIP[model_name].pos_w atol=1e-8
-            @test tip.Q_b_to_w ≈ SETTLED_TIP[model_name].Q_b_to_w atol=1e-8
+            tip(quantity) = run_value(sam, :bodies, :nodeB, quantity)
+            @test tip(:pos_w) ≈ SETTLED_TIP[model_name].pos_w atol=1e-8
+            @test tip(:Q_b_to_w) ≈ SETTLED_TIP[model_name].Q_b_to_w atol=1e-8
         end
     end
 end

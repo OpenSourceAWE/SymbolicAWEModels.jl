@@ -8,8 +8,9 @@
 # simulation, because everything physical goes through
 # R_b_to_w = R_p_to_w * R_b_to_p and R_b_to_p absorbs the frame choice.
 # Regression guard for the A1-15 failure, where a ~90°-flipped frame
-# leaked into the body frame and diverged: swap in the flipped frame and
-# assert world-frame forces and a short dynamic run are unchanged.
+# leaked into the body frame and diverged: fly the wing with the frame each
+# principal-frame method picks, ~90° apart about y, and assert world-frame
+# forces and a short dynamic run are unchanged.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -19,47 +20,31 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, RIGID_DYNAMICS,
-    quaternion_to_rotation_matrix
+    quaternion_to_rotation_matrix, wing_body
 using KiteUtils
 using LinearAlgebra
 
 """
-    apply_principal_frame!(wing, S)
-
-Re-express the wing's principal frame through the axis change `S`
-(new-principal → old-principal, a proper signed permutation so the
-inertia stays diagonal).
-"""
-function apply_principal_frame!(wing, S)
-    @assert S * S' ≈ I(3) && det(S) ≈ 1.0
-    inertia_new = S' * Diagonal(collect(wing.inertia_principal)) * S
-    @assert norm(inertia_new - Diagonal(diag(inertia_new))) <
-        1e-9 * norm(diag(inertia_new))
-    wing.inertia_principal .= diag(inertia_new)
-    wing.angular_damping .=
-        diag(S' * Diagonal(collect(wing.angular_damping)) * S)
-    wing.R_b_to_p .= S' * wing.R_b_to_p
-    return nothing
-end
-
-"""
-    frame_snapshot(sys_struct)
+    frame_snapshot(sam)
 
 World-frame observables: wing attitude, aero force/moment, point
 positions and forces (tether/bridle loads), segment tensions, twists.
 """
-function frame_snapshot(sys_struct)
-    wing = sys_struct.wings[1]
-    R_b_to_w = quaternion_to_rotation_matrix(Vector(wing.Q_b_to_w))
+function frame_snapshot(sam)
+    sys = sam.definition
+    wing(quantity) = run_value(sam, :wings, 1, quantity)
+    items(collection) = eachindex(getproperty(sys, collection))
+    value(collection, quantity) =
+        [run_value(sam, collection, i, quantity) for i in items(collection)]
+    R_b_to_w = quaternion_to_rotation_matrix(Vector(wing(:Q_b_to_w)))
     return (;
         R_b_to_w,
-        aero_wrench_w = [R_b_to_w * Vector(wing.aero_force_b);
-                         R_b_to_w * Vector(wing.aero_moment_b)],
-        point_pos_w = [copy(point.pos_w) for point in sys_struct.points],
-        point_force_w = [copy(point.force) for point in sys_struct.points],
-        scalars = [[segment.force for segment in sys_struct.segments];
-                   [surface.twist for surface in sys_struct.stations];
-                   norm(sys_struct.winches[1].force)])
+        aero_wrench_w = [R_b_to_w * Vector(wing(:aero_force_b));
+                         R_b_to_w * Vector(wing(:aero_moment_b))],
+        point_pos_w = value(:points, :pos_w),
+        point_force_w = value(:points, :force),
+        scalars = [value(:segments, :force); value(:spanwise_stations, :twist);
+                   norm(run_value(sam, :winches, 1, :force))])
 end
 
 """
@@ -81,27 +66,22 @@ function compare_snapshots(snap, ref; rtol, atol_pos)
 end
 
 """
-    run_case(sam; frame=nothing, steps=10, dt=0.05)
+    run_case(sam, method; steps=10, dt=0.05)
 
-Place and init the structure, swap in the principal `frame` change when given
-(`init!` derives the frame afresh) and reset the integrator from it, take one tiny
-step so all force outputs are realised, then step the dynamics; returns the snapshots (the
-reported failure grew over time, so the run must be long enough to expose a
+Give the wing the principal frame `method` finds, place and init the structure, take one
+tiny step so all force outputs are realised, then step the dynamics; returns the snapshots
+(the reported failure grew over time, so the run must be long enough to expose a
 diverging variant).
 """
-function run_case(sam; frame=nothing, steps=10, dt=0.05)
-    wing = sam.state.wings[1]
-    place!(sam; prn=false)
+function run_case(sam, method; steps=10, dt=0.05)
+    sam.definition.bodies[wing_body(sam, 1)].principal_frame_method = method
+    place!(sam)
     init!(sam; prn=false)
-    if !isnothing(frame)
-        apply_principal_frame!(wing, frame)
-        SymbolicAWEModels.reinit!(sam, sam.integrator)
-    end
     next_step!(sam; dt=1e-5, vsm_interval=1)
-    snaps = [frame_snapshot(sam.state)]
+    snaps = [frame_snapshot(sam)]
     for _ in 1:steps
         next_step!(sam; dt, vsm_interval=1)
-        push!(snaps, frame_snapshot(sam.state))
+        push!(snaps, frame_snapshot(sam))
     end
     return snaps
 end
@@ -120,24 +100,28 @@ end
 
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "rigid_structural_geometry.yaml");
-        system_name="frame_invariance", set, vsm_set,
-        aero_mode=AeroLinearized())
-    wing = sys.wings[1]
-    @test wing.dynamics_type == RIGID_DYNAMICS
-
-    sam = SymbolicAWEModel(set, sys; transforms)
-    ref = run_case(sam)
+        name="frame_invariance", set)
+    # Yaw inertia on the wing makes its z axis the largest principal one, which
+    # EIGEN_DECOMP keeps near the body z axis and Y_ROTATION turns ~90° onto x.
+    wing_row = sys.bodies[sys.wings[1].body]
+    wing_row.extra_inertia_KA =
+        something(wing_row.extra_inertia_KA, zeros(3, 3)) + Diagonal([0.0, 0.0, 3.0])
+    aero = Dict(wing.name => AeroLinearized() for wing in sys.wings)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set, aero)
+    @test body_dynamics_type(sam, wing_body(sam, 1)) == RIGID_DYNAMICS
+    ref = run_case(sam, "EIGEN_DECOMP")
     @test norm(ref[1].aero_wrench_w) > 1.0
     @test maximum(norm, ref[1].point_force_w) > 1.0
-    R_p_to_w_ref = quaternion_to_rotation_matrix(Vector(sam.state.wings[1].Q_p_to_w))
+    R_p_to_w_ref = quaternion_to_rotation_matrix(Vector(run_value(sam, :wings, 1,
+                                                                  :Q_p_to_w)))
 
     # The 90°-about-y flip from the A1-15 failure.
     S = [0.0 0 1; 0 1 0; -1 0 0]
-    snaps = run_case(sam; frame=S)
+    snaps = run_case(sam, "Y_ROTATION")
     # Prove the variant took effect: principal attitude rotated by S.
-    R_p_to_w = quaternion_to_rotation_matrix(Vector(sam.state.wings[1].Q_p_to_w))
+    R_p_to_w = quaternion_to_rotation_matrix(Vector(run_value(sam, :wings, 1, :Q_p_to_w)))
     @test norm(R_p_to_w - R_p_to_w_ref) > 0.5
     @test norm(R_p_to_w * S' - R_p_to_w_ref) < 0.05
 

@@ -17,63 +17,54 @@ function aero_eqs!(
     pos, vel, va_point_b, height, aero_force_point_b=nothing,
     station_delta=nothing
 )
-    (; stations, wings) = s.state
     aero_subsystems = Any[]
-    length(wings) == 0 && return eqs, aero_subsystems
-
-    for wing in wings
-        wing_idx = wing.idx
-        subsys = aero_component(wing.aero, wing, s.state;
+    for (wing_idx, mode) in enumerate(s.aero)
+        body_idx = wing_body(s, wing_idx)
+        subsys = aero_component(mode, wing_dynamics(s, wing_idx), s, wing_idx;
                                 name = Symbol("aero_$(wing_idx)"), params)
         push!(aero_subsystems, subsys)
-        validate_aero_component(subsys, wing)
+        validate_aero_component(subsys, s, wing_idx)
 
-        if wing.dynamics_type == PARTICLE_DYNAMICS
-            nodes = wing_points(s.state, wing)
+        if body_dynamics_type(s, body_idx) == PARTICLE_DYNAMICS
+            nodes = wing_points(s, wing_idx)
             aero_force_point = aero_force_point_b::AbstractArray
             wiring = particle_wing_aero_wiring(s, subsys;
-                orientation = R_b_to_w[:, :, wing_idx],
-                origin = collect(wing_pos[:, wing_idx]),
-                positions = [pos[:, node.idx] for node in nodes],
-                velocities = [vel[:, node.idx] for node in nodes],
-                apparent_winds = [va_point_b[:, node.idx] for node in nodes],
-                heights = [pos[3, node.idx] for node in nodes])
+                orientation = R_b_to_w[:, :, body_idx],
+                origin = collect(wing_pos[:, body_idx]),
+                positions = [pos[:, i] for i in nodes],
+                velocities = [vel[:, i] for i in nodes],
+                apparent_winds = [va_point_b[:, i] for i in nodes],
+                heights = [pos[3, i] for i in nodes])
             eqs = [eqs
                    wiring.eqs
-                   flap_delta_eqs(wing, subsys,
-                                  surface -> station_delta[surface])
+                   flap_delta_eqs(mode, subsys, surface -> station_delta[surface])
                    collect(aero_force_b[:, wing_idx]) .~ wiring.force_b
                    collect(aero_moment_b[:, wing_idx]) .~ wiring.moment_b]
-            for (k, node) in enumerate(nodes)
+            for (k, i) in enumerate(nodes)
                 eqs = [eqs
-                       collect(aero_force_point[:, node.idx]) .~
-                           collect(subsys.point_force[:, k])]
+                       collect(aero_force_point[:, i]) .~ collect(subsys.point_force[:, k])]
             end
             continue
         end
 
         # RIGID_DYNAMICS
-        wiring = rigid_wing_aero_wiring(s, subsys, wing;
+        stations = wing_station_idxs(s, wing_idx)
+        wiring = rigid_wing_aero_wiring(s, subsys, wing_idx;
             apparent_wind_b = va_wing_b[:, wing_idx],
-            height = wing_pos[3, wing_idx],
-            frame = vec(R_b_to_w[:, :, wing_idx]),
-            omega_b = ω_b[:, wing_idx],
-            twist_angles = [twist_angle[stations[gidx].idx]
-                            for gidx in wing.station_idxs],
-            twist_rates = [twist_ω[stations[gidx].idx]
-                           for gidx in wing.station_idxs])
+            height = wing_pos[3, body_idx],
+            frame = vec(R_b_to_w[:, :, body_idx]),
+            omega_b = ω_b[:, body_idx],
+            twist_angles = [twist_angle[station_idx] for station_idx in stations],
+            twist_rates = [twist_ω[station_idx] for station_idx in stations])
         eqs = [eqs
                wiring.eqs
                collect(aero_force_b[:, wing_idx]) .~ wiring.force_b
                collect(aero_moment_b[:, wing_idx]) .~ wiring.moment_b]
-        for (station_pos, gidx) in enumerate(wing.station_idxs)
-            station = stations[gidx]
-            station_aero_driven(station) || continue
+        for (station_pos, station_idx) in enumerate(stations)
+            station_aero_driven(s, station_idx) || continue
             eqs = [eqs
-                   station_aero_moment[station.idx] ~
-                       wiring.twist_moments[station_pos]]
+                   station_aero_moment[station_idx] ~ wiring.twist_moments[station_pos]]
         end
-
     end
     return eqs, aero_subsystems
 end

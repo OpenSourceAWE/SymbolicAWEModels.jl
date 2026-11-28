@@ -7,7 +7,7 @@ CurrentModule = SymbolicAWEModels
 The internals of the [`KernelBackend`](@ref): the vendored ModelingToolkit codegen
 that turns one component into a compiled kernel, the runtime that schedules those
 kernels over gather/scatter buffers, and the assembler that builds a
-[`SystemStructure`](@ref) into them. Not part of the public API.
+`SystemDefinition` into them. Not part of the public API.
 
 ## Kernel backend — vendored codegen
 
@@ -42,12 +42,12 @@ SymbolicAWEModels.KernelCodegen._insert_sorted!
 SymbolicAWEModels.KernelCodegen.get_alias
 SymbolicAWEModels.KernelCodegen.dependency_indices
 SymbolicAWEModels.KernelCodegen._resolved_reads
-SymbolicAWEModels.KernelCodegen._all_dependencies
 ```
 
 ## Kernel backend — runtime
 
 ```@docs
+SymbolicAWEModels.KernelParameter
 SymbolicAWEModels.SlotMap
 SymbolicAWEModels.group_name
 SymbolicAWEModels.slots
@@ -85,6 +85,8 @@ SymbolicAWEModels.CallableGroup
 SymbolicAWEModels.group_callables
 SymbolicAWEModels.sync_callables!
 SymbolicAWEModels.KernelParamSync
+SymbolicAWEModels.reader_class
+SymbolicAWEModels.path_element
 SymbolicAWEModels.KernelInitialSync
 SymbolicAWEModels.KernelBuffers
 SymbolicAWEModels.KernelRHS
@@ -168,6 +170,7 @@ SymbolicAWEModels.small_earth_frame
 SymbolicAWEModels.frame_velocity
 SymbolicAWEModels.damping_base_position
 SymbolicAWEModels.WingNodePoint
+SymbolicAWEModels.wing_frame_damping
 SymbolicAWEModels.ParticleWingAero
 SymbolicAWEModels.WagnerLag
 SymbolicAWEModels.AeroInflowPoint
@@ -219,6 +222,7 @@ SymbolicAWEModels.ElasticTubeComponent
 SymbolicAWEModels.TimoshenkoTubeComponent
 SymbolicAWEModels.PointRole
 SymbolicAWEModels.classify_points
+SymbolicAWEModels.point_wing_body
 SymbolicAWEModels.pulley_point_index
 SymbolicAWEModels.SegmentRole
 SymbolicAWEModels.classify_segments
@@ -233,6 +237,7 @@ SymbolicAWEModels.add_segment!
 SymbolicAWEModels.add_body!
 SymbolicAWEModels.add_kinematic_body!
 SymbolicAWEModels.wire_kinematic_body!
+SymbolicAWEModels.reads_wing_frame
 SymbolicAWEModels.wire_wing_frame!
 SymbolicAWEModels.wire_damping_base!
 SymbolicAWEModels.add_ride_point!
@@ -281,13 +286,9 @@ SymbolicAWEModels.StationReadout
 SymbolicAWEModels.wing_aero_readouts
 SymbolicAWEModels.station_readouts
 SymbolicAWEModels.observed_slots
-SymbolicAWEModels.inflow_slots
-SymbolicAWEModels.mass_slot
-SymbolicAWEModels.va_frame_body
 SymbolicAWEModels.drag_source
 SymbolicAWEModels.copy_slots!
 SymbolicAWEModels.KernelControlSetter
-SymbolicAWEModels.write_total_mass!
 SymbolicAWEModels.segment_load_terms
 SymbolicAWEModels.segment_nonlinear_force
 SymbolicAWEModels.workload_fixture

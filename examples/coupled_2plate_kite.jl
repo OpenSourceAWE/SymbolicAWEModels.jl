@@ -34,12 +34,12 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 set.g_earth = 0.0
 
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name=MODEL_NAME, set, vsm_set)
+sys, transforms = load_authoring(struc_yaml;
+    name=MODEL_NAME, set)
 sys.winches[:main_winch].brake = true
-sam = SymbolicAWEModel(set, sys; transforms)
-l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
-l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+rest_left = run_value(sam, :segments, :kcu_steering_left, :rest_length)
+rest_right = run_value(sam, :segments, :kcu_steering_right, :rest_length)
 init!(sam; remake=false, remake_vsm=false)
 find_steady_state!(sam; dt=0.05)
 
@@ -54,10 +54,8 @@ elapsed = @elapsed for step in 1:n_steps
     t = step * dt
     ramp = clamp(t / RAMP_TIME, 0.0, 1.0)
     steer = STEERING_MAGNITUDE * ramp
-    sam.sys_struct.segments[:kcu_steering_left].l0 =
-        l0_left - steer
-    sam.sys_struct.segments[:kcu_steering_right].l0 =
-        l0_right + steer
+    set_run_value!(sam, :segments, :kcu_steering_left, :rest_length, rest_left - steer)
+    set_run_value!(sam, :segments, :kcu_steering_right, :rest_length, rest_right + steer)
 
     next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
     update_sys_state!(sys_state, sam)
@@ -75,6 +73,6 @@ sim_time = n_steps * dt
 
 save_log(logger, "nonlin_vsm")
 syslog = load_log("nonlin_vsm")
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam)
 display(scene)
 @info "Done (nonlinear VSM, interval=$VSM_INTERVAL)"

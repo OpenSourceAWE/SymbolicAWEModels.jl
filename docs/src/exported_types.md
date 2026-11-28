@@ -4,7 +4,7 @@ CurrentModule = SymbolicAWEModels
 
 ## Introduction
 
-The [`SystemStructure`](@ref) provides a flexible framework for defining mechanical
+The `SystemDefinition` provides a flexible framework for defining mechanical
 systems using discrete mass-spring-damper models. It serves as input to the
 [`SymbolicAWEModel`](@ref), which automatically generates symbolic differential
 algebraic equations from the structural definition.
@@ -17,7 +17,6 @@ See [Building a system using Julia](tutorial_julia.md) and
 ```@docs
 DynamicsType
 WingType
-SegmentType
 PrincipalFrameMethod
 ```
 
@@ -50,7 +49,7 @@ CascadedLengthWinch
 
 ```@docs
 SymbolicAWEModel
-SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
+SymbolicAWEModel(::Union{Nothing, Settings}, ::SystemDefinition)
 ```
 
 ## Backends
@@ -66,49 +65,23 @@ default_backend!
 
 ## System structure and components
 
+A system is built from KiteGeometry's keyword rows (`Point`, `Segment`, `SpanwiseStation`,
+`Pulley`, `Tether`, `Winch`, `Wing`, `Body`, `Tube`, `Material`), each with one of the
+models below in its `model` column. Every model field defaults to `nothing`, the run's
+default. [`WingModel`](@ref) and [`BodyModel`](@ref) are documented in
+[Private API — definition](private_definition.md).
+
 ```@docs
-SystemStructure
-SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, bodies, tubes)
-Point
-Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
-Station
-Station(name, points, type::DynamicsType, moment_frac; damping=50.0)
-Segment
-Segment(name, set, point_i, point_j; l0, compression_frac, compression_damping_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
-Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol}, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
-Pulley
-Pulley(name, segment_i, segment_j, type::DynamicsType; efficiency, damping, brake, friction_epsilon)
-Tether
-Tether(name, segments::AbstractVector, stretched_length; start_point, end_point, tether_force, stretch_frac)
-Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, compression_frac, compression_damping_frac, tether_force, stretch_frac)
-Winch
-Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
-Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction, viscous_coefficient, inertia_total; winch_point, init_vel, brake)
-AbstractWing
-RigidWing
-ParticleWing
-Wing
+system_definition(::AbstractString, ::Any)
+PointModel
+StationModel
+SegmentSpring
+PulleyModel
+WinchModel
 VSMEngine
-VSMWing
-PlateWing
 create_plate_interpolations
-Body
-Body(name; extra_mass, inertia_principal, pos, vel, Q_b_to_w, ω_b, com_offset_b, R_b_to_p, angular_damping, ext_force_w, ext_moment_b)
-Tube
-Tube(name, body_a, body_b; diameter, pressure, law, model, anchor_a, anchor_b)
-AbstractTubeModel
-TimoshenkoTube
-TimoshenkoTube(; EA, GA, GJ, EIy, EIz, shear_coeff, damping)
-ElasticTube
-ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping)
-```
-
-## Indexing
-
-```@docs
-NamedCollection
-NameRef
-WeightedRefPoints
+TimoshenkoTubeModel
+ElasticTubeModel
 ```
 
 ## Inflated-tube rigidity
@@ -122,7 +95,6 @@ TUBE_POISSON_RATIO
 ## System state
 
 ```@docs
-SystemState
 SysState
 update_sys_state!
 update_from_sysstate!

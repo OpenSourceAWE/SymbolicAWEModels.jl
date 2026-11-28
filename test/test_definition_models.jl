@@ -30,7 +30,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         system = load_kite(dynamics)
         le_left = named(system.points, "le_left")
         @test le_left.model isa SymbolicAWEModels.PointModel
-        @test le_left.model.type == point_type
+        @test string(SymbolicAWEModels.point_type(le_left)) == point_type
         @test le_left.model.body_frame_damping == 10.0
         @test le_left.model.world_frame_damping == 0.0
         @test le_left.area == 0.0
@@ -64,7 +64,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
             """)
         body = named(first(load_authoring(file; set)).bodies, "hub")
         @test body.model isa SymbolicAWEModels.BodyModel
-        @test body.model.type == "STATIC"
+        @test body.fixed
     end
 
     @testset "a point's damping reads as one number or one per axis" begin
@@ -109,7 +109,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         @test tube.stiffness_bending == 100.0
         @test tube.anchor_a == [0.5, 0.0, 0.0]
         @test only(system.points).anchor_b == zeros(3)
-        @test named(system.bodies, "nodeA").model.type == "STATIC"
+        @test named(system.bodies, "nodeA").fixed
         tube = only(load_beam("""
               headers: [name, bodies, diameter, pressure, law, EA, damping]
               data:
@@ -140,9 +140,56 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
               data:
                 - [strut, [nodeA, nodeB], 0.1, 30000.0, breukels2011, 10000.0]
             """)
-        sys, _ = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
-                                           aero_mode=AeroNone(), prn=false)
+        sys, _ = load_authoring(file; name="tube_rider", set)
         rider = sys.points[:rider]
-        @test rider.tube_idx == sys.tubes[:strut].idx
+        @test rider.tube == findfirst(tube -> tube.name == :strut, sys.tubes)
     end
+
+    @testset "a segment's damping is resolved from its row and material" begin
+        material = KiteGeometry.Material(; name=:line, law="linear",
+            parameters=Dict{String, Any}("density" => 724.0, "youngs_modulus" => 1.0e9))
+        spring_row(; columns...) = KiteGeometry.Segment(; name=:line_seg, points=(1, 2),
+            rest_length=1.0, diameter=0.002, material=1,
+            model=SymbolicAWEModels.SegmentSpring(; columns...))
+        stiffness = KiteGeometry.unit_stiffness(material, 0.002)
+        damping(set=(; rel_damping=0.1); columns...) =
+            SymbolicAWEModels.segment_unit_damping(spring_row(; columns...), material, set)
+        @test damping(; unit_damping=3.0) == 3.0
+        @test damping(; damping_per_stiffness=0.002) == 0.002 * stiffness
+        @test damping() == 0.1 * stiffness
+        @test_throws "not both" damping(; unit_damping=3.0, damping_per_stiffness=0.002)
+        @test_logs (:warn, r"no rel_damping") damping((; rel_damping=0.0))
+        law = KiteGeometry.Material(; name=:law, law="unit_stiffness",
+            parameters=Dict{String, Any}("density" => 724.0, "unit_stiffness" => identity))
+        @test_throws "give `unit_damping` for a nonlinear" (
+            SymbolicAWEModels.segment_unit_damping(spring_row(), law, (; rel_damping=0.1)))
+    end
+
+    @testset "a run reads a segment's compression from its row, else 0.1 and 1.0" begin
+        points = [Point(; name=:a, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+                  Point(; name=:b, pos_ENU=[0.0, 0.0, 1.0], extra_mass=1.0)]
+        materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+        segment(name; columns...) = KiteGeometry.line_segment(name, (:a, :b), set,
+            materials; diameter=0.002, model=SegmentSpring(; columns...))
+        sys = system_definition("compression", set; points, materials,
+            segments=[segment(:plain), segment(:soft; compression_frac=0.2)])
+        sam = SymbolicAWEModel(set, sys)
+        @test run_value(sam, :segments, :plain, :compression_frac) == 0.1
+        @test run_value(sam, :segments, :plain, :compression_damping_frac) == 1.0
+        @test run_value(sam, :segments, :soft, :compression_frac) == 0.2
+    end
+
+    @testset "a run refuses a segment that gives no diameter" begin
+        points = [Point(; name=:a, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+                  Point(; name=:b, pos_ENU=[0.0, 0.0, 1.0], extra_mass=1.0)]
+        material = KiteGeometry.Material(; name=:line, law="linear",
+            parameters=Dict{String, Any}("density" => 724.0, "youngs_modulus" => 1.0e9))
+        segments = [KiteGeometry.Segment(; name=:bare, points=(:a, :b), rest_length=1.0,
+                                         material=:line, model=SegmentSpring())]
+        sys = system_definition("no_diameter", set; points, segments,
+                                materials=[material])
+        @test_throws "gives no diameter" run_value(SymbolicAWEModel(set, sys), :segments,
+                                                   :bare, :diameter)
+    end
+
 end

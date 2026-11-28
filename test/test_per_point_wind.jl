@@ -90,19 +90,20 @@ zeroes the points' own drag area so only the segment's tether drag acts.
 """
 function stepped_state(set, yaml_path, wind_mode; steps = 40, dt = 0.05,
                        winds = nothing, point_drag = true)
-    sys, transforms = load_sys_struct_from_yaml(yaml_path;
-        system_name = "per_point_wind_test", set)
+    sys, transforms = load_authoring(yaml_path;
+        name = "per_point_wind_test", set)
     sam = SymbolicAWEModel(set, sys; transforms, wind_mode)
     test_init!(sam; prn=false)
-    point_drag || foreach(point -> (point.area = 0.0), sam.sys_struct.points)
+    points = eachindex(sam.definition.points)
+    point_drag || foreach(i -> set_run_value!(sam, :points, i, :area, 0.0), points)
     for _ in 1:steps
-        isnothing(winds) || for (point, wind) in zip(sam.state.points, winds)
-            point.wind_vec .= wind
+        isnothing(winds) || for (i, wind) in zip(points, winds)
+            set_run_value!(sam, :points, i, :wind_vec, wind)
         end
         next_step!(sam; dt, vsm_interval=0)
     end
-    return [copy(point.pos_w) for point in sam.state.points],
-           [copy(point.vel_w) for point in sam.state.points]
+    return [run_value(sam, :points, i, :pos_w) for i in points],
+           [run_value(sam, :points, i, :vel_w) for i in points]
 end
 
 @testset "Per-point wind tests" begin

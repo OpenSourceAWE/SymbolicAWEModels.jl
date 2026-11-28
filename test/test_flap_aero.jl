@@ -9,7 +9,7 @@
 # station carries δ = the LE→TE hinge angle into the (α, δ) polars. Putting a
 # spanwise moment on the TE body deflects the flap — δ changes and the live RHS
 # per-panel force responds (δ enters cl/cd/cm every step). Runs both the lumped
-# `ElasticTube` hinge and the distributed `TimoshenkoTube` beam, with a δ-swept
+# elastic-tube hinge and the distributed Timoshenko-tube beam, with a δ-swept
 # POLAR_MATRICES polar so the flap actually bites.
 
 using Pkg
@@ -22,7 +22,8 @@ using Test
 using SymbolicAWEModels
 const S = SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, SimFloat, has_flap, has_point_flap,
-    station_deltas, point_flap_delta_expression
+    station_deltas, point_flap_angle, point_flap_delta_expression, flap_rest_delta,
+    initial_rotation, item_index
 using KiteUtils, LinearAlgebra
 
 function write_delta_swept_fixture(data_path)
@@ -157,36 +158,50 @@ function build_flap_model(data_path, tube_block; point_flap=false, kwargs...)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_flap_geometry.yaml");
-        system_name="flap_press_test", set, vsm_set, aero_mode=AeroPressure())
-    return SymbolicAWEModel(set, sys; transforms, kwargs...), sys
+        name="flap_press_test", set)
+    aero = Dict(wing.name => AeroPressure() for wing in sys.wings)
+    return SymbolicAWEModel(set, sys; transforms, aero, kwargs..., vsm_set), sys
 end
 
-flap_angle(sam) = station_deltas(sam.state)[sam.state.stations[:flap].idx]
+flap_angle(sam) = station_deltas(sam)[item_index(sam, :spanwise_stations, :flap)]
 
 @testset "point flap geometry" begin
-    station = S.Station(:s, Symbol[], KINEMATIC, 0.0;
-                        flap_points=[1, 2, 3], flap_axis=[0.0, 1.0, 0.0])
+    tmpdir = mktempdir()
+    data_path = joinpath(tmpdir, "2plate_kite")
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
+    write(joinpath(data_path, "particle_flap_geometry.yaml"),
+          struct_yaml(ELASTIC_TUBE; point_flap=true))
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    sys, transforms = load_authoring(
+        joinpath(data_path, "particle_flap_geometry.yaml"); name="flap_geometry", set)
+    # Bend the chord at the hinge, so the flap rests at an angle.
+    sys.points[:mid_center].pos_ENU = collect(sys.points[:mid_center].pos_ENU) .+
+        initial_rotation(sys.wings[:main_wing]) * [0.0, 0.0, 0.05]
+    sam = SymbolicAWEModel(nothing, sys; transforms)
+    station = item_index(sam, :spanwise_stations, :flap)
     frame = Matrix{Float64}(LinearAlgebra.I, 3, 3)
     fore = [0.0, 0.0, 0.0]
     hinge = [0.5, 0.0, 0.0]
     aft_at(angle) = hinge .+ 0.5 .* [cos(angle), 0.0, -sin(angle)]
     for angle in (0.0, deg2rad(7.5), -deg2rad(12.0), deg2rad(35.0))
-        @test point_flap_delta_expression(station, fore, hinge, aft_at(angle),
-                                          frame) ≈ angle
+        @test point_flap_angle(sam, station, fore, hinge, aft_at(angle), frame) ≈ angle
     end
     # positive δ is a trailing edge deflected down, which is the polars' own sign
-    @test point_flap_delta_expression(station, fore, hinge,
-        hinge .+ [0.5, 0.0, -0.05], frame) > 0
+    @test point_flap_angle(sam, station, fore, hinge, hinge .+ [0.5, 0.0, -0.05],
+                           frame) > 0
     # the rest angle is subtracted, so a cambered chord still reads zero at rest
-    station.flap_rest_delta = deg2rad(5.0)
-    @test point_flap_delta_expression(station, fore, hinge, aft_at(deg2rad(5.0)),
-                                      frame) ≈ 0 atol=1e-12
+    @test abs(flap_rest_delta(sam, station)) > deg2rad(1)
+    rest = [collect(sys.points[name].pos_ENU) for name in (:le_center, :mid_center,
+                                                           :te_center)]
+    R_wing = initial_rotation(sys.wings[:main_wing])
+    @test point_flap_delta_expression(sam, station, rest..., R_wing) ≈ 0 atol=1e-12
     # a segment out of the airfoil plane is projected onto it, not refused
-    @test point_flap_delta_expression(station, fore, hinge,
-        aft_at(deg2rad(5.0)) .+ [0.0, 0.3, 0.0], frame) ≈ 0 atol=1e-12
-    println("point flap geometry: OK")
+    @test point_flap_delta_expression(sam, station, rest[1], rest[2],
+        rest[3] .+ R_wing * [0.0, 0.3, 0.0], R_wing) ≈ 0 atol=1e-12
+    rm(tmpdir; recursive=true)
 end
 
 @testset "flap + continuous pressure aero" begin
@@ -198,10 +213,9 @@ end
             cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
             write_delta_swept_fixture(data_path)
             sam, sys = build_flap_model(data_path, tube_block)
-            wing = sam.state.wings[1]; mode = wing.aero
-            te = sys.bodies[:te_body]
+            mode = sam.aero[1]
             @test mode isa AeroPressure
-            @test has_flap(sys.stations[:flap])
+            @test has_flap(sys.spanwise_stations[:flap])
             @test any(!=(0), mode.panel_station)
 
             test_init!(sam; prn=false)
@@ -209,9 +223,9 @@ end
             # hinge. Compare a +moment settle vs a −moment settle: δ swings, and the
             # live RHS aero force responds because δ enters cl/cd/cm every step.
             function settle_with_moment(moment)
-                te.ext_moment_b .= [0.0, moment, 0.0]
+                set_run_value!(sam, :bodies, :te_body, :ext_moment_b, [0.0, moment, 0.0])
                 for _ in 1:700; next_step!(sam; dt=0.005, vsm_interval=1); end
-                return flap_angle(sam), copy(wing.aero_force_b)
+                return flap_angle(sam), run_value(sam, :wings, 1, :aero_force_b)
             end
             δ0, F0 = settle_with_moment(0.0)     # aero-only flap equilibrium
             δ1, F1 = settle_with_moment(25.0)    # a strong spanwise moment on the TE
@@ -238,18 +252,17 @@ end
     write_delta_swept_fixture(data_path)
     sam, sys = build_flap_model(data_path, ELASTIC_TUBE;
                                 point_flap=true, backend=KernelBackend())
-    wing = sam.state.wings[1]
-    station = sys.stations[:flap]
+    station = sys.spanwise_stations[:flap]
     @test has_point_flap(station)
-    @test isempty(station.flap_body_idxs)
-    @test any(!=(0), wing.aero.panel_station)
+    @test isnothing(station.flap_bodies)
+    @test any(!=(0), sam.aero[1].panel_station)
 
     test_init!(sam; prn=false)
     @test abs(flap_angle(sam)) < deg2rad(1)   # the as-placed pose is δ = 0
     function settle_with_moment(moment)
-        sys.bodies[:te_body].ext_moment_b .= [0.0, moment, 0.0]
+        set_run_value!(sam, :bodies, :te_body, :ext_moment_b, [0.0, moment, 0.0])
         for _ in 1:700; next_step!(sam; dt=0.005, vsm_interval=1); end
-        return flap_angle(sam), copy(wing.aero_force_b)
+        return flap_angle(sam), run_value(sam, :wings, 1, :aero_force_b)
     end
     δ0, F0 = settle_with_moment(0.0)
     δ1, F1 = settle_with_moment(25.0)

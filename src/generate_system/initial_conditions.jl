@@ -7,7 +7,7 @@
     InitialEntry
 
 One initial-condition binding: the scalar state-variable terms `vars` (e.g.
-`[pos[1,i], pos[2,i], pos[3,i]]`) and a `read(sys_struct)` returning their live
+`[pos[1,i], pos[2,i], pos[3,i]]`) and a `read(sam)` returning their live
 value (scalar or vector, element-aligned with `vars`).
 """
 struct InitialEntry
@@ -22,23 +22,23 @@ Build-time record of every `bind_initial!` call. Transient: it lives only during
 equation generation and drives `build_initial_sync` after compilation.
 """
 mutable struct InitialRegistry
-    sys_struct::SystemState
+    "the run the initial conditions are read from"
+    sam::SymbolicAWEModel
     entries::Vector{InitialEntry}
 end
-InitialRegistry(sys_struct::SystemState) =
-    InitialRegistry(sys_struct, InitialEntry[])
+InitialRegistry(sam::SymbolicAWEModel) = InitialRegistry(sam, InitialEntry[])
 
 # ==================== BUILD-TIME VIEW ==================== #
 
 """
 Top-level `initial` view wrapping an [`InitialRegistry`](@ref).
-`initial.points[i].pos_w` mirrors `sys_struct.points[i].pos_w`.
+`initial.points[i].pos_w` reads `run_value(sam, :points, i, :pos_w)`.
 """
 struct InitialView
     reg::InitialRegistry
 end
 
-"""A partial path into `sys_struct` identifying an initial-condition field."""
+"""A partial path into the run identifying an initial-condition field."""
 struct InitialPath
     reg::InitialRegistry
     path::Tuple
@@ -60,7 +60,7 @@ Base.getproperty(view::InitialPath, sym::Symbol) =
 """
     bind_initial!(initial_path, state_var) -> Vector{Pair}
 
-Record that struct field `initial_path` (e.g. `initial.points[i].pos_w`) provides
+Record that the run's value at `initial_path` (e.g. `initial.points[i].pos_w`) provides
 the initial condition for `state_var` (a scalar state term, a collected vector,
 e.g. `pos[:, i]`, or a matrix, e.g. `R_b_to_w[:, :, i]` — arrays are flattened
 column-major and must align element-wise with the read value). Returns the constant
@@ -70,7 +70,7 @@ which makes MTK expose a settable `Initial(state_var)`.
 function bind_initial!(path_view::InitialPath, state_var)
     reg = getfield(path_view, :reg)
     path = getfield(path_view, :path)
-    value = read_path(reg.sys_struct, path)
+    value = read_path(reg.sam, path)
     vars = state_var isa AbstractArray ? vec(collect(state_var)) : Any[state_var]
     vals = value isa AbstractArray ? vec(collect(value)) : Any[value]
     length(vars) == length(vals) || error(
@@ -85,15 +85,16 @@ end
 """
     ElementReader(base, index)
 
-Serialisable reader returning the `index`-th element of `base(sys_struct)`. Used
-to map an array-valued struct field onto per-element `Initial` parameters
+Serialisable reader returning the `index`-th element of `base(sam)`. Used
+to map an array-valued run quantity onto per-element `Initial` parameters
 (scalars are indexed at 1, which is a no-op).
 """
 struct ElementReader{R}
     base::R
     index::Int
 end
-(reader::ElementReader)(sys_struct) = reader.base(sys_struct)[reader.index]
+(reader::ElementReader)(sam) = reader.base(sam)[reader.index]
+path_reader(reader::ElementReader) = path_reader(reader.base)
 
 """
     InitialSync
@@ -169,9 +170,8 @@ Operating-point pairs for every compiled parameter of `sys` that has no default,
 matched by [`normalize_param_name`](@ref) to a value in `defaults`. Restores
 values for the aliasing artefacts (e.g. `tether_len[1]#0`, from a single-segment
 tether's `l0`↔`tether_len` alias) that ModelingToolkitBase ≥ 1.58 leaves
-`missing` at eager `MTKParameters` construction — the old raw-variable default no
-longer reaches the renamed parameter. `sync_params!`/`sync_initial!` overwrite
-these each `reinit!`, so the value only needs to be a consistent placeholder.
+`missing` at eager `MTKParameters` construction. `sync_params!`/`sync_initial!`
+overwrite these each `reinit!`, so the value only needs to be a consistent placeholder.
 """
 function missing_param_defaults(sys, defaults)
     valmap = Dict{String, Any}()
@@ -189,24 +189,24 @@ function missing_param_defaults(sys, defaults)
 end
 
 """
-    sync_initial!(sync, prob, sys_struct)
+    sync_initial!(sync, prob, sam)
 
-Copy every bound initial condition from the live `sys_struct` onto `prob` — both
+Copy every bound initial condition from the run `sam` onto `prob` — both
 the `Initial` parameters and the directly-set unknown `u0` values. Must run
 before a fresh `init`/`solve` (a `reinit!` with `reinit_dae` does not re-read
 them). A no-op when there are none.
 """
-sync_initial!(::Nothing, prob, sys_struct) = nothing
-function sync_initial!(sync::InitialSync, prob, sys_struct)
+sync_initial!(::Nothing, prob, sam) = nothing
+function sync_initial!(sync::InitialSync, prob, sam)
     if sync.param_setter !== nothing
         @inbounds for k in eachindex(sync.param_readers)
-            sync.param_buffer[k] = sync.param_readers[k](sys_struct)
+            sync.param_buffer[k] = sync.param_readers[k](sam)
         end
         sync.param_setter(prob, sync.param_buffer)
     end
     if sync.state_setter !== nothing
         @inbounds for k in eachindex(sync.state_readers)
-            sync.state_buffer[k] = sync.state_readers[k](sys_struct)
+            sync.state_buffer[k] = sync.state_readers[k](sam)
         end
         sync.state_setter(prob, sync.state_buffer)
     end

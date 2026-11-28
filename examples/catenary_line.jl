@@ -31,25 +31,25 @@ seg_stiffness = 500.0  # EA [N]
 seg_damping   = 50.0   # [N·s]
 seg_diameter  = 0.004  # [m]
 
-points = [Point(:left, [0, 0, 5], STATIC)]
+points = [Point(; name=:left, pos_ENU=[0, 0, 5], fixed=true)]
 for i in 1:n_segments - 1
     x = i * horizontal_span / n_segments
-    push!(points, Point(Symbol("p$i"), [x, 0, 5], DYNAMIC;
-        world_frame_damping=1.0))
+    push!(points, Point(; name=Symbol("p$i"), pos_ENU=[x, 0, 5],
+                        model=PointModel(; world_frame_damping=1.0)))
 end
-push!(points, Point(:right, [horizontal_span, 0, 5], STATIC))
+push!(points, Point(; name=:right, pos_ENU=[horizontal_span, 0, 5], fixed=true))
 
-l0_seg = total_length / n_segments
-segments = Segment[]
+rest_length_seg = total_length / n_segments
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+segments = KiteGeometry.Segment[]
 for i in 1:n_segments
-    push!(segments, Segment(
-        Symbol("seg$i"), points[i].name,
-        points[i + 1].name,
-        seg_stiffness, seg_damping, seg_diameter;
-        l0=l0_seg, compression_frac=0.01))
+    push!(segments, KiteGeometry.line_segment(
+        Symbol("seg$i"), (points[i].name, points[i + 1].name), set, materials;
+        rest_length=rest_length_seg, diameter=seg_diameter, unit_stiffness=seg_stiffness,
+        model=SegmentSpring(; unit_damping=seg_damping, compression_frac=0.01)))
 end
 
-sys = SystemStructure("catenary", set; points, segments)
+sys = system_definition("catenary", set; points, segments, materials)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
@@ -66,5 +66,5 @@ end
 
 save_log(logger, "catenary_line")
 syslog = load_log("catenary_line")
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam)
 display(scene)

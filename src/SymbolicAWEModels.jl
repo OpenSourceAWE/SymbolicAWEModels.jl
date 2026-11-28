@@ -8,7 +8,6 @@ module SymbolicAWEModels
 # --- Julia Standard Library & General Utilities ---
 using Pkg
 using TOML
-using JSON
 using DocStringExtensions
 using LinearAlgebra
 using SparseArrays
@@ -26,7 +25,6 @@ using ControlSystemsBase
 using RecipesBase
 using StaticArrays
 using SymbolicIndexingInterface
-using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
 using ADTypes: AutoFiniteDiff, AutoForwardDiff
@@ -40,6 +38,8 @@ using SteadyStateDiffEq
 # --- Open Source AWE Packages ---
 using Reexport
 @reexport using KiteGeometry
+using KiteGeometry: Wing  # VortexStepMethod exports a `Wing` too
+using KiteGeometry: quaternion_to_rotation_matrix, rotation_matrix_to_quaternion
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
@@ -68,13 +68,16 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
+export system_definition
+export run_value, set_run_value!
+export PointModel, StationModel, SegmentSpring, PulleyModel, WinchModel, WingModel,
+       BodyModel
+export TimoshenkoTubeModel, ElasticTubeModel
 export segment_role
-export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
-export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
+export VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
-export NameRef, NamedCollection, WeightedRefPoints
+
 # Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
 export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law
@@ -86,7 +89,7 @@ export membrane_linear_rigidities
 export frame_quaternion, frame_quaternion_xy
 # Enums
 export DynamicsType, DYNAMIC, STATIC, BODY_STATIC, KINEMATIC
-export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+export point_type, body_type, body_dynamics_type, station_type, pulley_type
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
@@ -107,16 +110,8 @@ export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
 export reset_to_initial_pose!
-export apply_tether_init_stretched_lens!
-export update_segment_lengths!
-export apply_tether_init_forces!
-export init_pulley_lengths!
 export remake_wing_aero!
 export init_wind!
-export init_sys_struct!
-export relax_segments!
-export update_mass_properties!
-export init_rest_geometry!, init_derived_properties!
 export segment_stretch_stats
 export calc_steady_torque
 
@@ -133,10 +128,7 @@ export winch_component, is_builtin_winch, validate_winch_component
 export init_module
 export update_plot_observables!
 export animate
-export load_sys_struct_from_yaml
 export project_file
-export sys_struct_from_document
-export save_structure_document, load_structure_document
 export replay
 export record
 export plot_sphere_trajectory
@@ -163,7 +155,6 @@ Basic 3-dimensional vector, stack allocated, mutable.
 """
 const KVec3    = MVector{3, SimFloat}
 const KVec2    = MVector{2, SimFloat}
-const KVec4    = MVector{4, SimFloat}
 const MVec3    = MVector{3, Float64}  # Used by VortexStepMethod functions
 
 """
@@ -182,30 +173,29 @@ function plot_body_frame end
 function plot_aoa end
 
 """
-    plot_wing_aero!(ax, sys, wing, mode::AbstractAeroModel;
+    plot_wing_aero!(ax, sam, wing_idx, mode::AbstractAeroModel;
                     use_observables=false, geometry_obs=nothing)
 
-Render `wing`'s aero geometry into `ax`, dispatched on its aero `mode`:
-VSM modes plot their panels via VortexStepMethod's recipe, flat-plate modes
-draw their section quads in the same style (red mesh, black borders). The
-default draws nothing — add a method for a custom mode to render its own
-geometry. With `use_observables`, the plot re-reads the live structure on
-every `geometry_obs` trigger (live plots and replay). Returns the plot
-object, or `nothing` when nothing was drawn. Defined in the Makie extension.
+Render the aero geometry of wing `wing_idx` of the run `sam` into `ax`, dispatched on its
+aero `mode`: VSM modes plot their panels via VortexStepMethod's recipe, flat-plate
+modes draw their section quads in the same style (red mesh, black borders). The default
+draws nothing — add a method for a custom mode to render its own geometry. With
+`use_observables`, the plot re-reads the live run on every `geometry_obs` trigger (live
+plots and replay). Returns the plot object, or `nothing` when nothing was drawn. Defined
+in the Makie extension.
 """
 function plot_wing_aero! end
 
 """
-    update_wing_aero_plot!(wing, mode::AbstractAeroModel)
+    update_wing_aero_plot!(sam, wing_idx, mode::AbstractAeroModel)
 
-Per-frame update of `wing`'s aero plot, dispatched on its aero `mode`.
-Default no-op; VSM modes push the current pose into the panel-mesh
+Per-frame update of the aero plot of wing `wing_idx` of the run `sam`, dispatched on its
+aero `mode`. Default no-op; VSM modes push the current pose into the panel-mesh
 observables. Modes drawn through the geometry observable (flat-plate quads)
 need no update here. Defined in the Makie extension.
 """
 function update_wing_aero_plot! end
 function find_steady_state! end
-function make_lin_sys_state end
 
 function __init__()
     register_definition_models()
@@ -223,6 +213,7 @@ include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
+include("system_structure/utilities.jl")
 include("model_management.jl")
 include("definition_loader.jl")
 include("linearize.jl")
@@ -250,33 +241,6 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
-
-# rotate a 3d vector around the x axis in the yz plane - following the right hand rule
-function rotate_around_x(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = vec[1]
-    result[2] = cos(angle) * vec[2] - sin(angle) * vec[3]
-    result[3] = sin(angle) * vec[2] + cos(angle) * vec[3]
-    result
-end
-
-# rotate a 3d vector around the y axis in the xz plane - following the right hand rule
-function rotate_around_y(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = cos(angle) * vec[1] + sin(angle) * vec[3]
-    result[2] = vec[2]
-    result[3] = -sin(angle) * vec[1] + cos(angle) * vec[3]
-    result
-end
-
-# rotate a 3d vector around the z axis in the yx plane - following the right hand rule
-function rotate_around_z(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = cos(angle) * vec[1] - sin(angle) * vec[2]
-    result[2] = sin(angle) * vec[1] + cos(angle) * vec[2]
-    result[3] = vec[3]
-    result
-end
 
 """
     copy_examples()

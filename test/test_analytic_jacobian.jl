@@ -132,8 +132,8 @@ function jacobian_test_model(; analytic_jacobian)
     write(joinpath(tmpdir, "system.yaml"), "system:\n  sim_settings: settings.yaml\n")
     set_data_path(tmpdir)
     set = Settings("system.yaml")
-    sys, transforms = load_sys_struct_from_yaml(joinpath(tmpdir, "jacobian_geometry.yaml");
-                                                system_name="jacobian_test", set=set)
+    sys, transforms = load_authoring(joinpath(tmpdir, "jacobian_geometry.yaml");
+                                                name="jacobian_test", set=set)
     sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend())
     init!(sam; prn=false, remake=true, analytic_jacobian)
     next_step!(sam; dt=0.05)
@@ -158,10 +158,11 @@ function continuous_wing_model()
     for vsm_wing_settings in vsm_set.wings
         vsm_wing_settings.spanwise_panel_distribution = VortexStepMethod.BILLOWING
     end
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero())
-    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend())
+        name="continuous_test", set)
+    aero = Dict(wing.name => ContinuousAero() for wing in sys.wings)
+    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend(), vsm_set, aero)
     init!(sam; prn=false, analytic_jacobian=true)
     next_step!(sam; dt=0.05)
     return sam

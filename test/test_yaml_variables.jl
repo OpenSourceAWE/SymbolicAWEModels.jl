@@ -147,52 +147,55 @@ end
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    sys, _ = load_sys_struct_from_yaml(
+    sys, _ = load_authoring(
         write_yaml(tmpdir, "variables.yaml", VARIABLES_YAML);
-        system_name="variables_test", set)
+        name="variables_test", set)
 
     @test sys.points[:anchor].pos_ENU ≈ [1.0, 2.0, 0.0]
     @test sys.points[:top].pos_ENU ≈ [1.0, 2.0, -10.0]
 
     # A multi-variable fills the three columns at its position
-    thin_line = sys.segments[:thin_line]
-    thick_line = sys.segments[:thick_line]
-    @test thin_line.unit_stiffness ≈ 55.0e9 * π * 0.0005^2
-    @test thin_line.unit_damping ≈ 0.00077 * thin_line.unit_stiffness
-    @test thin_line.density ≈ 724.0
-    @test thin_line.compression_frac ≈ 0.01
+    sam = SymbolicAWEModel(set, sys)
+    segment(name, quantity) = run_value(sam, :segments, name, quantity)
+    @test segment(:thin_line, :unit_stiffness) ≈ 55.0e9 * π * 0.0005^2
+    @test segment(:thin_line, :unit_damping) ≈
+        0.00077 * segment(:thin_line, :unit_stiffness)
+    @test segment(:thin_line, :density) ≈ 724.0
+    @test segment(:thin_line, :compression_frac) ≈ 0.01
 
     # The same material on a thicker segment is four times as stiff
-    @test thick_line.unit_stiffness ≈ 4 * thin_line.unit_stiffness
-    @test thick_line.unit_damping ≈ 4 * thin_line.unit_damping
+    @test segment(:thick_line, :unit_stiffness) ≈
+        4 * segment(:thin_line, :unit_stiffness)
+    @test segment(:thick_line, :unit_damping) ≈ 4 * segment(:thin_line, :unit_damping)
 
     # A variable may name another variable
-    @test sys.segments[:plain_line].compression_frac ≈ 0.01
-    @test sys.segments[:plain_line].unit_stiffness ≈ 5.0e9 * π * 0.001^2
+    @test segment(:plain_line, :compression_frac) ≈ 0.01
+    @test segment(:plain_line, :unit_stiffness) ≈ 5.0e9 * π * 0.001^2
 
     # In a dict row the fields are merged, without overriding the row
-    dict_sys, _ = load_sys_struct_from_yaml(
+    dict_sys, _ = load_authoring(
         write_yaml(tmpdir, "dict_row.yaml", DICT_ROW_YAML);
-        system_name="variables_test", set)
-    dict_line = dict_sys.segments[:dict_line]
-    @test dict_line.unit_stiffness ≈ 55.0e9 * π * 0.0005^2
-    @test dict_line.unit_damping ≈ 0.001 * dict_line.unit_stiffness
-    @test dict_line.density ≈ 724.0
+        name="variables_test", set)
+    dict_sam = SymbolicAWEModel(set, dict_sys)
+    dict_line(quantity) = run_value(dict_sam, :segments, :dict_line, quantity)
+    @test dict_line(:unit_stiffness) ≈ 55.0e9 * π * 0.0005^2
+    @test dict_line(:unit_damping) ≈ 0.001 * dict_line(:unit_stiffness)
+    @test dict_line(:density) ≈ 724.0
 
-    @test_throws ErrorException load_sys_struct_from_yaml(
+    @test_throws ErrorException load_authoring(
         write_yaml(tmpdir, "cyclic.yaml", CYCLIC_YAML);
-        system_name="variables_test", set)
-    @test_throws ErrorException load_sys_struct_from_yaml(
+        name="variables_test", set)
+    @test_throws ErrorException load_authoring(
         write_yaml(tmpdir, "shadow.yaml", SHADOW_YAML);
-        system_name="variables_test", set)
-    @test_throws ErrorException load_sys_struct_from_yaml(
+        name="variables_test", set)
+    @test_throws ErrorException load_authoring(
         write_yaml(tmpdir, "mismatch.yaml", MISMATCH_YAML);
-        system_name="variables_test", set)
-    @test_throws ErrorException load_sys_struct_from_yaml(
+        name="variables_test", set)
+    @test_throws ErrorException load_authoring(
         write_yaml(tmpdir, "materials.yaml", MATERIALS_YAML);
-        system_name="variables_test", set)
-    @test_throws ErrorException load_sys_struct_from_yaml(
+        name="variables_test", set)
+    @test_throws ErrorException load_authoring(
         write_yaml(tmpdir, "conflict.yaml", CONFLICT_YAML);
-        system_name="variables_test", set)
+        name="variables_test", set)
 end
 nothing

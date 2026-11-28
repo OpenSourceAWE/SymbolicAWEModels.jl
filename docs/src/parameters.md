@@ -71,7 +71,7 @@ tether:
 
 winch:
     winch_model: "TorqueControlledMachine" # cache key only; select the motor model
-                                           # with `Winch(...; model=TorqueWinch())`
+                                           # with `WinchModel(; dynamics=TorqueWinch())`
     max_force: 4000        # maximal (nominal) tether force; short overload allowed [N]
     v_ro_max:  8.0         # maximal reel-out speed                          [m/s]
     v_ro_min: -8.0         # minimal reel-out speed (=max reel-in speed)     [m/s]

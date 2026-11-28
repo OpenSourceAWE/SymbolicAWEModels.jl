@@ -18,9 +18,10 @@ end
 using Test
 using LinearAlgebra
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, MonolithBackend, sync_params!, sync_initial!,
-                         body_integration, small_earth_frame, frame_velocity,
-                         damping_base, damping_base_position, VortexStepMethod
+using SymbolicAWEModels: KernelBackend, MonolithBackend, sync_initial!, body_integration,
+                         small_earth_frame, frame_velocity, damping_base,
+                         damping_base_position, parameter_access, wing_body,
+                         VortexStepMethod
 using KiteUtils
 
 """Rotation by `angle` [rad] about unit `axis`."""
@@ -41,24 +42,29 @@ function flying_two_plate(backend, geometry, root, elevation_vel)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix = false)
-    sys, transforms = load_sys_struct_from_yaml(
-        joinpath(data_path, geometry);
-        system_name = "small_earth_frame_damping", set, vsm_set)
+    sys, transforms = load_authoring(joinpath(data_path, geometry);
+                                     name = "small_earth_frame_damping", set)
     transforms[1].elevation_vel = elevation_vel
-    sam = SymbolicAWEModel(set, sys; transforms, backend)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set, backend)
     init!(sam; prn = false, remake = true)
     return sam
 end
 
-"""Rate of the model's state at its initial state after `change!(sam.state)`."""
+"""Rate of the model's state at its initial state after `change!(sam)`."""
 function state_rate(sam, change! = identity)
-    change!(sam.state)
-    sync_initial!(sam.prob.initial_sync, sam.prob.prob, sam.state)
+    change!(sam)
+    sync_initial!(sam.prob.initial_sync, sam.prob.prob, sam)
     u = copy(sam.prob.prob.u0)
     du = similar(u)
     sam.prob.prob.f(du, u, sam.integrator.p, sam.integrator.t)
     return du
 end
+
+"""The `(collection, index, quantity)` of each angular and body-frame damping parameter
+the model compiled."""
+damping_parameters(sam) = filter(path -> !isnothing(parameter_access(sam, path)),
+    [[(:bodies, i, :angular_damping) for i in eachindex(sam.definition.bodies)];
+     [(:points, i, :body_frame_damping) for i in eachindex(sam.definition.points)]])
 
 """
     damping_rate(sam, change! = identity)
@@ -68,17 +74,12 @@ after `change!`: the rate with every coefficient as built minus the rate with al
 them zero.
 """
 function damping_rate(sam, change! = identity)
-    state = sam.state
-    angular = [copy(body.angular_damping) for body in state.bodies]
-    body_frame = [copy(point.body_frame_damping) for point in state.points]
+    paths = damping_parameters(sam)
+    built = [run_value(sam, path...) for path in paths]
     damped = state_rate(sam, change!)
-    set_angular_damping(state.bodies, 0.0)
-    set_body_frame_damping(state.points, 0.0)
-    sync_params!(sam.prob.param_sync, sam.integrator, state)
+    foreach(path -> set_run_value!(sam, path..., zeros(3)), paths)
     undamped = state_rate(sam, change!)
-    foreach((body, c) -> body.angular_damping = c, state.bodies, angular)
-    foreach((point, c) -> point.body_frame_damping = c, state.points, body_frame)
-    sync_params!(sam.prob.param_sync, sam.integrator, state)
+    foreach((path, c) -> set_run_value!(sam, path..., c), paths, built)
     return damped .- undamped
 end
 
@@ -90,8 +91,18 @@ function small_earth_axes(radius, span)
 end
 
 """Position [m] of the base point the model's first wing damps against."""
-tether_base(sam) = damping_base_position(damping_base(sam.state, sam.state.wings[1].idx),
-                                         point -> sam.state.points[point].pos_w)
+tether_base(sam) = damping_base_position(damping_base(sam, wing_body(sam, 1)),
+                                         point -> run_value(sam, :points, point, :pos_w))
+
+"""Velocity [m/s] of each point of `sam`."""
+point_velocities(sam) = [run_value(sam, :points, i, :vel_w)
+                         for i in eachindex(sam.definition.points)]
+
+"""Set the velocity of each point `i` of `sam` to `velocity(i, pos_w)`."""
+set_point_velocities!(sam, velocity) = foreach(eachindex(sam.definition.points)) do i
+    set_run_value!(sam, :points, i, :vel_w,
+                   velocity(i, run_value(sam, :points, i, :pos_w)))
+end
 
 @testset "Damping against the kite's small-earth frame" begin
     base = [0.0, 0.0, -20.0]
@@ -154,48 +165,49 @@ tether_base(sam) = damping_base_position(damping_base(sam.state, sam.state.wings
     @testset "$(nameof(typeof(backend))) leaves rigid flight on the small-earth frame \
               undamped" for backend in (KernelBackend(), MonolithBackend())
         sam = flying_two_plate(backend, "rigid_structural_geometry.yaml", root, 0.4)
-        wing = sam.state.wings[1]
-        @test norm(wing.ω_b) > 0.3
+        wing(quantity) = run_value(sam, :wings, 1, quantity)
+        @test norm(wing(:ω_b)) > 0.3
         @test maximum(abs, damping_rate(sam)) < 1e-9
-        flown = copy(wing.ω_b)
+        flown = wing(:ω_b)
         base = tether_base(sam)
-        along = normalize(wing.com_w .- base)
-        flown_vel = [copy(point.vel_w) for point in sam.state.points]
-        flown_wing_vel = copy(wing.vel_w)
-        function turned(state)
+        along = normalize(wing(:com_w) .- base)
+        flown_vel = point_velocities(sam)
+        flown_wing_vel = wing(:vel_w)
+        function turned(sam)
             turn = 0.3 .* along
-            state.wings[1].ω_b .= flown .+ wing.R_b_to_w' * turn
-            state.wings[1].vel_w .= flown_wing_vel .+ turn × (wing.pos_w .- base)
-            foreach((point, vel) -> point.vel_w .= vel .+ turn × (point.pos_w .- base),
-                    state.points, flown_vel)
+            set_run_value!(sam, :wings, 1, :ω_b, flown .+ wing(:R_b_to_w)' * turn)
+            set_run_value!(sam, :wings, 1, :vel_w,
+                           flown_wing_vel .+ turn × (wing(:pos_w) .- base))
+            set_point_velocities!(sam, (i, pos) -> flown_vel[i] .+ turn × (pos .- base))
         end
         @test maximum(abs, damping_rate(sam, turned)) < 1e-9
-        pitched(state) = state.wings[1].ω_b .= flown .+ [0.0, 0.5, 0.0]
+        pitched(sam) = set_run_value!(sam, :wings, 1, :ω_b, flown .+ [0.0, 0.5, 0.0])
         @test maximum(abs, damping_rate(sam, pitched)) > 1.0
     end
     @testset "$(nameof(typeof(backend))) leaves a fitted wing's nodes undamped in rigid \
               flight on the small-earth frame" for
             backend in (KernelBackend(), MonolithBackend())
         sam = flying_two_plate(backend, "particle_structural_geometry.yaml", root, 0.4)
-        @test maximum(norm, point.vel_w for point in sam.state.points) > 1.0
+        @test maximum(norm, point_velocities(sam)) > 1.0
         @test maximum(abs, damping_rate(sam)) < 1e-9
         base = tether_base(sam)
-        along = normalize(sam.state.wings[1].pos_w .- base)
-        flown = [copy(point.vel_w) for point in sam.state.points]
-        flown_wing = copy(sam.state.wings[1].vel_w)
+        along = normalize(run_value(sam, :wings, 1, :pos_w) .- base)
+        flown = point_velocities(sam)
+        flown_wing = run_value(sam, :wings, 1, :vel_w)
         field(spin, stretch, pos) = spin × (pos .- base) .+ stretch .* (pos .- base)
-        rigidly(spin, stretch) = function (state)
-            wing = state.wings[1]
-            wing.vel_w .= flown_wing .+ field(spin, stretch, wing.pos_w)
-            foreach((point, vel) -> point.vel_w .= vel .+ field(spin, stretch, point.pos_w),
-                    state.points, flown)
+        rigidly(spin, stretch) = function (sam)
+            set_run_value!(sam, :wings, 1, :vel_w, flown_wing .+
+                field(spin, stretch, run_value(sam, :wings, 1, :pos_w)))
+            set_point_velocities!(sam, (i, pos) -> flown[i] .+ field(spin, stretch, pos))
         end
         @test maximum(abs, damping_rate(sam, rigidly(0.3 .* along, 0.0))) < 1e-9
         @test maximum(abs, damping_rate(sam, rigidly(zeros(3), 0.02))) < 1e-9
         @test maximum(abs, damping_rate(sam, rigidly(0.3 .* [0.0, 0.0, 1.0] × along,
                                                        0.0))) < 1e-9
-        node = findfirst(point -> point.wing_idx > 0, sam.state.points)
-        flutter(state) = state.points[node].vel_w .= flown[node] .+ [0.0, 0.0, 1.0]
+        node = findfirst(i -> run_value(sam, :points, i, :is_wing_node),
+                         eachindex(sam.definition.points))
+        flutter(sam) = set_run_value!(sam, :points, node, :vel_w,
+                                      flown[node] .+ [0.0, 0.0, 1.0])
         @test maximum(abs, damping_rate(sam, flutter)) > 1.0
     end
     set_data_path(data_path_before)

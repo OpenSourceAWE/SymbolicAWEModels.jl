@@ -11,7 +11,7 @@ elevation, azimuth, heading, course, angle of attack, their time derivatives, an
 apparent wind.
 
 # Arguments
-- `s::SymbolicAWEModel`: The main model object.
+- `s::SymbolicAWEModel`: The run.
 - `eqs`: Accumulating equation vector.
 - `kwargs...`: Symbolic variables for the system's state.
 
@@ -24,7 +24,7 @@ function scalar_eqs!(
     wing_vel, wing_acc, twist_angle, ω_b, α_b,
     R_v_to_w, pos
 )
-    (; wings) = s.state
+    wings = s.definition.wings
     @variables begin
         # Body frame axes and apparent wind (column-major: [1:3, wing_idx])
         e_x(t)[1:3, eachindex(wings)]
@@ -35,20 +35,21 @@ function scalar_eqs!(
         va_wing(t)[1:3, eachindex(wings)]
     end
     eqs = [eqs; collect(wind_vec_gnd) .~ ground_wind_vec(params)]
-    for wing in wings
+    for wing_idx in eachindex(wings)
+        body_idx = wing_body(s, wing_idx)
         eqs = [
             eqs
-            e_x[:, wing.idx] ~ R_b_to_w[:, 1, wing.idx]
-            e_y[:, wing.idx] ~ R_b_to_w[:, 2, wing.idx]
-            e_z[:, wing.idx] ~ R_b_to_w[:, 3, wing.idx]
-            wind_vel_wing[:, wing.idx] ~
-                wing_wind_source(params, wing.idx, wind_vec_gnd)(
-                    wing_pos[3, wing.idx])
-            wind_disturb[:, wing.idx] ~ params.wings[wing.idx].wind_disturb
-            va_wing[:, wing.idx] ~
-                wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +
-                wind_disturb[:, wing.idx]
-            va_wing_b[:, wing.idx] ~ R_b_to_w[:, :, wing.idx]' * va_wing[:, wing.idx]
+            e_x[:, wing_idx] ~ R_b_to_w[:, 1, body_idx]
+            e_y[:, wing_idx] ~ R_b_to_w[:, 2, body_idx]
+            e_z[:, wing_idx] ~ R_b_to_w[:, 3, body_idx]
+            wind_vel_wing[:, wing_idx] ~
+                wing_wind_source(params, wing_idx, wind_vec_gnd)(
+                    wing_pos[3, body_idx])
+            wind_disturb[:, wing_idx] ~ params.wings[wing_idx].wind_disturb
+            va_wing[:, wing_idx] ~
+                wind_vel_wing[:, wing_idx] - wing_vel[:, body_idx] +
+                wind_disturb[:, wing_idx]
+            va_wing_b[:, wing_idx] ~ R_b_to_w[:, :, body_idx]' * va_wing[:, wing_idx]
         ]
     end
     @variables begin
@@ -70,51 +71,46 @@ function scalar_eqs!(
         distance_acc(t)[eachindex(wings)]
     end
 
-    for wing in wings
+    for wing_idx in eachindex(wings)
+        body_idx = wing_body(s, wing_idx)
         # Spherical coords are centered at the transform base point, not origin.
-        base_point = transform_base_point(s.transforms, wing.idx)
-        rel_pos = base_point == 0 ? wing_pos[:, wing.idx] :
-            wing_pos[:, wing.idx] .- pos[:, base_point]
-
-        has_stations = !isempty(wing.station_idxs)
-        half_len = has_stations ?
-            wing.station_idxs[1] +
-            length(wing.station_idxs) ÷ 2 - 1 : 0
-        twist_offset = has_stations ?
-            0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0
+        base_point = transform_base_point(s.transforms, body_idx)
+        rel_pos = base_point == 0 ? wing_pos[:, body_idx] :
+            wing_pos[:, body_idx] .- pos[:, base_point]
 
         scalars = wing_scalar_kinematics(;
             rel_pos,
-            e_x = e_x[:, wing.idx],
-            R_t_to_w = R_t_to_w[:, :, wing.idx],
-            R_v_to_w = R_v_to_w[:, :, wing.idx],
-            R_b_to_w = R_b_to_w[:, :, wing.idx],
-            vel = wing_vel[:, wing.idx],
-            acc = wing_acc[:, wing.idx],
-            omega_b = ω_b[:, wing.idx],
-            alpha_b = α_b[:, wing.idx],
-            va_b = va_wing_b[:, wing.idx],
-            twist_offset)
+            e_x = e_x[:, wing_idx],
+            R_t_to_w = R_t_to_w[:, :, wing_idx],
+            R_v_to_w = R_v_to_w[:, :, wing_idx],
+            R_b_to_w = R_b_to_w[:, :, body_idx],
+            vel = wing_vel[:, body_idx],
+            acc = wing_acc[:, body_idx],
+            omega_b = ω_b[:, body_idx],
+            alpha_b = α_b[:, body_idx],
+            va_b = va_wing_b[:, wing_idx],
+            twist_offset = mid_span_twist(i -> twist_angle[i],
+                                          wing_station_idxs(s, wing_idx)))
 
         eqs = [
             eqs
-            vec(R_v_to_w[:, :, wing.idx]) ~
-                vec(calc_R_v_to_w(rel_pos, e_x[:, wing.idx]))
-            vec(R_t_to_w[:, :, wing.idx]) ~ vec(sym_calc_R_t_to_w(rel_pos))
-            heading[wing.idx] ~ scalars.heading
-            turn_rate[:, wing.idx] ~ scalars.turn_rate
-            turn_acc[:, wing.idx] ~ scalars.turn_acc
-            distance[wing.idx] ~ scalars.distance
-            distance_vel[wing.idx] ~ scalars.distance_vel
-            distance_acc[wing.idx] ~ scalars.distance_acc
-            elevation[wing.idx] ~ scalars.elevation
-            elevation_vel[wing.idx] ~ scalars.elevation_vel
-            elevation_acc[wing.idx] ~ scalars.elevation_acc
-            azimuth[wing.idx] ~ scalars.azimuth
-            azimuth_vel[wing.idx] ~ scalars.azimuth_vel
-            azimuth_acc[wing.idx] ~ scalars.azimuth_acc
-            course[wing.idx] ~ scalars.course
-            angle_of_attack[wing.idx] ~ scalars.angle_of_attack
+            vec(R_v_to_w[:, :, wing_idx]) ~
+                vec(calc_R_v_to_w(rel_pos, e_x[:, wing_idx]))
+            vec(R_t_to_w[:, :, wing_idx]) ~ vec(sym_calc_R_t_to_w(rel_pos))
+            heading[wing_idx] ~ scalars.heading
+            turn_rate[:, wing_idx] ~ scalars.turn_rate
+            turn_acc[:, wing_idx] ~ scalars.turn_acc
+            distance[wing_idx] ~ scalars.distance
+            distance_vel[wing_idx] ~ scalars.distance_vel
+            distance_acc[wing_idx] ~ scalars.distance_acc
+            elevation[wing_idx] ~ scalars.elevation
+            elevation_vel[wing_idx] ~ scalars.elevation_vel
+            elevation_acc[wing_idx] ~ scalars.elevation_acc
+            azimuth[wing_idx] ~ scalars.azimuth
+            azimuth_vel[wing_idx] ~ scalars.azimuth_vel
+            azimuth_acc[wing_idx] ~ scalars.azimuth_acc
+            course[wing_idx] ~ scalars.course
+            angle_of_attack[wing_idx] ~ scalars.angle_of_attack
         ]
     end
     return eqs

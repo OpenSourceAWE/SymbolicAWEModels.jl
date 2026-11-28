@@ -18,35 +18,11 @@ SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
 SymbolicAWEModels.InplaceGetter
 SymbolicAWEModels.ScatterGroup
-SymbolicAWEModels.ColumnVec3
-SymbolicAWEModels.column_vec3
-SymbolicAWEModels.ColumnQuat
-SymbolicAWEModels.RunColumns
 SymbolicAWEModels.sysstate_counts
-SymbolicAWEModels.Records
-SymbolicAWEModels.ComponentState
-SymbolicAWEModels.sysstate
-SymbolicAWEModels.columns
-SymbolicAWEModels.index
-SymbolicAWEModels.@state_record
-SymbolicAWEModels.derived
 SymbolicAWEModels.tether_stretched_length
-SymbolicAWEModels.body_slot
 SymbolicAWEModels.body_frame
-SymbolicAWEModels.com_offset
-SymbolicAWEModels.PointState
-SymbolicAWEModels.StationState
-SymbolicAWEModels.SegmentState
-SymbolicAWEModels.PulleyState
-SymbolicAWEModels.TetherState
-SymbolicAWEModels.WinchState
-SymbolicAWEModels.BodyState
-SymbolicAWEModels.RigidWingState
-SymbolicAWEModels.ParticleWingState
-SymbolicAWEModels.records
 SymbolicAWEModels.state_vars
 SymbolicAWEModels.set_state_vars!
-SymbolicAWEModels.next_values!
 SymbolicAWEModels.create_vsm_wing
 SymbolicAWEModels.build_vsm_engine
 SymbolicAWEModels.build_vsm_solver
@@ -55,12 +31,9 @@ SymbolicAWEModels.build_vsm_solver
 ## State management and model simplification
 
 ```@docs
-SymbolicAWEModels.copy!
 SymbolicAWEModels.reinit!
 SymbolicAWEModels.reposition!
-SymbolicAWEModels.update_sys_struct!
 SymbolicAWEModels.get_set_hash
-SymbolicAWEModels.get_sys_struct_hash
 ```
 
 ## Physics and geometry helpers
@@ -82,11 +55,6 @@ SymbolicAWEModels.seed_per_point_wind!
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_v_to_w
-SymbolicAWEModels.calc_pos
-SymbolicAWEModels.calc_winch_force
-SymbolicAWEModels.quaternion_to_rotation_matrix
-SymbolicAWEModels.rotation_matrix_to_quaternion
-SymbolicAWEModels.rotate_v_around_k
 SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
@@ -113,6 +81,7 @@ SymbolicAWEModels.point_net_force
 SymbolicAWEModels.confined_derivatives
 SymbolicAWEModels.point_particle_params
 SymbolicAWEModels.dynamic_point_dynamics
+SymbolicAWEModels.wing_node
 SymbolicAWEModels.wing_structural_segment
 SymbolicAWEModels.segment_spring_params
 SymbolicAWEModels.rigid_body_pose_expressions
@@ -123,6 +92,7 @@ SymbolicAWEModels.elastic_tube_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.wing_scalar_kinematics
+SymbolicAWEModels.mid_span_twist
 SymbolicAWEModels.station_dynamics
 SymbolicAWEModels.MAX_TWIST_ANGLE
 SymbolicAWEModels.pulley_split_eqs
@@ -149,10 +119,7 @@ SymbolicAWEModels.station_delta_eqs!
 SymbolicAWEModels.has_flap
 SymbolicAWEModels.has_body_flap
 SymbolicAWEModels.has_point_flap
-SymbolicAWEModels.flap_delta
 SymbolicAWEModels.point_flap_delta
-SymbolicAWEModels.init_station_flap!
-SymbolicAWEModels.derive_point_beam_anchor!
 SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
@@ -205,7 +172,7 @@ SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
 SymbolicAWEModels.copy_dir
 SymbolicAWEModels.get_example_packages
-SymbolicAWEModels.make_lin_sys_state
+SymbolicAWEModels.row_dynamics_type
 ```
 
 ## Base overloads (internal use)
@@ -218,133 +185,13 @@ Base.setproperty!
 Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.InplaceGetter)
 ```
 
-## Definition loader internals
+## SystemDefinition internals
 
 ```@docs
-SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.row_name
-SymbolicAWEModels.name_of
-SymbolicAWEModels.cell_ref
-SymbolicAWEModels.ref_points_spec
-SymbolicAWEModels.ref_pair_spec
-SymbolicAWEModels.unit_inertia_spec
-SymbolicAWEModels.set_kwargs
-SymbolicAWEModels.maybe
-SymbolicAWEModels.definition_wing
-SymbolicAWEModels.definition_point
-SymbolicAWEModels.definition_station
-SymbolicAWEModels.definition_segment
-SymbolicAWEModels.definition_pulley
-SymbolicAWEModels.definition_tether
-SymbolicAWEModels.definition_winch
-SymbolicAWEModels.definition_body
-SymbolicAWEModels.in_place_of
-SymbolicAWEModels.point_body
-SymbolicAWEModels.document_format
-```
-
-## KiteGeometry models
-
-```@docs
-SymbolicAWEModels.PointModel
-SymbolicAWEModels.StationModel
-SymbolicAWEModels.WingModel
-SymbolicAWEModels.PulleyModel
-SymbolicAWEModels.BodyModel
-SymbolicAWEModels.TetherModel
-SymbolicAWEModels.WinchModel
-SymbolicAWEModels.TimoshenkoTubeModel
-SymbolicAWEModels.ElasticTubeModel
-SymbolicAWEModels.SegmentModel
-SymbolicAWEModels.register_definition_models
-```
-
-## Component definition rows
-
-```@docs
-SymbolicAWEModels.row_property
-SymbolicAWEModels.set_row_property!
-SymbolicAWEModels.with_field
-SymbolicAWEModels.point_type
-SymbolicAWEModels.per_axis
-SymbolicAWEModels.point_model
-SymbolicAWEModels.station_model
-SymbolicAWEModels.pulley_model
-SymbolicAWEModels.tether_model
-SymbolicAWEModels.body_model
-SymbolicAWEModels.winch_model
-SymbolicAWEModels.field_value
-SymbolicAWEModels.reference
-SymbolicAWEModels.reference_column
-SymbolicAWEModels.references
-SymbolicAWEModels.references_column
-SymbolicAWEModels.open_end
-SymbolicAWEModels.check_point_anchor
-SymbolicAWEModels.tether_row
-SymbolicAWEModels.body_row
-SymbolicAWEModels.wing_column
-SymbolicAWEModels.held_vector!
-SymbolicAWEModels.principal_axes
-SymbolicAWEModels.axis_column
-```
-
-## Definition writer internals
-
-```@docs
-SymbolicAWEModels.system_definition
-SymbolicAWEModels.attach_definition!
-SymbolicAWEModels.replace_with_rows!
-SymbolicAWEModels.station_row
-SymbolicAWEModels.with_ends!
-SymbolicAWEModels.winch_row!
-SymbolicAWEModels.segment_row!
-SymbolicAWEModels.store_definition_pose!
-SymbolicAWEModels.definition_name
-SymbolicAWEModels.optional_index
-SymbolicAWEModels.optional_indices
-SymbolicAWEModels.material!
-SymbolicAWEModels.station_wing_idx
-SymbolicAWEModels.winch_friction_epsilon
-SymbolicAWEModels.torque_winch
-SymbolicAWEModels.wing_engine_field
-SymbolicAWEModels.wing_drag_corr
-SymbolicAWEModels.ref_points_cell
-SymbolicAWEModels.tube_law_parameters
-```
-
-## SystemStructure internals
-
-```@docs
-SymbolicAWEModels.resolve_material
-SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
-SymbolicAWEModels.tether_ordered_point_idxs
-SymbolicAWEModels.endpoint_idx
-SymbolicAWEModels.tether_anchor_free
-SymbolicAWEModels.anchor_body_idxs
-SymbolicAWEModels.beam_body_neighbors
-SymbolicAWEModels.translated_body_idxs
-SymbolicAWEModels.rigid_point_siblings
-SymbolicAWEModels.tether_downstream_idxs
-SymbolicAWEModels.station_tethers_by_overlap
-SymbolicAWEModels.tether_unit_stiffness
-SymbolicAWEModels.apply_cluster_init_stretched_len!
-SymbolicAWEModels.cluster_standoff_shift
-SymbolicAWEModels.init_unstretched_len
 SymbolicAWEModels.tube_initial_frames
-SymbolicAWEModels.init_tube_rest!
 SymbolicAWEModels.rigidity_fields
-SymbolicAWEModels.concrete_rigidities
-SymbolicAWEModels.with_law_rigidities
 SymbolicAWEModels.timoshenko_element_frame
-SymbolicAWEModels.assign_indices_and_resolve!
-SymbolicAWEModels.resolve_ref
-SymbolicAWEModels.validate_sys_struct
-SymbolicAWEModels.build_name_dict
-SymbolicAWEModels.setup_wing_frame!
-SymbolicAWEModels.connected_body_groups
-SymbolicAWEModels.particle_wing_parts
-SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
@@ -354,47 +201,21 @@ SymbolicAWEModels.compute_spatial_station_mapping!
 SymbolicAWEModels.nearest_station
 SymbolicAWEModels.share_body_mass!
 SymbolicAWEModels.carrier_body_idx
-SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
-SymbolicAWEModels.carry_body_points!
-SymbolicAWEModels.store_initial_pose!
 SymbolicAWEModels.initial_rotation
 SymbolicAWEModels.initial_body_position
-SymbolicAWEModels.initial_chord_position
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
-SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.principal_frame
 SymbolicAWEModels.calc_inertia_y_rotation
 SymbolicAWEModels.point_mass_inertia
-SymbolicAWEModels.is_wing
+SymbolicAWEModels.has_aero
 SymbolicAWEModels.wing_dynamics
 SymbolicAWEModels.WingDynamics
 SymbolicAWEModels.RigidDynamics
 SymbolicAWEModels.ParticleDynamics
 SymbolicAWEModels.rotate_vsm_sections!
-SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
-SymbolicAWEModels.body_vsm_engine
-SymbolicAWEModels.expand_auto_tethers!
-SymbolicAWEModels.resolve!
-SymbolicAWEModels.validate_weights!
-SymbolicAWEModels.mark_wing_nodes!
-SymbolicAWEModels.wing_frame_member
-SymbolicAWEModels.distribute_mass_over_points!
-```
-
-## NamedCollection internals
-
-```@docs
-SymbolicAWEModels.names
-SymbolicAWEModels.get_idx
-SymbolicAWEModels.get_name
-Base.keys(::NamedCollection)
-Base.values(::NamedCollection)
-Base.haskey(::NamedCollection, ::Symbol)
-Base.setindex!(::NamedCollection, ::Any, ::Integer)
-Base.setindex!(::NamedCollection, ::Any, ::Symbol)
 ```
 
 ## Equation builders
@@ -409,7 +230,6 @@ SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
 SymbolicAWEModels.flight_frame
-SymbolicAWEModels.broadcast_damping
 SymbolicAWEModels.assign_damping!
 SymbolicAWEModels.segment_rest_length_eqs
 ```
@@ -417,7 +237,6 @@ SymbolicAWEModels.segment_rest_length_eqs
 ## Plate aerodynamics internals
 
 ```@docs
-SymbolicAWEModels.load_plate_wing
 SymbolicAWEModels.plate_corners
 ```
 
@@ -426,22 +245,18 @@ SymbolicAWEModels.plate_corners
 ```@docs
 SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
-SymbolicAWEModels.require_vsm_engine
+SymbolicAWEModels.AeroSpec
+SymbolicAWEModels.setup_model_aero!
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.has_vsm_wing
-SymbolicAWEModels.provides_aero_override
 SymbolicAWEModels.aero_mode_tag
 SymbolicAWEModels.calc_side_slip
 SymbolicAWEModels.validate_aero_component
 SymbolicAWEModels.validate_aero_structure
 SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.setup_aero!
-SymbolicAWEModels.attach_engine!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
-SymbolicAWEModels.normalized_inertia
-SymbolicAWEModels.body_in_mesh_frame
-SymbolicAWEModels.normalized_point_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!
 SymbolicAWEModels.write_body_state!
@@ -449,7 +264,6 @@ SymbolicAWEModels.read_aero_log_points!
 SymbolicAWEModels.restore_aero_twist!
 SymbolicAWEModels.plot_wing_aero!
 SymbolicAWEModels.update_wing_aero_plot!
-SymbolicAWEModels.load_wing
 SymbolicAWEModels.restore_flap_delta!
 SymbolicAWEModels.restore_live_shape!
 SymbolicAWEModels.write_flap_deflections!
@@ -461,7 +275,6 @@ SymbolicAWEModels.n_flap_deflections
 ```@docs
 SymbolicAWEModels.refresh_rigid_aero!
 SymbolicAWEModels.refresh_particle_aero!
-SymbolicAWEModels.count_aero_log_points
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!
@@ -470,6 +283,11 @@ SymbolicAWEModels.apply_direct_forces!
 SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.circulation
+SymbolicAWEModels.circulation_alpha
+SymbolicAWEModels.n_vsm_panels
+SymbolicAWEModels.circulation_start
+SymbolicAWEModels.solve_circulation!
 SymbolicAWEModels.warn_or_rethrow
 SymbolicAWEModels.solve_and_freeze_circulation!
 SymbolicAWEModels.set_particle_panel_va!
@@ -532,13 +350,17 @@ SymbolicAWEModels.refit_live_polars!
 SymbolicAWEModels.refresh_live_pressure!
 SymbolicAWEModels.surface_pattern
 SymbolicAWEModels.panel_reynolds
-SymbolicAWEModels.live_polar_alpha
 SymbolicAWEModels.solve_with_live_polars!
 SymbolicAWEModels.contour_winding
-SymbolicAWEModels.write_aero_forces!
 SymbolicAWEModels.accumulate_point_offset!
 SymbolicAWEModels.restore_point_aero_forces!
-SymbolicAWEModels.carries_point_aero
+SymbolicAWEModels.point_aero_force_b
+SymbolicAWEModels.sync_aero_params!
+SymbolicAWEModels.sync_run_params!
+SymbolicAWEModels.refreshed_path
+SymbolicAWEModels.sync_class
+SymbolicAWEModels.LIVE_FIELDS
+SymbolicAWEModels.AERO_FIELDS
 SymbolicAWEModels.point_aero_force_array
 SymbolicAWEModels.zero_aero_force
 SymbolicAWEModels.PanelAeroList
@@ -566,7 +388,6 @@ SymbolicAWEModels.scatter_totals!
 SymbolicAWEModels.zero_weight_pair
 SymbolicAWEModels.scatter_entry_list
 SymbolicAWEModels.frame_sections
-SymbolicAWEModels.seed_wing_inertia!
 ```
 
 ## OBJ mesh mass properties
@@ -583,7 +404,7 @@ SymbolicAWEModels.ObjAdapter.unit_inertia_vector
 ## Heading and geometry
 
 ```@docs
-SymbolicAWEModels.get_ref_position_from_points
+SymbolicAWEModels.PointColumns
 SymbolicAWEModels.sym_calc_R_t_to_w
 ```
 
@@ -597,6 +418,7 @@ SymbolicAWEModels.turn_rotation
 SymbolicAWEModels.fit_body_frames!
 SymbolicAWEModels.transform_base_point
 SymbolicAWEModels.transform_base
+SymbolicAWEModels.parent_body
 SymbolicAWEModels.damping_base
 ```
 
@@ -607,6 +429,7 @@ SymbolicAWEModels.read_path
 SymbolicAWEModels.PathReader
 SymbolicAWEModels.leaf_reader
 SymbolicAWEModels.CopyReader
+SymbolicAWEModels.StiffnessReader
 SymbolicAWEModels.path_reader
 SymbolicAWEModels.read_at
 SymbolicAWEModels.path_of
@@ -627,6 +450,7 @@ SymbolicAWEModels.group_readers
 SymbolicAWEModels.sync_readers!
 SymbolicAWEModels.ParamGroup
 SymbolicAWEModels.ParamSync
+SymbolicAWEModels.ParamKinds
 SymbolicAWEModels.survivor_index
 SymbolicAWEModels.build_param_sync
 SymbolicAWEModels.sync_params!
@@ -653,9 +477,7 @@ SymbolicAWEModels.sync_initial!
 ## Inflated-tube rigidity internals
 
 ```@docs
-SymbolicAWEModels.BREUKELS_BENDING
-SymbolicAWEModels.BREUKELS_COLLAPSE
-SymbolicAWEModels.BREUKELS_TORSION
+SymbolicAWEModels.breukels_constants
 SymbolicAWEModels.check_tube_geometry
 SymbolicAWEModels.breukels_tip_force_coefficients
 SymbolicAWEModels.comer_levy_h
@@ -671,7 +493,5 @@ SymbolicAWEModels.fit_softening_exponent
 ## Other internals
 
 ```@docs
-SymbolicAWEModels.init_undeformed_offsets!
-SymbolicAWEModels.init_body_frame_from_ref_points!
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

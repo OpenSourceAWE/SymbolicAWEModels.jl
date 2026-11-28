@@ -27,12 +27,12 @@ vsm_set = VortexStepMethod.VSMSettings(
     joinpath(get_data_path(), "vsm_settings.yaml");
     data_prefix=false)
 
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set, vsm_set)
+sys, transforms = load_authoring(struc_yaml;
+    name="2plate_kite", set)
 sys.winches[:main_winch].brake = true
-sam = SymbolicAWEModel(set, sys; transforms)
-l0_left = sam.state.segments[:kcu_steering_left].l0
-l0_right = sam.state.segments[:kcu_steering_right].l0
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+l0_left = run_value(sam, :segments, :kcu_steering_left, :rest_length)
+l0_right = run_value(sam, :segments, :kcu_steering_right, :rest_length)
 
 dt = 0.05
 
@@ -53,37 +53,41 @@ zero resolves no finer than `sqrt(eps)` rad (8.5e-7 deg per ULP of the
 cosine) and would quantize an exact match to a spurious ~1e-6 deg.
 """
 function twist_chord_diffs(sam)
-    wing = sam.state.wings[1]
-    points = sam.state.points
-    stations = sam.state.stations
-    vsm = wing.vsm_wing
-    R = wing.R_b_to_w
-    origin = wing.pos_w
+    wing_idx = 1
+    body_idx = SymbolicAWEModels.wing_body(sam, wing_idx)
+    points = sam.definition.points
+    stations = SymbolicAWEModels.wing_station_idxs(sam, wing_idx)
+    station(i, quantity) = run_value(sam, :spanwise_stations, i, quantity)
+    vsm = sam.aero[wing_idx].vsm_wing
+    R = run_value(sam, :wings, wing_idx, :R_b_to_w)
+    origin = run_value(sam, :wings, wing_idx, :pos_w)
+    pos_b(i) = R' * (run_value(sam, :points, i, :pos_w) - origin)
+    chord_position(i) =
+        SymbolicAWEModels.initial_body_position(sam, body_idx, points[i].pos_ENU)[1]
 
     n_unref = vsm.n_unrefined_sections
     theta = zeros(Float64, n_unref)
-    for g in stations, u in g.unrefined_section_idxs
-        theta[u] = g.twist
+    for g in stations, u in station(g, :unrefined_section_idxs)
+        theta[u] = station(g, :twist)
     end
     VortexStepMethod.unrefined_deform!(vsm, theta)
     refined = vsm.refined_sections
 
     rows = NamedTuple[]
     for g in stations
-        i1, i2 = g.point_idxs[1], g.point_idxs[end]
-        le_idx, te_idx =
-            SymbolicAWEModels.initial_chord_position(wing, points[i1]) <
-            SymbolicAWEModels.initial_chord_position(wing, points[i2]) ?
-            (i1, i2) : (i2, i1)
-        le_b = R' * (points[le_idx].pos_w - origin)
-        te_b = R' * (points[te_idx].pos_w - origin)
+        station_points = sam.definition.spanwise_stations[g].points
+        i1, i2 = station_points[1], station_points[end]
+        le_idx, te_idx = chord_position(i1) < chord_position(i2) ? (i1, i2) : (i2, i1)
+        le_b = pos_b(le_idx)
+        te_b = pos_b(te_idx)
         k = argmin([norm(Vector(s.LE_point) - le_b)
                     for s in refined])
         sec_le = Vector(refined[k].LE_point)
         sec_te = Vector(refined[k].TE_point)
         chord_struct = te_b - le_b
         chord_vsm = sec_te - sec_le
-        push!(rows, (name=g.name, twist=g.twist,
+        push!(rows, (name=sam.definition.spanwise_stations[g].name,
+            twist=station(g, :twist),
             angle=rad2deg(atan(norm(chord_struct × chord_vsm),
                                dot(chord_struct, chord_vsm))),
             length_err=abs(norm(chord_vsm) - norm(chord_struct)) /
@@ -117,12 +121,11 @@ end
 steer_mag = 0.03
 for step in 1:100
     steer = steer_mag * clamp(step * dt / 2.0, 0.0, 1.0)
-    sam.state.segments[:kcu_steering_left].l0 =
-        l0_left - steer
-    sam.state.segments[:kcu_steering_right].l0 =
-        l0_right + steer
+    set_run_value!(sam, :segments, :kcu_steering_left, :rest_length, l0_left - steer)
+    set_run_value!(sam, :segments, :kcu_steering_right, :rest_length, l0_right + steer)
     next_step!(sam; dt, vsm_interval=1)
-    any(station -> abs(station.twist) > 0.1, sam.state.stations) && break
+    any(i -> abs(run_value(sam, :spanwise_stations, i, :twist)) > 0.1,
+        eachindex(sys.spanwise_stations)) && break
 end
 dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)

@@ -47,7 +47,7 @@ CascadedLengthWinch(; v_max, K_pos, K_p, friction_epsilon=6.0) =
     CascadedLengthWinch(v_max, K_pos, K_p, friction_epsilon)
 
 function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
-        sys_struct, winch_idx; name, params)
+        sam, winch_idx; name, params)
     @variables begin
         vel(t)
         len(t)
@@ -91,25 +91,26 @@ function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
                    inertia_total, friction_eps]; name)
 end
 
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
 points = [
-    Point(:ground, [0.0, 0.0, 0.0], STATIC),
-    Point(:mass, [0.0, 0.0, -50.0], DYNAMIC; extra_mass=10.0),
+    Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true),
+    Point(; name=:mass, pos_ENU=[0.0, 0.0, -50.0], extra_mass=10.0),
 ]
 segments = [
-    Segment(:line, :ground, :mass, 50_000.0, 500.0, 0.005; l0=50.0),
+    KiteGeometry.line_segment(:line, (:ground, :mass), set, materials;
+                              rest_length=50.0, diameter=0.005, unit_stiffness=50_000.0,
+                              model=SegmentSpring(; unit_damping=500.0)),
 ]
-tethers = [Tether(:main, [:line], 50.0)]
-winches = [Winch(:winch, set, [:main]; winch_point=:ground,
-                 model=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0))]
-winches[1].inertia_total = 0.001  # tiny rotor → near-instant velocity tracking
+tethers = [Tether(; name=:main, segments=[:line], init_stretched_length=50.0)]
+winches = [Winch(; name=:winch, tethers=[:main], winch_point=:ground,
+                 model=WinchModel(;
+                     inertia_total=0.001,  # tiny rotor → near-instant velocity tracking
+                     dynamics=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0)))]
 
-sys_struct = SystemStructure("custom_winch_vel", set;
-                             points, segments, tethers, winches)
-sam = SymbolicAWEModel(set, sys_struct)
+sys = system_definition("custom_winch_vel", set;
+                      points, segments, materials, tethers, winches)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=true, prn=false)
-
-winch  = sam.state.winches[:winch]
-tether = sam.state.tethers[:main]
 
 dt = 0.02
 n_steps = 1500
@@ -127,8 +128,8 @@ for k in 1:n_steps
     next_step!(sam; set_values=[l_target], dt=dt, vsm_interval=0)
     push!(times,    tnow)
     push!(ref_len,  l_target)
-    push!(meas_len, tether.len)
-    push!(meas_vel, winch.vel)
+    push!(meas_len, run_value(sam, :tethers, :main, :len))
+    push!(meas_vel, run_value(sam, :winches, :winch, :vel))
 end
 
 fig = Figure(size=(900, 600))

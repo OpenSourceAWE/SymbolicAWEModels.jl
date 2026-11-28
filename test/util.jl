@@ -31,32 +31,39 @@ function wind_frame_force(force_b, va_b; span_b = [0.0, 1.0, 0.0])
 end
 
 """
-    pin_wing_nodes!(sys, wing, pinned)
+    wing_nodes(sam, wing_idx)
 
-Freeze (or release) every node of `wing` via `fix_static`, so a deformed shape can
-be held against the aero without the structure relaxing into it. Read live from
-the struct, so it needs no rebuild.
+The indices of the structural nodes of wing `wing_idx` of the run `sam`.
 """
-function pin_wing_nodes!(sys, wing, pinned::Bool = true)
-    for point in sys.points
-        point.is_wing_node && point.wing_idx == wing.idx &&
-            (point.fix_static = pinned)
+wing_nodes(sam, wing_idx) = [i for i in eachindex(sam.definition.points)
+    if run_value(sam, :points, i, :is_wing_node) &&
+       run_value(sam, :points, i, :wing_idx) == wing_idx]
+
+"""
+    pin_wing_nodes!(sam, wing_idx, pinned)
+
+Freeze (or release) every node of wing `wing_idx` of `sam` via its definition's
+`fix_static`, so a deformed shape can be held against the aero without the structure
+relaxing into it; a fresh `init!` reads it, without a rebuild.
+"""
+function pin_wing_nodes!(sam, wing_idx, pinned::Bool = true)
+    for i in wing_nodes(sam, wing_idx)
+        sam.definition.points[i].fix_static = pinned
     end
     return nothing
 end
 
 """
-    wing_node_positions(sys, wing)
+    wing_node_positions(sam, wing_idx)
 
-`point idx => copy(pos_w)` for every node of `wing`, the baseline a deformation is
-applied from.
+`point index => pos_w` for every node of wing `wing_idx` of `sam`, the baseline a
+deformation is applied from.
 """
-wing_node_positions(sys, wing) = Dict(point.idx => copy(point.pos_w)
-    for point in sys.points
-    if point.is_wing_node && point.wing_idx == wing.idx)
+wing_node_positions(sam, wing_idx) =
+    Dict(i => run_value(sam, :points, i, :pos_w) for i in wing_nodes(sam, wing_idx))
 
 """
-    deform_trailing_edge!(sys, wing, base_pos, delta)
+    deform_trailing_edge!(sam, wing_idx, base_pos, delta)
 
 Mirror-antisymmetric deformation from `base_pos`: each station's trailing
 edge moves `±delta` along the wing's body z, signed by its span station. Prescribed
@@ -64,32 +71,37 @@ twist cannot do this on a `PARTICLE_DYNAMICS` wing — there a multi-point `STAT
 surface is an inert aero-section marker (`station_eqs.jl`) and the free
 points carry the deformation.
 """
-function deform_trailing_edge!(sys, wing, base_pos, delta)
-    normal_w = (wing.R_b_to_w::Matrix{Float64})[:, 3]
-    for point in sys.points
-        haskey(base_pos, point.idx) && (point.pos_w .= base_pos[point.idx])
+function deform_trailing_edge!(sam, wing_idx, base_pos, delta)
+    normal_w = run_value(sam, :wings, wing_idx, :R_b_to_w)[:, 3]
+    for (i, pos) in base_pos
+        set_run_value!(sam, :points, i, :pos_w, pos)
     end
-    for surface in sys.stations
-        length(surface.point_idxs) >= 2 || continue
-        trailing = sys.points[surface.point_idxs[2]]
-        span = SymbolicAWEModels.initial_body_position(wing, trailing)[2]
+    body_idx = SymbolicAWEModels.wing_body(sam, wing_idx)
+    for surface in sam.definition.spanwise_stations
+        length(surface.points) >= 2 || continue
+        trailing = surface.points[2]
+        span = SymbolicAWEModels.initial_body_position(sam, body_idx,
+            sam.definition.points[trailing].pos_ENU)[2]
         abs(span) < 1e-9 && continue
-        side = sign(span)
-        trailing.pos_w .+= (side * delta) .* normal_w
+        pos = run_value(sam, :points, trailing, :pos_w)
+        set_run_value!(sam, :points, trailing, :pos_w,
+                       pos + (sign(span) * delta) * normal_w)
     end
     return nothing
 end
 
 """
-    set_twist!(sys, twists)
+    set_twist!(sam, twists)
 
 Prescribe `twist` per station name, e.g. `(; left=0.06, right=-0.06)`.
 Surfaces not named keep their value. Only meaningful for `STATIC` stations,
 where the angle is held rather than integrated.
 """
-function set_twist!(sys, twists)
-    for surface in sys.stations
-        haskey(twists, surface.name) && (surface.twist = twists[surface.name])
+function set_twist!(sam, twists)
+    for (station_idx, surface) in enumerate(sam.definition.spanwise_stations)
+        haskey(twists, surface.name) &&
+            set_run_value!(sam, :spanwise_stations, station_idx, :twist,
+                           twists[surface.name])
     end
     return nothing
 end
@@ -163,8 +175,8 @@ tears, so running this for every model the suite builds is what
 covers the combinations.
 
 Scrambling matters: without it an `update_from_sysstate!` that
-restored nothing would still pass, since the structure already
-holds the right values. `sys.state_vars` scrambles every field a
+restored nothing would still pass, since the run already
+holds the right values. `state_vars` scrambles every field a
 component can carry state in, with no `DynamicsType` filter — a
 field that never reaches `u0` is invisible to the assertion
 anyway, so filtering can only lose coverage.
@@ -174,7 +186,6 @@ and rebuilt into the principal frame, which costs a few ULP in
 the quaternion/matrix conversions.
 """
 function validate_sysstate_roundtrip(sam; rtol = 1e-10)
-    sys = sam.state
     expected = copy(sam.integrator.u)
     isempty(expected) && return nothing
     path = mktempdir()
@@ -183,8 +194,9 @@ function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     save_log(logger, "roundtrip", false; path)
     reloaded = load_log("roundtrip"; path)
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
-    sys.state_vars = 1.5 .* vec(sys.state_vars) .+ 0.25
-    update_from_sysstate!(sys, reloaded.syslog[1])
+    SymbolicAWEModels.set_state_vars!(sam,
+        1.5 .* vec(SymbolicAWEModels.state_vars(sam)) .+ 0.25)
+    update_from_sysstate!(sam, reloaded.syslog[1])
     init!(sam; remake = false, prn = false)
     @test length(sam.integrator.u) == length(expected)
     @test isapprox(sam.integrator.u, expected; rtol)
@@ -213,10 +225,10 @@ function test_init!(
 end
 
 """
-    load_2plate_particle_sys(system_name) -> (sys, set)
+    load_2plate_particle_sys(system_name) -> (sys, set, vsm_set)
 
-The 2plate kite's particle `SystemStructure` and its settings, loaded from a scratch
-copy of `data/2plate_kite`; the global data path is left as it was.
+The 2plate kite's particle `SystemDefinition`, its settings and its VSM settings, loaded
+from a scratch copy of `data/2plate_kite`; the global data path is left as it was.
 """
 function load_2plate_particle_sys(system_name)
     data_path = joinpath(mktempdir(), "2plate_kite")
@@ -226,11 +238,14 @@ function load_2plate_particle_sys(system_name)
     set = Settings("system.yaml")
     vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys, _ = load_sys_struct_from_yaml(
+    for wing in vsm_set.wings
+        wing.geometry_file = SymbolicAWEModels.optional_project_file("aero_geometry")
+    end
+    sys, _ = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name, set, vsm_set)
+        name=system_name, set)
     set_data_path(data_path_before)
-    return sys, set
+    return sys, set, vsm_set
 end
 
 """

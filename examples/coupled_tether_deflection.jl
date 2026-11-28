@@ -36,23 +36,23 @@ seg_diameter  = 0.004      # [m]
 
 # Points laid out horizontally; transform rotates to vertical
 points = [
-    Point(:top, [vertical_span, 0, 0], STATIC),
+    Point(; name=:top, pos_ENU=[vertical_span, 0, 0], fixed=true),
 ]
 for i in 1:n_segments - 1
     x = vertical_span - i * vertical_span / n_segments
-    push!(points, Point(Symbol("p$i"), [x, 0, 0], DYNAMIC;
-        world_frame_damping=1.0))
+    push!(points, Point(; name=Symbol("p$i"), pos_ENU=[x, 0, 0],
+                        model=PointModel(; world_frame_damping=1.0)))
 end
-push!(points, Point(:bottom, [0, 0, 0], STATIC))
+push!(points, Point(; name=:bottom, pos_ENU=[0, 0, 0], fixed=true))
 
-l0_seg = total_length / n_segments
-segments = Segment[]
+rest_length_seg = total_length / n_segments
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+segments = KiteGeometry.Segment[]
 for i in 1:n_segments
-    push!(segments, Segment(
-        Symbol("seg$i"), points[i].name,
-        points[i + 1].name,
-        seg_stiffness, seg_damping, seg_diameter;
-        l0=l0_seg, compression_frac=0.01))
+    push!(segments, KiteGeometry.line_segment(
+        Symbol("seg$i"), (points[i].name, points[i + 1].name), set, materials;
+        rest_length=rest_length_seg, diameter=seg_diameter, unit_stiffness=seg_stiffness,
+        model=SegmentSpring(; unit_damping=seg_damping, compression_frac=0.01)))
 end
 
 transforms = [
@@ -61,7 +61,7 @@ transforms = [
               rot_point=[length(points) => 1.0], points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("wind_drag", set; points, segments)
+sys = system_definition("wind_drag", set; points, segments, materials)
 place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
@@ -79,6 +79,6 @@ end
 
 save_log(logger, "tether_deflection")
 syslog = load_log("tether_deflection")
-scene = replay(syslog, sam.sys_struct)
+scene = replay(syslog, sam)
 display(scene)
 @info "Wind deflection simulation complete"

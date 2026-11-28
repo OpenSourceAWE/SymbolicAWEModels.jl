@@ -9,7 +9,7 @@
 # index swapped. The runtime address is `(instance, slot)` into our own buffer, so
 # two reads of the same field name can never collide.
 #
-# This is the lowest layer that mentions the `SystemStructure`: the runtime below it
+# This is the lowest layer that mentions the `SystemDefinition`: the runtime below it
 # sees only integers and buffers, and only ever reads `p.numeric` / `p.callables`.
 
 """
@@ -61,10 +61,10 @@ struct CallableGroup{T, R}
 end
 
 """Write every callable of `group` into the slot it addresses."""
-function sync_callables!(group::CallableGroup, sys_struct)
+function sync_callables!(group::CallableGroup, sam)
     targets, readers = group.targets, group.readers
     for k in eachindex(targets)
-        write_callable!(targets[k], readers[k](sys_struct))
+        write_callable!(targets[k], readers[k](sam))
     end
     return nothing
 end
@@ -92,36 +92,52 @@ function group_callables(targets, readers)
 end
 
 """
-    KernelParamSync(groups, callable_groups)
+    KernelParamSync(live_groups, aero_groups, run_groups, callable_groups)
 
-Copies live `SystemStructure` fields into a [`KernelParams`](@ref): the
-[`ReaderGroup`](@ref)s supply `numeric`, the [`CallableGroup`](@ref)s the
-callables. This is the [`KernelBackend`](@ref)'s parameter sync, applied every
-step through the same `ProbWithAttributes` machinery as the monolith's, so it is
-on the hot path twice per step and is grouped by type to stay allocation-free.
+Copies the parameters of a run into a [`KernelParams`](@ref): the
+[`ReaderGroup`](@ref)s of each sync class (see [`sync_class`](@ref)) supply `numeric`,
+the [`CallableGroup`](@ref)s, which an aerodynamic refresh changes, the callables. The
+[`KernelBackend`](@ref)'s counterpart of [`ParamSync`](@ref), grouped by type to stay
+allocation-free on the hot path.
 """
 struct KernelParamSync
-    groups::Vector{ReaderGroup}
+    live_groups::Vector{ReaderGroup}
+    aero_groups::Vector{ReaderGroup}
+    run_groups::Vector{ReaderGroup}
     callable_groups::Vector{CallableGroup}
 end
 
-function sync_params!(sync::KernelParamSync, target, sys_struct)
+function sync_params!(sync::KernelParamSync, target, sam)
     numeric = target.p.numeric
-    for group in sync.groups
-        sync_readers!(group, numeric, sys_struct)
-    end
-    for group in sync.callable_groups
-        sync_callables!(group, sys_struct)
+    for group in sync.live_groups
+        sync_readers!(group, numeric, sam)
     end
     return nothing
+end
+
+function sync_aero_params!(sync::KernelParamSync, target, sam)
+    for group in sync.aero_groups
+        sync_readers!(group, target.p.numeric, sam)
+    end
+    for group in sync.callable_groups
+        sync_callables!(group, sam)
+    end
+    return sync_params!(sync, target, sam)
+end
+
+function sync_run_params!(sync::KernelParamSync, target, sam)
+    for group in sync.run_groups
+        sync_readers!(group, target.p.numeric, sam)
+    end
+    return sync_aero_params!(sync, target, sam)
 end
 
 """
     KernelInitialSync(model)
 
-Pushes the struct's initial conditions onto a problem's `u0`, the
+Pushes a run's initial conditions onto a problem's `u0`, the
 [`KernelBackend`](@ref)'s counterpart of the monolith's `InitialSync`. It exists for
-the same reason: a serialized problem carries the state its build-time struct had,
+the same reason: a serialized problem carries the state of the run it was built from,
 and the model hash is structural, so the same bin is reused for another set of
 positions and rest lengths.
 """
@@ -129,9 +145,9 @@ struct KernelInitialSync{M}
     model::M
 end
 
-function sync_initial!(sync::KernelInitialSync, prob, sys_struct)
+function sync_initial!(sync::KernelInitialSync, prob, sam)
     model = sync.model
-    initial_state!(prob.u0, model.system, sys_struct, model.point_roles,
+    initial_state!(prob.u0, model.system, sam, model.point_roles,
                    model.point_instances, model.body_instances, model.twist_instances)
     return nothing
 end
@@ -140,7 +156,7 @@ end
     ScaledReader(reader, factor)
 
 Reads `reader` and multiplies by `factor`. Used where a parameter is a fixed share
-of a struct field — an unwinched tether segment's rest length is its tether's
+of a run value — an unwinched tether segment's rest length is its tether's
 length over the segment count.
 """
 struct ScaledReader{R}
@@ -148,7 +164,8 @@ struct ScaledReader{R}
     factor::SimFloat
 end
 
-(reader::ScaledReader)(sys_struct) = reader.reader(sys_struct) * reader.factor
+(reader::ScaledReader)(sam) = reader.reader(sam) * reader.factor
+path_reader(reader::ScaledReader) = path_reader(reader.reader)
 
 """
     kernel_param_slots(kernel) -> Dict{Symbol, Vector{Int}}
@@ -207,7 +224,7 @@ kernel_callable_slots(kernel::ComponentKernel) = name_slots(kernel.callables.nam
     instance_readers(kernel, registry, index_map)
 
 The live readers for one instance of `kernel`. Returns `(numeric, callable)`, each a
-vector of `(slot, reader)` pairs: `reader(sys_struct)` is the current value of the
+vector of `(slot, reader)` pairs: `reader(sam)` is the current value of the
 parameter at that slot of the instance's slice. `index_map` gives this instance's
 index in each container the kernel reads (`Dict(:points => 7)`); parameters the
 kernel minted itself (a pulley's damping, say) are not in the registry and keep
@@ -295,6 +312,56 @@ function record_build_index!(built_from, entry::ParamEntry, index_map)
         previous == path[k + 1] || error(
             "kernel reads $(path[k])[$(path[k + 1])] and $(path[k])[$previous]; a " *
             "kernel may read only one component of a container it is instanced over")
+    end
+    return nothing
+end
+
+"""The element of the parameter at `path` that `reader_path` reads: 0 for the whole of
+it, `k` for its `k`-th element, `nothing` for another parameter."""
+function path_element(reader_path, path)
+    reader_path == path && return 0
+    length(reader_path) == length(path) + 1 && reader_path[end] isa Int &&
+        reader_path[1:end-1] == path && return reader_path[end]
+    return nothing
+end
+
+"""
+    build_parameter_access(sync::KernelParamSync, prob, path) -> KernelParameter
+
+The slots of the numeric buffer of an integrator of `prob` that `sync` fills from
+`path`, and the element of the value each holds; `nothing` where none is read from
+`path`.
+"""
+function build_parameter_access(sync::KernelParamSync, prob, path)
+    slots, elements = Int[], Int[]
+    for group in Iterators.flatten((sync.live_groups, sync.aero_groups, sync.run_groups))
+        for (slot, reader) in zip(group.targets, group.readers)
+            inner = path_reader(reader)
+            isnothing(inner) && continue
+            element = path_element(inner.path, path)
+            isnothing(element) && continue
+            push!(slots, slot)
+            push!(elements, reader isa ElementReader ? reader.index : element)
+        end
+    end
+    return isempty(slots) ? nothing : KernelParameter(slots, elements)
+end
+
+"""The value of the parameter `access` stands for in `integrator`: its first slot when
+each slot holds all of it, else the first slot holding each element."""
+function read_parameter(access::KernelParameter, integrator)
+    numeric = integrator.p.numeric
+    all(iszero, access.elements) && return numeric[first(access.slots)]
+    return [numeric[access.slots[findfirst(==(k), access.elements)]]
+            for k in 1:maximum(access.elements)]
+end
+
+"""Write `value` to every slot `access` stands for in `integrator`: all of it, or the
+element the slot holds."""
+function write_parameter!(access::KernelParameter, integrator, value)
+    numeric = integrator.p.numeric
+    for (slot, element) in zip(access.slots, access.elements)
+        numeric[slot] = element == 0 ? value : value[element]
     end
     return nothing
 end

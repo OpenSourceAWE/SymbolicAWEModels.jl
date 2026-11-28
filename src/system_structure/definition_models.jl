@@ -5,105 +5,59 @@
     PointModel
 
 What SymbolicAWEModels holds of a point beyond its KiteGeometry `points` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, which no document holds.
+only it reads, each `nothing` where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct PointModel <: KiteGeometry.AbstractModel
-    "Dynamics type, such as `DYNAMIC`, `STATIC` or `BODY_STATIC`."
-    type::Union{Nothing, String} = nothing
-    "Damping in the body frame [N·s/m], one value or one per axis."
+    "Damping per unit mass on the body axes [1/s], one value or one per axis."
     body_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
-    "Damping in the world frame [N·s/m], one value or one per axis."
+    "Damping per unit mass on the world axes [1/s], one value or one per axis."
     world_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Drag area [m²]."
     area::Union{Nothing, Float64} = nothing
     "Drag coefficient."
     drag_coeff::Union{Nothing, Float64} = nothing
-    "The tube the point rides on, by name or index."
-    tube::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Whether the point is held on a sphere."
     fix_sphere::Union{Nothing, Bool} = nothing
     "Whether the point is frozen in place."
     fix_static::Union{Nothing, Bool} = nothing
-    "The wing the point belongs to, by name or index."
-    wing_idx::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Where the point sits in its body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
-    "Index in the structure's points."
-    idx::Int64 = 0
-    "Index of the wing the point belongs to; 0 for none."
-    resolved_wing_idx::Int64 = 0
-    "Index of the body the point rides; 0 for none."
-    resolved_body_idx::Int64 = 0
-    "Index of the tube the point rides; 0 for none."
-    resolved_tube_idx::Int64 = 0
-    "Where the point sits in the frame of the body it rides [m]: `anchor_b`, else where its
-    position puts it."
-    resolved_anchor_b::KVec3 = zeros(KVec3)
-    "Undeformed position relative to the wing's centre of mass, principal frame [m]."
-    pos_undeformed_b::KVec3 = zeros(KVec3)
-    "External force on the point, world frame [N]."
-    ext_force_w::KVec3 = zeros(KVec3)
-    "Own mass plus half of each of its segments' masses at rest length [kg]."
-    total_mass::SimFloat = 0.0
     "Entrained-air mass resisting acceleration without adding weight [kg]."
-    apparent_mass::SimFloat = 0.0
-    "Whether the point is a structural node of a wing: a member of one of its stations."
-    is_wing_node::Bool = false
-    "Position `s ∈ [0,1]` along the beam element of the tube the point rides."
-    beam_frac::SimFloat = 0.0
-    "Offset off that beam's centerline, rest element frame [m]."
-    beam_offset_b::KVec3 = zeros(KVec3)
+    apparent_mass::Union{Nothing, Float64} = nothing
+    "The `wings` row whose frame a bridle or pulley point is damped in."
+    wing_idx::Union{Nothing, KiteGeometry.NameRef} = nothing
 end
 
-PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
-           fix_sphere, fix_static, wing_idx, anchor_b) =
-    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
-               fix_sphere, fix_static, wing_idx, anchor_b,
-               resolved_anchor_b=KVec3(something(anchor_b, zeros(3))))
-
-KiteGeometry.model_columns(::Type{PointModel}) =
-    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff, :tube,
-     :fix_sphere, :fix_static, :wing_idx, :anchor_b)
+KiteGeometry.model_columns(::Type{PointModel}) = fieldnames(PointModel)
+KiteGeometry.model_references(::Type{PointModel}) = (wing_idx=:wings,)
 
 """
-    SegmentModel
+    SegmentSpring
 
-What SymbolicAWEModels holds of a segment beyond its KiteGeometry `segments` row: the
-columns of KiteGeometry's segment model `spring`, then what it derives when it builds the
-structure, which no document holds.
+The spring of a segment, the model of a `segments` row: its damping and how it carries
+compression as a document authors them, each `nothing` where the row leaves it unset.
+A run resolves its damping with [`segment_unit_damping`](@ref).
 
 $(TYPEDFIELDS)
 """
-@kwdef mutable struct SegmentModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct SegmentSpring <: KiteGeometry.AbstractModel
     "Damping per unit length [N·s]."
-    unit_damping::Float64
-    "Compressive over tensile stiffness; 0 for a segment that goes slack."
-    compression_frac::Float64 = 0.1
-    "Fraction of `unit_damping` still acting under compression."
-    compression_damping_frac::Float64 = 1.0
-    "Index in the structure's segments."
-    idx::Int64 = 0
-    "Stiffness per unit length: a number [N], or a callable force law `F(ε)` [N]."
-    unit_stiffness::Any = NaN
-    "Material density [kg/m³]."
-    density::SimFloat = NaN
+    unit_damping::Union{Nothing, Float64} = nothing
+    "Damping per unit length over stiffness per unit length [s]."
+    damping_per_stiffness::Union{Nothing, Float64} = nothing
+    "Compressive over tensile stiffness (0-1)."
+    compression_frac::Union{Nothing, Float64} = nothing
+    "Fraction of the damping still acting under compression (0-1)."
+    compression_damping_frac::Union{Nothing, Float64} = nothing
 end
-
-SegmentModel(unit_damping, compression_frac, compression_damping_frac) =
-    SegmentModel(; unit_damping, compression_frac, compression_damping_frac)
-
-KiteGeometry.model_columns(::Type{SegmentModel}) =
-    (:unit_damping, :compression_frac, :compression_damping_frac)
 
 """
     StationModel
 
 What SymbolicAWEModels holds of a station beyond its KiteGeometry `spanwise_stations` row:
-the columns only it reads, each `nothing` where the row leaves it unset, then what it
-derives when it builds the structure, which no document holds.
+the columns only it reads, each `nothing` where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
@@ -124,48 +78,21 @@ $(TYPEDFIELDS)
     flap_points::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
     "Unit flap-hinge axis."
     flap_axis::Union{Nothing, Vector{Float64}} = nothing
-    "Index in the structure's stations."
-    idx::Int64 = 0
-    "Indices of the station's points."
-    point_idxs::Vector{Int64} = Int64[]
-    "Index of the body whose twist the station carries; 0 for none."
-    resolved_wing_idx::Int64 = 0
-    "Indices of the bodies the station twists with."
-    body_idxs::Vector{Int64} = Int64[]
-    "Indices of the main and the flap body of a body flap."
-    flap_body_idxs::Vector{Int64} = Int64[]
-    "Indices of the three points of a point flap."
-    flap_point_idxs::Vector{Int64} = Int64[]
-    "Leading edge position, body frame [m]."
-    le_pos::KVec3 = zeros(KVec3)
-    "Chord vector, body frame [m]."
-    chord::KVec3 = zeros(KVec3)
-    "Spanwise vector, local panel frame."
-    y_airf::KVec3 = zeros(KVec3)
+    "Chord vector of a flat-plate section, its wing's frame [m]."
+    chord::Union{Nothing, Vector{Float64}} = nothing
+    "Spanwise vector of a flat-plate section, its local panel frame."
+    y_airf::Union{Nothing, Vector{Float64}} = nothing
+    "Surface area of a flat-plate section [m²]."
+    area::Union{Nothing, Float64} = nothing
     "Twist angle a run starts from, held for a `STATIC` station [rad]."
-    twist::SimFloat = 0.0
-    "Indices of the unrefined VSM sections of the station."
-    unrefined_section_idxs::Vector{Int64} = Int64[]
-    "Indices of the VSM panels whose twist moment the station takes."
-    panel_idxs::Vector{Int64} = Int64[]
-    "Share of its wing's mass on no point, by the area of its panels [kg]."
-    body_mass::SimFloat = 0.0
-    "Surface area of a flat-plate section [m²]; `NaN` unused."
-    area::SimFloat = NaN
-    "Reference chord directions `[main, flap]` of a flap, each body's frame."
-    flap_chord_refs::Vector{KVec3} = KVec3[]
-    "Deflection of the flap in its initial pose [rad]."
-    flap_rest_delta::SimFloat = 0.0
+    twist::Union{Nothing, Float64} = nothing
+    "Reference chord directions `[main, flap]` of a body flap, each body's frame."
+    flap_chord_refs::Union{Nothing, Vector{Vector{Float64}}} = nothing
 end
 
-StationModel(type, moment_frac, damping, stiffness, bodies, flap_bodies, flap_points,
-             flap_axis) =
-    StationModel(; type, moment_frac, damping, stiffness, bodies, flap_bodies,
-                 flap_points, flap_axis)
-
-KiteGeometry.model_columns(::Type{StationModel}) =
-    (:type, :moment_frac, :damping, :stiffness, :bodies, :flap_bodies, :flap_points,
-     :flap_axis)
+KiteGeometry.model_columns(::Type{StationModel}) = fieldnames(StationModel)
+KiteGeometry.model_references(::Type{StationModel}) =
+    (bodies=:bodies, flap_bodies=:bodies, flap_points=:points)
 
 """
     WingModel
@@ -175,43 +102,45 @@ where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
-struct WingModel <: KiteGeometry.AbstractModel
+@kwdef struct WingModel <: KiteGeometry.AbstractModel
     "Name of the aerodynamic model, such as `AeroLinearized`."
-    aero_mode::Union{Nothing, String}
-    "Spin damping about the body axes [1/s], one value or one per axis."
-    angular_damping::Union{Nothing, Float64, Vector{Float64}}
+    aero_mode::Union{Nothing, String} = nothing
+    "Damping of the spin relative to the wing's `small_earth_frame`, about the body axes
+    [1/s], one value or one per axis."
+    angular_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Scale on the VSM panel chord."
-    aero_scale_chord::Union{Nothing, Float64}
+    aero_scale_chord::Union{Nothing, Float64} = nothing
     "Offset of the VSM panels along the body z-axis [m]."
-    aero_z_offset::Union{Nothing, Float64}
+    aero_z_offset::Union{Nothing, Float64} = nothing
     "How the principal frame is found: `EIGEN_DECOMP` or `Y_ROTATION`."
-    principal_frame_method::Union{Nothing, String}
+    principal_frame_method::Union{Nothing, String} = nothing
     "`PARTICLE_DYNAMICS` or `RIGID_DYNAMICS`."
-    dynamics_type::Union{Nothing, String}
+    dynamics_type::Union{Nothing, String} = nothing
     "The points, weighted, whose position is the wing's origin."
-    origin_idx::Any
+    origin_idx::Any = nothing
     "The two weighted point groups the wing's z-axis runs between."
-    z_ref_points::Any
+    z_ref_points::Any = nothing
     "The two weighted point groups the wing's y-axis runs between."
-    y_ref_points::Any
+    y_ref_points::Any = nothing
     "Origin of the wing's body frame in the authoring frame [m]."
-    pos_cad::Union{Nothing, Vector{Float64}}
+    pos_cad::Union{Nothing, Vector{Float64}} = nothing
     "Centre of the wing's own mass in the authoring frame [m]."
-    com::Union{Nothing, Vector{Float64}}
+    com::Union{Nothing, Vector{Float64}} = nothing
     "Inertia per unit mass [m²], a 3×3 matrix or `[Ixx, Iyy, Izz, Ixy, Ixz, Iyz]`."
-    unit_inertia::Any
+    unit_inertia::Any = nothing
     "Drag correction of a flat-plate wing."
-    drag_corr::Union{Nothing, Float64}
+    drag_corr::Union{Nothing, Float64} = nothing
     "The stations the wing lists, by name or index."
-    stations::Union{Nothing, Vector{KiteGeometry.NameRef}}
+    stations::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
+    "Whether the points of the wing's stations add their moment to it."
+    group_points_moment::Union{Nothing, Bool} = nothing
 end
 
 """
     PulleyModel
 
 What SymbolicAWEModels holds of a pulley beyond its KiteGeometry `pulleys` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, which no document holds.
+only it reads, each `nothing` where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
@@ -226,77 +155,17 @@ $(TYPEDFIELDS)
     brake::Union{Nothing, Bool} = nothing
     "Friction smoothing width [m/s]."
     friction_epsilon::Union{Nothing, Float64} = nothing
-    "Index in the structure's pulleys."
-    idx::Int64 = 0
-    "Sum of the lengths of the pulley's two segments [m]."
-    sum_len::SimFloat = 0.0
 end
-
-PulleyModel(type, efficiency, damping, brake, friction_epsilon) =
-    PulleyModel(; type, efficiency, damping, brake, friction_epsilon)
 
 KiteGeometry.model_columns(::Type{PulleyModel}) =
     (:type, :efficiency, :damping, :brake, :friction_epsilon)
 
 """
-    TetherModel
-
-What SymbolicAWEModels holds of a tether beyond its KiteGeometry `tethers` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, which no document holds.
-
-$(TYPEDFIELDS)
-"""
-@kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
-    "Length the tether is stretched to when placed [m]."
-    init_stretched_length::Union{Nothing, Float64} = nothing
-    "Tension the placed tether carries, which sets its rest length [N]."
-    init_tether_force::Union{Nothing, Float64} = nothing
-    "Strain of the placed tether, which sets its rest length."
-    init_stretch_frac::Union{Nothing, Float64} = nothing
-    "Index in the structure's tethers."
-    idx::Int64 = 0
-    "Indices of the tether's segments."
-    segment_idxs::Vector{Int64} = Int64[]
-    "Index of the tether's start point; 0 for none."
-    start_point_idx::Int64 = 0
-    "Index of the tether's end point; 0 for none."
-    end_point_idx::Int64 = 0
-    "Number of segments a tether given by its end points is split into."
-    n_segments::Int64 = 0
-    "Stiffness per unit length of the segments it generates: a number [N] or a callable
-    force law `F(ε)` [N]; `NaN` from the settings."
-    unit_stiffness::Any = NaN
-    "Damping per unit length of the segments it generates [N·s]; `NaN` from the settings."
-    unit_damping::SimFloat = NaN
-    "Diameter [m]; `NaN` from the settings."
-    diameter::SimFloat = NaN
-    "Material density [kg/m³]; `NaN` from the settings."
-    density::SimFloat = NaN
-    "Young's modulus [Pa], the diameter-independent form of `unit_stiffness`."
-    youngs_modulus::SimFloat = NaN
-    "Damping per unit stiffness [s], the diameter-independent form of `unit_damping`."
-    damping_per_stiffness::SimFloat = NaN
-    "Compressive over tensile stiffness of the segments it generates."
-    compression_frac::SimFloat = 0.1
-    "Fraction of `unit_damping` still acting under compression, per segment."
-    compression_damping_frac::SimFloat = 1.0
-    "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
-    len::SimFloat = 0.0
-end
-
-TetherModel(init_stretched_length, init_tether_force, init_stretch_frac) =
-    TetherModel(; init_stretched_length, init_tether_force, init_stretch_frac)
-
-KiteGeometry.model_columns(::Type{TetherModel}) =
-    (:init_stretched_length, :init_tether_force, :init_stretch_frac)
-
-"""
     WinchModel{W}
 
 What SymbolicAWEModels holds of a winch beyond its KiteGeometry `winches` row: the columns
-only it reads, each `nothing` where the row leaves it unset, then what it derives when it
-builds the structure, and the motor dynamics `W` (an [`AbstractWinchModel`](@ref)).
+only it reads, each `nothing` where the row leaves it unset, and the motor dynamics `W` (an
+[`AbstractWinchModel`](@ref)).
 A property it has no field for is the dynamics'; `friction_epsilon` is the dynamics' where
 they have one.
 
@@ -311,28 +180,24 @@ $(TYPEDFIELDS)
     speed_controlled::Union{Nothing, Bool} = nothing
     "Friction smoothing width [m/s]."
     friction_epsilon::Union{Nothing, Float64} = nothing
-    "Index in the structure's winches."
-    idx::Int64 = 0
-    "Indices of the winch's tethers."
-    tether_idxs::Vector{Int64} = Int64[]
-    "Index of the winch's ground point."
-    winch_point_idx::Int64 = 0
     "Coulomb friction force [N]."
-    coulomb_friction::SimFloat = NaN
+    coulomb_friction::Union{Nothing, Float64} = nothing
     "Viscous friction coefficient [N·s/m]."
-    viscous_coefficient::SimFloat = NaN
+    viscous_coefficient::Union{Nothing, Float64} = nothing
     "Total rotational inertia [kg·m²]."
-    inertia_total::SimFloat = NaN
-    "Motor dynamics."
-    dynamics::W
+    inertia_total::Union{Nothing, Float64} = nothing
+    "Motor dynamics, a [`TorqueWinch`](@ref) by default."
+    dynamics::W = torque_winch(friction_epsilon)
 end
 
-WinchModel(init_vel, brake, speed_controlled, friction_epsilon) =
-    WinchModel(; init_vel, brake, speed_controlled, friction_epsilon,
-               dynamics=torque_winch(friction_epsilon))
+WinchModel(init_vel, brake, speed_controlled, friction_epsilon, coulomb_friction,
+           viscous_coefficient, inertia_total) =
+    WinchModel(; init_vel, brake, speed_controlled, friction_epsilon, coulomb_friction,
+               viscous_coefficient, inertia_total)
 
 KiteGeometry.model_columns(::Type{<:WinchModel}) =
-    (:init_vel, :brake, :speed_controlled, :friction_epsilon)
+    (:init_vel, :brake, :speed_controlled, :friction_epsilon, :coulomb_friction,
+     :viscous_coefficient, :inertia_total)
 
 @inline function Base.getproperty(model::WinchModel{W}, property::Symbol) where {W}
     (hasfield(W, property) || !hasfield(WinchModel{W}, property)) &&
@@ -351,85 +216,129 @@ end
 """
     TimoshenkoTubeModel
 
-The columns of a KiteGeometry `tubes` row with model `timoshenko`, a
-[`TimoshenkoTube`](@ref), each `nothing` where the row leaves it unset.
+The columns of a KiteGeometry `tubes` row with model `timoshenko`, each `nothing` where the
+row leaves it unset: a 2-node corotational Timoshenko beam element, whose stiffness couples
+each node's transverse displacement to its rotation (shear reduction
+`Φ = 12·EI/(k·GA·L²)`); a chain of tubes forms a beam. A rigidity is a number or, in a
+structure built in Julia, a callable of its strain or curvature returning the effective
+rigidity there; one left unset follows from the tube's material.
 
 $(TYPEDFIELDS)
 """
-struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     "Axial rigidity [N]."
-    EA::Union{Nothing, Float64}
+    EA::Any = nothing
     "Shear rigidity [N]."
-    GA::Union{Nothing, Float64}
+    GA::Any = nothing
     "Torsional rigidity [N·m²]."
-    GJ::Union{Nothing, Float64}
+    GJ::Any = nothing
     "Bending rigidity about the y-axis [N·m²]."
-    EIy::Union{Nothing, Float64}
+    EIy::Any = nothing
     "Bending rigidity about the z-axis [N·m²]."
-    EIz::Union{Nothing, Float64}
-    "Shear correction coefficient."
-    shear_coeff::Union{Nothing, Float64}
-    "Rayleigh damping, damping over stiffness [s]."
-    damping::Union{Nothing, Float64}
-    "Tube end in the first body's frame [m]."
-    anchor_a::Union{Nothing, Vector{Float64}}
-    "Tube end in the second body's frame [m]."
-    anchor_b::Union{Nothing, Vector{Float64}}
+    EIz::Any = nothing
+    "Shear correction coefficient, 5/6 when unset."
+    shear_coeff::Union{Nothing, Float64} = nothing
+    "Rayleigh damping, damping over stiffness [s]; 0 when unset."
+    damping::Union{Nothing, Float64} = nothing
+    "Tube end in the first body's frame, from its frame origin [m]."
+    anchor_a::Union{Nothing, Vector{Float64}} = nothing
+    "Tube end in the second body's frame, from its frame origin [m]."
+    anchor_b::Union{Nothing, Vector{Float64}} = nothing
 end
+KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
+    (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping, :anchor_a, :anchor_b)
+
 
 """
     ElasticTubeModel
 
-The columns of a KiteGeometry `tubes` row with model `elastic`, an
-[`ElasticTube`](@ref), each `nothing` where the row leaves it unset.
+The columns of a KiteGeometry `tubes` row with model `elastic`, each `nothing` where the
+row leaves it unset: a lumped 6-DOF spring between the tube's two ends, their relative pose
+in the first body's frame split into axial, shear, torsion and bending springs. A
+stiffness is a number (force `k·Δ`) or, in a structure built in Julia, a callable of its
+displacement or angle (force `f(Δ)`); every stiffness must be set.
 
 $(TYPEDFIELDS)
 """
-struct ElasticTubeModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
     "Axial stiffness [N/m]."
-    stiffness_axial::Union{Nothing, Float64}
+    stiffness_axial::Any = nothing
     "Shear stiffness [N/m]."
-    stiffness_shear::Union{Nothing, Float64}
+    stiffness_shear::Any = nothing
     "Torsional stiffness [N·m/rad]."
-    stiffness_torsion::Union{Nothing, Float64}
+    stiffness_torsion::Any = nothing
     "Bending stiffness [N·m/rad]."
-    stiffness_bending::Union{Nothing, Float64}
-    "Rayleigh damping, damping over stiffness [s]."
-    damping::Union{Nothing, Float64}
-    "Tube end in the first body's frame [m]."
-    anchor_a::Union{Nothing, Vector{Float64}}
-    "Tube end in the second body's frame [m]."
-    anchor_b::Union{Nothing, Vector{Float64}}
+    stiffness_bending::Any = nothing
+    "Rayleigh damping, damping over stiffness [s]; 0 when unset."
+    damping::Union{Nothing, Float64} = nothing
+    "Tube end in the first body's frame, from its frame origin [m]."
+    anchor_a::Union{Nothing, Vector{Float64}} = nothing
+    "Tube end in the second body's frame, from its frame origin [m]."
+    anchor_b::Union{Nothing, Vector{Float64}} = nothing
 end
+KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
+    (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,
+     :damping, :anchor_a, :anchor_b)
+
+"""
+    rigidity_fields(model) -> Tuple
+
+The columns of the tube row model `model` holding a rigidity or stiffness.
+"""
+rigidity_fields(::TimoshenkoTubeModel) = (:EA, :GA, :GJ, :EIy, :EIz)
+rigidity_fields(::ElasticTubeModel) =
+    (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending)
+
+
+KiteGeometry.model_references(::Type{WingModel}) = (
+    origin_idx=KiteGeometry.WeightedRefs(:points),
+    z_ref_points=(KiteGeometry.WeightedRefs(:points), KiteGeometry.WeightedRefs(:points)),
+    y_ref_points=(KiteGeometry.WeightedRefs(:points), KiteGeometry.WeightedRefs(:points)),
+    stations=:spanwise_stations)
+
+"""What frames and weighs the body of a wing whose row carries `model`, for KiteGeometry's
+`complete_wings!`: its dynamics type, reference points and mesh mass properties."""
+KiteGeometry.wing_spec(model::WingModel) = KiteGeometry.WingSpec(;
+    particle=wing_dynamics_type(model) == PARTICLE_DYNAMICS, origin=model.origin_idx,
+    z_ref_points=model.z_ref_points, y_ref_points=model.y_ref_points, com=model.com,
+    unit_inertia=unit_inertia_tensor(model.unit_inertia))
+
+"""Per-unit-mass inertia [m²] as a 3×3 matrix, given as one or as `[Ixx, Iyy, Izz, Ixy,
+Ixz, Iyz]`; `nothing` for none."""
+unit_inertia_tensor(::Nothing) = nothing
+unit_inertia_tensor(inertia::AbstractMatrix) = inertia
+unit_inertia_tensor(inertia::AbstractVector) = first(inertia) isa AbstractVector ?
+    reduce(vcat, permutedims.(inertia)) : ObjAdapter.unit_inertia_matrix(inertia)
 
 """
     register_definition_models()
 
 Register SymbolicAWEModels' models of each KiteGeometry block, so `load_authoring` and
-`load_structure` read its columns into them: the default model of points, segments, stations,
-wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the default, and
-`elastic`.
+`load_structure` read its columns into them: the default model of points, segments,
+stations, wings, pulleys, bodies and winches, and the tube models `timoshenko`, the
+default, and `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "-", "m");
+                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "m", "kg", "-");
                     default=true)
-    register_model!(:segments, "sam_segment", SegmentModel, ("N*s", "-", "-");
+    register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
     register_model!(:spanwise_stations, "sam_station", StationModel,
-                    ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-");
+                    ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-", "m", "-", "m^2",
+                     "rad", "-");
                     default=true)
     register_model!(:wings, "sam_wing", WingModel,
                     ("-", "1/s", "-", "m", "-", "-", "-", "-", "-", "m", "m", "m^2", "-",
-                     "-");
+                     "-", "-");
                     default=true)
     register_model!(:pulleys, "sam_pulley", PulleyModel,
                     ("-", "-", "N*s/m", "-", "m/s"); default=true)
     register_model!(:bodies, "sam_body", BodyModel,
-                    ("-", "-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
+                    ("-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-", "kg", "m");
                     default=true)
-    register_model!(:tethers, "sam_tether", TetherModel, ("m", "N", "-"); default=true)
-    register_model!(:winches, "sam_winch", WinchModel, ("m/s", "-", "-", "m/s");
+    register_model!(:winches, "sam_winch", WinchModel,
+                    ("m/s", "-", "-", "m/s", "N", "N*s/m", "kg*m^2");
                     default=true)
     register_model!(:tubes, "timoshenko", TimoshenkoTubeModel,
                     ("N", "N", "N*m^2", "N*m^2", "N*m^2", "-", "s", "m", "m");

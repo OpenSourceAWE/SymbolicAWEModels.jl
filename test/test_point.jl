@@ -106,6 +106,10 @@ points:
     - [test_point, [0.0, 0.0, 5000.0], DYNAMIC, nothing, nothing, 2.3, 0.0, 0.0, 4.2, 0.33]
 """
 
+"""The value of `quantity` of point `test_point` at the start of a run of `sys`."""
+start_value(sys, quantity) =
+    run_value(SymbolicAWEModel(nothing, sys), :points, :test_point, quantity)
+
 @testset "Point Tests" begin
     # Write YAML to temp file
     tmpdir = mktempdir()
@@ -178,7 +182,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="point_test", set=set)
+    sys, _ = load_authoring(yaml_path; name="point_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -190,7 +194,7 @@ system:
 
         # Verify point properties
         test_point = sys.points[:test_point]
-        @test test_point.type == SymbolicAWEModels.DYNAMIC
+        @test point_type(sys.points[:test_point]) == SymbolicAWEModels.DYNAMIC
         @test test_point.pos_ENU == KVec3(0.0, 0.0, 100.0)
         @test test_point.extra_mass == 0.69
         @test test_point.area == 0.1
@@ -207,16 +211,16 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML for cleaner test
-        sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
-            system_name="point_no_drag_test", set=set)
-        @test sys.points[:test_point].area == 0.0
+        sys, transforms = load_authoring(yaml_no_drag_path;
+            name="point_no_drag_test", set=set)
+        @test start_value(sys, :area) == 0.0
 
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Record initial state
-        initial_pos = copy(sam.state.points[:test_point].pos_w)
-        initial_vel = copy(sam.state.points[:test_point].vel_w)
+        initial_pos = copy(run_value(sam, :points, :test_point, :pos_w))
+        initial_vel = copy(run_value(sam, :points, :test_point, :vel_w))
 
         # Run simulation
         dt = 0.01
@@ -224,8 +228,8 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        final_pos = sam.state.points[:test_point].pos_w
-        final_vel = sam.state.points[:test_point].vel_w
+        final_pos = run_value(sam, :points, :test_point, :pos_w)
+        final_vel = run_value(sam, :points, :test_point, :vel_w)
 
         # Position should be unchanged (within numerical tolerance)
         @test norm(final_pos - initial_pos) ≈ 0.0 atol=1e-8
@@ -246,9 +250,9 @@ system:
 
         # Heavy point (50 kg) with large drag area for
         # slow, precisely measurable acceleration
-        sys, transforms = load_sys_struct_from_yaml(
+        sys, transforms = load_authoring(
             yaml_heavy_drag_path;
-            system_name="point_test_drag", set=set)
+            name="point_test_drag", set=set)
 
         @test sys.points[:test_point].area == 0.5
         @test sys.points[:test_point].drag_coeff == 1.0
@@ -274,14 +278,14 @@ system:
         dt = 0.001
         n_steps = 10
         initial_vel = copy(
-            sam.state.points[:test_point].vel_w)
+            run_value(sam, :points, :test_point, :vel_w))
 
         for _ in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
         final_vel =
-            sam.state.points[:test_point].vel_w
+            run_value(sam, :points, :test_point, :vel_w)
         t_elapsed = n_steps * dt
         speed = norm(final_vel - initial_vel)
         a_measured = speed / t_elapsed
@@ -307,19 +311,20 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML - just a point with mass, no segments
-        sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
-            system_name="point_no_drag_test", set=set)
+        sys, transforms = load_authoring(yaml_no_drag_path;
+            name="point_no_drag_test", set=set)
 
-        @test sys.points[:test_point].area == 0.0
-        @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
+        @test start_value(sys, :area) == 0.0
+        @test start_value(sys, :world_frame_damping) ==
+              KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 0.69
 
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Initial state
-        z0 = sam.state.points[:test_point].pos_w[3]
-        vz0 = sam.state.points[:test_point].vel_w[3]
+        z0 = run_value(sam, :points, :test_point, :pos_w)[3]
+        vz0 = run_value(sam, :points, :test_point, :vel_w)[3]
 
         # Run for short time
         dt = 0.001
@@ -330,8 +335,8 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        vz_final = sam.state.points[:test_point].vel_w[3]
-        z_final = sam.state.points[:test_point].pos_w[3]
+        vz_final = run_value(sam, :points, :test_point, :vel_w)[3]
+        z_final = run_value(sam, :points, :test_point, :pos_w)[3]
 
         # Velocity should be v0 - g*t (mass doesn't affect free fall acceleration)
         vz_expected = vz0 - set.g_earth * total_time
@@ -354,11 +359,12 @@ system:
         yaml_damping_path = joinpath(tmpdir, "world_damping_geometry.yaml")
         write(yaml_damping_path, POINT_WORLD_DAMPING_YAML)
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_damping_path;
-            system_name="damping_test", set=set)
+        sys, transforms = load_authoring(yaml_damping_path;
+            name="damping_test", set=set)
 
-        @test sys.points[:test_point].world_frame_damping == KVec3(0.7, 0.7, 0.7)
-        @test sys.points[:test_point].area == 0.0
+        @test start_value(sys, :world_frame_damping) ==
+              KVec3(0.7, 0.7, 0.7)
+        @test start_value(sys, :area) == 0.0
         @test sys.points[:test_point].extra_mass == 2.3
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -380,7 +386,7 @@ system:
         end
 
         # Check terminal velocity (downward, so negative z velocity)
-        vz_final = sam.state.points[:test_point].vel_w[3]
+        vz_final = run_value(sam, :points, :test_point, :vel_w)[3]
         @test abs(vz_final) ≈ v_terminal_expected atol=0.001
         @test vz_final < 0  # Moving downward
 
@@ -397,23 +403,24 @@ system:
         yaml_aero_path = joinpath(tmpdir, "aero_drag_geometry.yaml")
         write(yaml_aero_path, POINT_AERO_DRAG_YAML)
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_aero_path;
-            system_name="aero_drag_test", set=set)
+        sys, transforms = load_authoring(yaml_aero_path;
+            name="aero_drag_test", set=set)
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
-        @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
+        @test start_value(sys, :world_frame_damping) ==
+              KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 2.3
-        @test sys.points[:test_point].total_mass == 2.3
+        @test start_value(sys, :total_mass) == 2.3
 
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
-        @test sys.points[:test_point].total_mass == 2.3
+        @test start_value(sys, :total_mass) == 2.3
 
         # Verify point properties are preserved after init
-        point = sam.state.points[:test_point]
-        @test point.area == 4.2
-        @test point.drag_coeff == 0.33
+        point(quantity) = run_value(sam, :points, :test_point, quantity)
+        @test point(:area) == 4.2
+        @test point(:drag_coeff) == 0.33
 
         m = 2.3
         Cd = 0.33
@@ -429,7 +436,7 @@ system:
 
         # Calculate air density at final height using same model as simulation
         # Note: simulation clamps height to max(0.0, h) for density calculation
-        final_height = point.pos_w[3]
+        final_height = point(:pos_w)[3]
         rho = SymbolicAWEModels.calc_rho(sam.am, max(0.0, final_height))
 
         # Terminal velocity: 0.5 * rho * Cd * A * v^2 = m * g
@@ -437,7 +444,7 @@ system:
         v_terminal_expected = sqrt(2 * m * set.g_earth / (rho * Cd * A))
 
         # Check terminal velocity (downward, so negative z velocity)
-        vz_final = point.vel_w[3]
+        vz_final = point(:vel_w)[3]
         @test vz_final < 0  # Moving downward
 
         println("\n  ====== Aero drag terminal velocity: measured=$(round(abs(vz_final), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s (h=$(round(final_height, digits=0))m) ======\n")
@@ -445,11 +452,11 @@ system:
 
         # Verify drag_force field: at terminal velocity drag
         # balances gravity (m*g upward, opposing downward fall)
-        drag_mag = norm(point.drag_force)
+        drag_mag = norm(point(:drag_force))
         @test drag_mag ≈ m * set.g_earth rtol=0.01
-        @test point.drag_force[3] > 0       # upward
-        @test abs(point.drag_force[1]) < 0.01  # no x
-        @test abs(point.drag_force[2]) < 0.01  # no y
+        @test point(:drag_force)[3] > 0       # upward
+        @test abs(point(:drag_force)[1]) < 0.01  # no x
+        @test abs(point(:drag_force)[2]) < 0.01  # no y
     end
 
     # ========================================================================
@@ -464,8 +471,8 @@ system:
         yaml_high_alt_path = joinpath(tmpdir, "high_alt_geometry.yaml")
         write(yaml_high_alt_path, POINT_HIGH_ALTITUDE_YAML)
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
-            system_name="high_alt_point_test", set=set)
+        sys, transforms = load_authoring(yaml_high_alt_path;
+            name="high_alt_point_test", set=set)
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
@@ -474,7 +481,7 @@ system:
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
-        point = sam.state.points[:test_point]
+        point(quantity) = run_value(sam, :points, :test_point, quantity)
         m = 2.3
         Cd = 0.33
         A = 4.2
@@ -488,7 +495,7 @@ system:
         end
 
         # Get final state
-        final_height = point.pos_w[3]
+        final_height = point(:pos_w)[3]
 
         # Height should still be positive (above sea level)
         @test final_height > 0
@@ -508,7 +515,7 @@ system:
         @test v_terminal_altitude > v_terminal_sea_level
 
         # Check actual terminal velocity matches expected
-        vz_final = point.vel_w[3]
+        vz_final = point(:vel_w)[3]
 
         @test vz_final < 0  # Moving downward
         @test abs(vz_final) ≈ v_terminal_altitude rtol=0.01
@@ -522,17 +529,9 @@ system:
 end
 
 # ============================================================================
-# `point.wing_idx` is the wing the point belongs to, and 0 means none
+# A run's `point.wing_idx` is the wing the point belongs to, and `nothing` means none
 # ============================================================================
 @testset "Point without a wing" begin
-    @testset "a point names no wing unless it says so" begin
-        for type in (STATIC, DYNAMIC, KINEMATIC)
-            @test Point(:free, zeros(3), type).wing_ref == 0
-        end
-        @test Point(:rider, zeros(3), BODY_STATIC; body=:b).wing_ref == 0
-        @test Point(:node, zeros(3), DYNAMIC; wing=:main_wing).wing_ref == :main_wing
-    end
-
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
@@ -554,33 +553,53 @@ end
 
     # The KCU carries no body-frame damping, so its physics is unchanged by this.
     @testset "free point with no wing builds and flies" begin
-        sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
-            system_name="point_no_wing", set, vsm_set)
-        @test sys.points[:kcu].wing_idx == 0
-        @test !sys.points[:kcu].is_wing_node
+        sys, transforms = load_authoring(geometry_with_wing(:kcu, "~");
+            name="point_no_wing", set)
+        free = SymbolicAWEModel(nothing, sys)
+        @test isnothing(run_value(free, :points, :kcu, :wing_idx))
+        @test !run_value(free, :points, :kcu, :is_wing_node)
+        @test run_value(free, :points, :le_left, :wing_idx) ==
+              KiteGeometry.row_index(sys.wings, :main_wing)
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
-        kcu = sam.state.points[:kcu]
-        height_before = kcu.pos_w[3]
+        kcu(quantity) = run_value(sam, :points, :kcu, quantity)
+        height_before = kcu(:pos_w)[3]
         for _ in 1:10
             next_step!(sam; dt=0.05)
         end
-        @test all(isfinite, kcu.pos_w)
-        @test all(isfinite, kcu.vel_w)
-        @test kcu.pos_w[3] ≈ height_before rtol=0.05
+        @test all(isfinite, kcu(:pos_w))
+        @test all(isfinite, kcu(:vel_w))
+        @test kcu(:pos_w)[3] ≈ height_before rtol=0.05
     end
 
     @testset "station member without a wing is rejected" begin
-        @test_throws "le_left" load_sys_struct_from_yaml(
-            geometry_with_wing(:le_left, "0");
-            system_name="wing_node_no_wing", set, vsm_set)
+        @test_throws "le_left" load_authoring(
+            geometry_with_wing(:le_left, "~");
+            name="wing_node_no_wing", set)
     end
 
     @testset "wing that does not exist is rejected at load" begin
-        @test_throws "kcu" load_sys_struct_from_yaml(
+        @test_throws "no wings at index 7" load_authoring(
             geometry_with_wing(:kcu, "7");
-            system_name="wing_out_of_range", set, vsm_set)
+            name="wing_out_of_range", set)
+    end
+
+    # A steering pulley point naming the wing: undamped, its velocity is 2e-3 off;
+    # the adaptive step scatters it by 1e-5 across platforms.
+    @testset "free point naming a wing is damped in its frame" begin
+        tight = Settings("system.yaml")
+        tight.abs_tol = tight.rel_tol = 1e-9
+        sys, transforms = load_authoring(
+            joinpath(data_path, "particle_structural_geometry.yaml");
+            name="point_named_wing", set=tight)
+        sam = SymbolicAWEModel(tight, sys; transforms, vsm_set)
+        @test run_value(sam, :points, :steering_left, :wing_idx) ==
+              KiteGeometry.row_index(sys.wings, :main_wing)
+        init!(sam; prn=false)
+        next_step!(sam; dt=1e-3, vsm_interval=0)
+        @test run_value(sam, :points, :steering_left, :vel_w) ≈
+              [0.04640912518639492, 0.017580741555751653, 0.04692554049876804] rtol=1e-4
     end
 
     rm(tmpdir; recursive=true)

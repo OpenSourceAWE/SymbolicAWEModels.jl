@@ -61,31 +61,34 @@ points = Point[]
 for j in 0:N
     for i in 0:N
         is_boundary = (i == 0 || i == N || j == 0 || j == N)
-        type = is_boundary ? STATIC : DYNAMIC
         # Small upward perturbation on interior nodes to break symmetry
         z = is_boundary ? Z0 : Z0 + Z_PERTURB
-        kw = is_boundary ? (;) :
-            (; extra_mass=NODE_MASS, world_frame_damping=WF_DAMP)
-        push!(points, Point(pname(i, j),
-            [i * dx, j * dx, z], type; kw...))
+        kw = is_boundary ? (; fixed=true) :
+            (; extra_mass=NODE_MASS,
+               model=PointModel(; world_frame_damping=WF_DAMP))
+        push!(points, Point(; name=pname(i, j),
+            pos_ENU=[i * dx, j * dx, z], kw...))
     end
 end
 
 # ── Build segments ──────────────────────────────────────────────────────
-segments = Segment[]
+materials = KiteGeometry.MaterialTable(KiteGeometry.Material[], Dict{String, Any}())
+membrane(id, a, b) = KiteGeometry.line_segment(Symbol(id), (a, b), set, materials;
+    diameter=SEG_DIA, unit_stiffness=SEG_STIFF,
+    model=SegmentSpring(; unit_damping=SEG_DAMP, compression_frac=0.0))
+
+segments = KiteGeometry.Segment[]
 seg_id   = 1
 
 # Structural edges: horizontal (x-direction) and vertical (y-direction)
 for j in 0:N, i in 0:N
     global seg_id
     if i < N
-        push!(segments, Segment(seg_id, pname(i, j), pname(i + 1, j),
-              SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+        push!(segments, membrane(seg_id, pname(i, j), pname(i + 1, j)))
         seg_id += 1
     end
     if j < N
-        push!(segments, Segment(seg_id, pname(i, j), pname(i, j + 1),
-              SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+        push!(segments, membrane(seg_id, pname(i, j), pname(i, j + 1)))
         seg_id += 1
     end
 end
@@ -93,17 +96,15 @@ end
 # Diagonal shear segments (both diagonals per quad cell)
 for j in 0:N-1, i in 0:N-1
     global seg_id
-    push!(segments, Segment(seg_id, pname(i, j), pname(i + 1, j + 1),
-          SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+    push!(segments, membrane(seg_id, pname(i, j), pname(i + 1, j + 1)))
     seg_id += 1
-    push!(segments, Segment(seg_id, pname(i + 1, j), pname(i, j + 1),
-          SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
+    push!(segments, membrane(seg_id, pname(i + 1, j), pname(i, j + 1)))
     seg_id += 1
 end
-# Rest lengths (l0) are automatically set to initial CAD distances by SystemStructure.
+# Unset rest lengths are set to the initial CAD distances when the structure is placed.
 
 # ── Build model ─────────────────────────────────────────────────────────
-sys = SystemStructure("airbag", set; points, segments)
+sys = system_definition("airbag", set; points, segments, materials)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
@@ -112,21 +113,18 @@ init!(sam; remake=false)
     apply_pressure!(sam, pressure)
 
 Compute outward-normal pressure forces from the current panel geometry
-and inject them as `disturb` forces on the dynamic interior nodes.
+and apply them as the external forces `ext_force_w` of the dynamic interior nodes.
 
 Each quad cell (i,j) is split into two triangles. The force on each
 triangle is `P × area_triangle`. This force is divided equally among
 the three corners, and only DYNAMIC corners accumulate the contribution.
-The model reads each point's `disturb` at every step, so setting it
+Each point's `ext_force_w` is a parameter of the run's integrator, so setting it
 here takes effect at the next integration step.
 """
 function apply_pressure!(sam, pressure)
-    pts = sam.state.points
-
-    # Reset all disturb forces to zero
-    for pt in pts
-        pt.disturb .= 0.0
-    end
+    points = sam.definition.points
+    pos(i) = run_value(sam, :points, i, :pos_w)
+    forces = [zeros(3) for _ in points]
 
     for j in 0:N-1, i in 0:N-1
         ia = pidx(i,     j    )
@@ -134,10 +132,7 @@ function apply_pressure!(sam, pressure)
         ic = pidx(i + 1, j + 1)
         id = pidx(i,     j + 1)
 
-        pa = pts[ia].pos_w
-        pb = pts[ib].pos_w
-        pc = pts[ic].pos_w
-        pd = pts[id].pos_w
+        pa, pb, pc, pd = pos(ia), pos(ib), pos(ic), pos(id)
 
         # Triangle 1: a – b – c  (area-weighted outward normal via cross product)
         n1   = (pb .- pa) × (pc .- pa)
@@ -146,7 +141,7 @@ function apply_pressure!(sam, pressure)
             # P × triangle_area / 3 per corner; triangle_area = |n|/2
             fvec1 = (pressure / 6) .* n1
             for idx in (ia, ib, ic)
-                pts[idx].type == DYNAMIC && (pts[idx].disturb .+= fvec1)
+                point_type(points[idx]) == DYNAMIC && (forces[idx] .+= fvec1)
             end
         end
 
@@ -156,9 +151,13 @@ function apply_pressure!(sam, pressure)
         if mag2 > 1e-12
             fvec2 = (pressure / 6) .* n2
             for idx in (ia, ic, id)
-                pts[idx].type == DYNAMIC && (pts[idx].disturb .+= fvec2)
+                point_type(points[idx]) == DYNAMIC && (forces[idx] .+= fvec2)
             end
         end
+    end
+    for (i, force) in enumerate(forces)
+        point_type(points[i]) == DYNAMIC &&
+            set_run_value!(sam, :points, i, :ext_force_w, force)
     end
     return nothing
 end
@@ -178,5 +177,5 @@ end
 
 save_log(logger, "airbag")
 syslog = load_log("airbag")
-scene  = replay(syslog, sam.sys_struct)
+scene  = replay(syslog, sam)
 display(scene)

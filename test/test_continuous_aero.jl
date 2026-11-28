@@ -22,16 +22,16 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, aero_scatter_entries,
-    aero_section_columns, wing_points
+    aero_section_columns
 using KiteUtils
 using LinearAlgebra
 
 """
     load_continuous_sys(data_path, set; billowing)
 
-`SystemStructure` for the particle 2plate kite carrying [`ContinuousAero`](@ref),
-with the VSM spanwise distribution either left at the file's `SPLIT_PROVIDED` or
-switched to `BILLOWING`.
+`SystemDefinition` for the particle 2plate kite, its VSM settings and its wings'
+aero modes, each a [`ContinuousAero`](@ref), with the VSM spanwise distribution
+either left at the file's `SPLIT_PROVIDED` or switched to `BILLOWING`.
 """
 function load_continuous_sys(data_path, set; billowing)
     vsm_set = VortexStepMethod.VSMSettings(
@@ -43,9 +43,11 @@ function load_continuous_sys(data_path, set; billowing)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    return first(load_sys_struct_from_yaml(
+    sys, _ = load_authoring(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero()))
+        name="continuous_test", set)
+    aero = Dict(wing.name => ContinuousAero() for wing in sys.wings)
+    return sys, vsm_set, aero
 end
 
 @testset "ContinuousAero" begin
@@ -56,21 +58,20 @@ end
     set = Settings("system.yaml")
 
     @testset "BILLOWING is required" begin
-        @test_throws ErrorException load_continuous_sys(
-            data_path, set; billowing=false)
+        sys, vsm_set, aero = load_continuous_sys(data_path, set; billowing=false)
+        @test_throws ErrorException SymbolicAWEModel(set, sys; vsm_set, aero)
     end
 
-    sys = load_continuous_sys(data_path, set; billowing=true)
-    wing = sys.wings[1]
-    mode = wing.aero
-    n_panels = length(wing.vsm_aero.panels)
+    sys, vsm_set, aero = load_continuous_sys(data_path, set; billowing=true)
+    sam = SymbolicAWEModel(set, sys; vsm_set, aero)
+    mode = sam.aero[1]
+    n_panels = length(mode.vsm_aero.panels)
 
     @testset "quarter-chord strut couple" begin
-        nodes = wing_points(sys, wing)
-        column = aero_section_columns(wing, nodes)
+        column = aero_section_columns(sam, 1)
         leading = Set(k for ((_, station), k) in column if station === :LE)
         trailing = Set(k for ((_, station), k) in column if station === :TE)
-        entries = aero_scatter_entries(mode, wing, nodes)
+        entries = aero_scatter_entries(mode, sam, 1)
         @test !isempty(entries)
         for panel in 1:n_panels
             reached = [e for e in entries if e[1] == panel]

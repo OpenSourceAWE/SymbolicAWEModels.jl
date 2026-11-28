@@ -199,7 +199,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
+    sys, _ = load_authoring(yaml_path; name="pulley_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -213,22 +213,23 @@ system:
         @test haskey(sys.points, :weight)
 
         # Verify attachment points are STATIC
-        @test sys.points[:attach_left].type == SymbolicAWEModels.STATIC
-        @test sys.points[:attach_right].type == SymbolicAWEModels.STATIC
+        run = SymbolicAWEModel(nothing, sys)
+        @test point_type(sys.points[:attach_left]) == SymbolicAWEModels.STATIC
+        @test point_type(sys.points[:attach_right]) == SymbolicAWEModels.STATIC
         @test sys.points[:attach_left].pos_ENU == KVec3(-2.0, 0.0, 10.0)
         @test sys.points[:attach_right].pos_ENU == KVec3(2.0, 0.0, 10.0)
 
         # Verify pulley point is DYNAMIC with no extra mass
         pulley_point = sys.points[:pulley_point]
-        @test pulley_point.type == SymbolicAWEModels.DYNAMIC
+        @test point_type(pulley_point) == SymbolicAWEModels.DYNAMIC
         @test pulley_point.pos_ENU[1] == 0.5  # Off-center at x=0.5
-        @test pulley_point.extra_mass == 0.0
-        @test pulley_point.body_frame_damping == KVec3(50.0, 50.0, 50.0)
+        @test run_value(run, :points, :pulley_point, :extra_mass) == 0.0
+        @test run_value(run, :points, :pulley_point, :body_frame_damping) ==
+              KVec3(50.0, 50.0, 50.0)
 
         # Verify weight is DYNAMIC with 1.0 kg mass
-        weight = sys.points[:weight]
-        @test weight.type == SymbolicAWEModels.DYNAMIC
-        @test weight.extra_mass == 1.0
+        @test point_type(sys.points[:weight]) == SymbolicAWEModels.DYNAMIC
+        @test run_value(run, :points, :weight, :extra_mass) == 1.0
 
         # Verify segments
         @test length(sys.segments) == 3
@@ -246,16 +247,15 @@ system:
         l0_right_expected = norm(pulley_pos - attach_right_pos)
         l0_main_expected = norm(weight_pos - pulley_pos)
 
-        @test sys.segments[:left_leg].l0 ≈ l0_left_expected atol=1e-10
-        @test sys.segments[:right_leg].l0 ≈ l0_right_expected atol=1e-10
-        @test sys.segments[:main_tether].l0 ≈ l0_main_expected atol=1e-10
+        @test sys.segments[:left_leg].rest_length ≈ l0_left_expected atol=1e-10
+        @test sys.segments[:right_leg].rest_length ≈ l0_right_expected atol=1e-10
+        @test sys.segments[:main_tether].rest_length ≈ l0_main_expected atol=1e-10
 
         # Verify pulley was loaded
         @test length(sys.pulleys) == 1
         @test haskey(sys.pulleys, :main_pulley)
 
-        pulley = sys.pulleys[:main_pulley]
-        @test pulley.type == SymbolicAWEModels.DYNAMIC
+        @test pulley_type(sys.pulleys[:main_pulley]) == SymbolicAWEModels.DYNAMIC
 
         println("\n  ====== Loaded pulley system: $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.pulleys)) pulley ======\n")
     end
@@ -269,14 +269,13 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Get initial total length of pulley segments
-        pulley = sam.state.pulleys[:main_pulley]
-        initial_sum_len = pulley.sum_len
+        initial_sum_len = run_value(sam, :pulleys, :main_pulley, :sum_len)
 
         # Expected sum_len = l0_left + l0_right (from point positions)
         attach_left_pos = sys.points[:attach_left].pos_ENU
@@ -295,9 +294,9 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
 
             # Calculate current lengths from point positions
-            attach_left = sam.state.points[:attach_left].pos_w
-            attach_right = sam.state.points[:attach_right].pos_w
-            pulley_pos = sam.state.points[:pulley_point].pos_w
+            attach_left = run_value(sam, :points, :attach_left, :pos_w)
+            attach_right = run_value(sam, :points, :attach_right, :pos_w)
+            pulley_pos = run_value(sam, :points, :pulley_point, :pos_w)
 
             len_left = norm(pulley_pos - attach_left)
             len_right = norm(pulley_pos - attach_right)
@@ -325,13 +324,13 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Initial x position is off-center at 0.5
-        initial_x = sam.state.points[:pulley_point].pos_w[1]
+        initial_x = run_value(sam, :points, :pulley_point, :pos_w)[1]
         @test abs(initial_x) > 0.4  # Verify we start off-center
 
         # Run simulation until equilibrium
@@ -344,7 +343,7 @@ system:
 
         # At equilibrium, pulley should find symmetric position (x ≈ 0)
         # due to equal tensions from symmetric attachment points
-        final_x = sam.state.points[:pulley_point].pos_w[1]
+        final_x = run_value(sam, :points, :pulley_point, :pos_w)[1]
 
         # Should be close to x=0 (symmetric equilibrium)
         @test abs(final_x) < 0.001
@@ -362,8 +361,8 @@ system:
         set.v_wind = 0.0
 
         # Load symmetric configuration (starting at equilibrium)
-        sys, transforms = load_sys_struct_from_yaml(yaml_symmetric_path;
-            system_name="pulley_symmetric", set=set)
+        sys, transforms = load_authoring(yaml_symmetric_path;
+            name="pulley_symmetric", set=set)
 
         # Get positions from YAML
         attach_left_pos = sys.points[:attach_left].pos_ENU
@@ -377,9 +376,9 @@ system:
         l0_main_expected = norm(weight_pos - pulley_pos)
 
         # Verify auto-calculated l0 matches expected from geometry
-        @test sys.segments[:left_leg].l0 ≈ l0_left_expected atol=1e-10
-        @test sys.segments[:right_leg].l0 ≈ l0_right_expected atol=1e-10
-        @test sys.segments[:main_tether].l0 ≈ l0_main_expected atol=1e-10
+        @test sys.segments[:left_leg].rest_length ≈ l0_left_expected atol=1e-10
+        @test sys.segments[:right_leg].rest_length ≈ l0_right_expected atol=1e-10
+        @test sys.segments[:main_tether].rest_length ≈ l0_main_expected atol=1e-10
 
         # For symmetric config, left and right should be equal
         @test l0_left_expected ≈ l0_right_expected atol=1e-10
@@ -395,7 +394,7 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        final_pos = sam.state.points[:pulley_point].pos_w
+        final_pos = run_value(sam, :points, :pulley_point, :pos_w)
         final_x = final_pos[1]
         final_z = final_pos[3]
         initial_z = pulley_pos[3]
@@ -405,8 +404,8 @@ system:
         @test final_z ≈ initial_z atol=0.001  # Close to initial z
 
         # Verify both legs have equal length at equilibrium
-        attach_left = sam.state.points[:attach_left].pos_w
-        attach_right = sam.state.points[:attach_right].pos_w
+        attach_left = run_value(sam, :points, :attach_left, :pos_w)
+        attach_right = run_value(sam, :points, :attach_right, :pos_w)
 
         len_left = norm(final_pos - attach_left)
         len_right = norm(final_pos - attach_right)
@@ -414,7 +413,7 @@ system:
         @test len_left ≈ len_right atol=0.001  # Equal lengths = equal tensions
 
         println("\n  ====== Analytical equilibrium: z_expected=$(round(initial_z, digits=3))m, z_measured=$(round(final_z, digits=3))m")
-        println("  ====== Leg lengths: left=$(round(len_left, digits=3))m, right=$(round(len_right, digits=3))m, l0=$(round(l0_left_expected, digits=3))m ======\n")
+        println("  ====== Leg lengths: left=$(round(len_left, digits=3))m, right=$(round(len_right, digits=3))m, rest_length=$(round(l0_left_expected, digits=3))m ======\n")
     end
 
     # ========================================================================
@@ -425,8 +424,8 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_symmetric_path;
-            system_name="pulley_symmetric", set=set)
+        sys, transforms = load_authoring(yaml_symmetric_path;
+            name="pulley_symmetric", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -437,16 +436,16 @@ system:
         end
 
         # At equilibrium, both pulley point and weight should have near-zero velocity
-        pulley_vel = sam.state.points[:pulley_point].vel_w
-        weight_vel = sam.state.points[:weight].vel_w
+        pulley_vel = run_value(sam, :points, :pulley_point, :vel_w)
+        weight_vel = run_value(sam, :points, :weight, :vel_w)
         @test norm(pulley_vel) < 0.1  # Pulley velocity near zero
         @test norm(weight_vel) < 0.1  # Weight velocity near zero
 
         # The geometry should be symmetric
-        pulley_pos = sam.state.points[:pulley_point].pos_w
-        weight_pos = sam.state.points[:weight].pos_w
-        attach_left = sam.state.points[:attach_left].pos_w
-        attach_right = sam.state.points[:attach_right].pos_w
+        pulley_pos = run_value(sam, :points, :pulley_point, :pos_w)
+        weight_pos = run_value(sam, :points, :weight, :pos_w)
+        attach_left = run_value(sam, :points, :attach_left, :pos_w)
+        attach_right = run_value(sam, :points, :attach_right, :pos_w)
 
         # Weight should hang below pulley point
         @test weight_pos[3] < pulley_pos[3]  # Weight z < pulley z
@@ -476,29 +475,31 @@ system:
 
     # ========================================================================
     # Physics Test 5: Friction opposes rope travel and is read live
-    # Both terms are struct fields on the Pulley, so changing one and calling
-    # init! again must change the dynamics without rebuilding the model.
+    # Both terms are parameters of the run, so setting one on a running pulley
+    # changes the dynamics without rebuilding the model.
     # ========================================================================
     @testset "Friction opposes rope travel" begin
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
-        pulley = sam.state.pulleys[:main_pulley]
+        pulley(quantity) = run_value(sam, :pulleys, :main_pulley, quantity)
+        set_pulley!(quantity, value) =
+            set_run_value!(sam, :pulleys, :main_pulley, quantity, value)
 
         """Peak rope speed over 0.5 s from the off-centre start, at this friction."""
         function peak_rope_speed(efficiency, damping, friction_epsilon)
-            pulley.efficiency = efficiency
-            pulley.damping = damping
-            pulley.friction_epsilon = friction_epsilon
             init!(sam; prn=false)
+            set_pulley!(:efficiency, efficiency)
+            set_pulley!(:damping, damping)
+            set_pulley!(:friction_epsilon, friction_epsilon)
             peak = 0.0
             for _ in 1:500
                 next_step!(sam; dt=0.001, vsm_interval=0)
-                peak = max(peak, abs(pulley.vel))
+                peak = max(peak, abs(pulley(:vel)))
             end
             return peak
         end
@@ -512,32 +513,30 @@ system:
         @test lossy < free
 
         # A braked pulley holds its split, whatever the legs pull.
-        pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, true
         init!(sam; prn=false)
-        held = pulley.len
+        set_pulley!(:efficiency, 1.0)
+        set_pulley!(:damping, 0.0)
+        set_pulley!(:brake, true)
+        held = pulley(:len)
         for _ in 1:500
             next_step!(sam; dt=0.001, vsm_interval=0)
         end
-        @test pulley.len ≈ held atol=1e-9
-        pulley.brake = false
+        @test pulley(:len) ≈ held atol=1e-9
 
         # A sheave passing on `efficiency` of the line tension loses the rest to it.
-        pulley.efficiency = 0.95
-        pulley.damping = 0.0
-        pulley.friction_epsilon = 0.5
-        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 100.0) ≈
+        sheave = (; efficiency = 0.95, damping = 0.0, friction_epsilon = 0.5)
+        @test SymbolicAWEModels.pulley_friction_force(sheave, 0.3, 100.0) ≈
               5.0 * SymbolicAWEModels.smooth_sign(0.3, 0.5)
         # Friction opposes the motion, whichever way the rope runs.
-        @test SymbolicAWEModels.pulley_friction_force(pulley, -0.3, 100.0) ≈
-              -SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 100.0)
+        @test SymbolicAWEModels.pulley_friction_force(sheave, -0.3, 100.0) ≈
+              -SymbolicAWEModels.pulley_friction_force(sheave, 0.3, 100.0)
         # Slack rope, no loss to take; and the loss is linear in the tension.
-        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 0.0) ≈ 0.0
-        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 200.0) ≈
-              2 * SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 100.0)
+        @test SymbolicAWEModels.pulley_friction_force(sheave, 0.3, 0.0) ≈ 0.0
+        @test SymbolicAWEModels.pulley_friction_force(sheave, 0.3, 200.0) ≈
+              2 * SymbolicAWEModels.pulley_friction_force(sheave, 0.3, 100.0)
         # `damping` is artificial and adds on top, proportional to speed alone.
-        pulley.damping = 5.0
-        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 0.0) ≈ 1.5
-        pulley.damping = 0.0
+        @test SymbolicAWEModels.pulley_friction_force((; sheave..., damping = 5.0),
+                                                      0.3, 0.0) ≈ 1.5
 
         println("\n  ====== Peak rope speed: free=$(round(free*1000, digits=1))mm/s, " *
                 "damped=$(round(damped*1000, digits=1))mm/s, " *
@@ -591,11 +590,8 @@ system:
         @test imbalance ≈ -2 * (unit_damping / len) * speed
 
         # The rate the segments see is the one the split integrates, brake included.
-        pulley = sys.pulleys[:main_pulley]
-        @test SymbolicAWEModels.pulley_len_rate(pulley, 0.4) ≈ 0.4
-        pulley.brake = true
-        @test SymbolicAWEModels.pulley_len_rate(pulley, 0.4) ≈ 0.0
-        pulley.brake = false
+        @test SymbolicAWEModels.pulley_len_rate((; brake = false), 0.4) ≈ 0.4
+        @test SymbolicAWEModels.pulley_len_rate((; brake = true), 0.4) ≈ 0.0
     end
 
     # ========================================================================
@@ -611,30 +607,29 @@ system:
         set.abs_tol = 1e-10
         set.rel_tol = 1e-10
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="pulley_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
-        pulley = sam.state.pulleys[:main_pulley]
-        left = sam.sys_struct.segments[:left_leg]
-        right = sam.sys_struct.segments[:right_leg]
-        nominal = left.unit_damping
+        nominal = run_value(sam, :segments, :left_leg, :unit_damping)
 
         """Split speed over the first 30 ms of the transient, at this leg damping."""
         function transient(factor; dt=1e-5, n=3000)
-            left.unit_damping = factor * nominal
-            right.unit_damping = factor * nominal
-            pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, false
-            sam.sys_struct.points[:pulley_point].body_frame_damping = zeros(3)
-            sam.sys_struct.points[:weight].body_frame_damping = zeros(3)
-            sam.sys_struct.segments[:main_tether].unit_damping = 0.0
-            place!(sam; prn=false)
+            sam.definition.points[:pulley_point].body_frame_damping = zeros(3)
+            sam.definition.points[:weight].body_frame_damping = zeros(3)
+            place!(sam)
             init!(sam; prn=false)
+            set_run_value!(sam, :segments, :left_leg, :unit_damping, factor * nominal)
+            set_run_value!(sam, :segments, :right_leg, :unit_damping, factor * nominal)
+            set_run_value!(sam, :pulleys, :main_pulley, :efficiency, 1.0)
+            set_run_value!(sam, :pulleys, :main_pulley, :damping, 0.0)
+            set_run_value!(sam, :pulleys, :main_pulley, :brake, false)
+            set_run_value!(sam, :segments, :main_tether, :unit_damping, 0.0)
             speeds = Float64[]
             for _ in 1:n
                 next_step!(sam; dt, vsm_interval=0)
-                push!(speeds, pulley.vel)
+                push!(speeds, run_value(sam, :pulleys, :main_pulley, :vel))
             end
             return speeds
         end

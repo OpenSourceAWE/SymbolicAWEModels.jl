@@ -118,7 +118,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure to verify YAML loading
-    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
+    sys, _ = load_authoring(yaml_path; name="profile_law_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -133,10 +133,10 @@ system:
         @test haskey(sys.points, :dynamic_point)
 
         # Verify probe types and positions
-        @test sys.points[:probe_10m].type == SymbolicAWEModels.STATIC
+        @test point_type(sys.points[:probe_10m]) == SymbolicAWEModels.STATIC
         @test sys.points[:probe_10m].pos_ENU == KVec3(0.0, 0.0, 10.0)
         @test sys.points[:probe_500m].pos_ENU == KVec3(0.0, 0.0, 500.0)
-        @test sys.points[:dynamic_point].type == SymbolicAWEModels.DYNAMIC
+        @test point_type(sys.points[:dynamic_point]) == SymbolicAWEModels.DYNAMIC
 
         println("\n  ====== Loaded 5 static probes at heights: 10m, 50m, 100m, 200m, 500m ======\n")
     end
@@ -146,7 +146,7 @@ system:
         norm(get_wind_vector_at_point(sam, point_name))
 
     get_wind_vector_at_point(sam, point_name) =
-        copy(sam.state.points[point_name].wind_vec)
+        run_value(sam, :points, point_name, :wind_vec)
 
     # ========================================================================
     # Test 1: Profile law 0 (CONST) - uniform wind at all heights
@@ -155,8 +155,8 @@ system:
         set.profile_law = 0
         set.v_wind = 10.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="profile_law_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -178,8 +178,8 @@ system:
         set.profile_law = 1
         set.v_wind = 10.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="profile_law_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -205,8 +205,8 @@ system:
         set.profile_law = 2
         set.v_wind = 10.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="profile_law_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -235,8 +235,8 @@ system:
         set.v_wind = 10.0
         set.upwind_dir = -90.0  # Wind from +x direction
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="profile_law_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -268,8 +268,8 @@ system:
         set.profile_law = 0
         set.v_wind = 0.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="profile_law_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
@@ -291,8 +291,8 @@ system:
         set.profile_law = 3
         set.v_wind = 10.0
 
-        sys, transforms = load_sys_struct_from_yaml(yaml_path;
-            system_name="profile_law_test", set=set)
+        sys, transforms = load_authoring(yaml_path;
+            name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 

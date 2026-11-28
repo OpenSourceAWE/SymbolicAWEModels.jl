@@ -16,7 +16,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, SystemStructure, KVec3
+using SymbolicAWEModels: VortexStepMethod, SystemDefinition, KVec3
 using KiteUtils
 using BenchmarkTools
 using Statistics
@@ -35,10 +35,10 @@ function setup_bench_sam()
         joinpath(dp, "vsm_settings.yaml");
         data_prefix=false)
     struc_yaml = joinpath(dp, "rigid_structural_geometry.yaml")
-    sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-        system_name="bench", set, vsm_set)
+    sys, transforms = load_authoring(struc_yaml;
+        name="bench", set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     test_init!(sam)
     return sam
 end
@@ -56,8 +56,6 @@ end
 
 @testset verbose = true "Benchmarks" begin
     sam = setup_bench_sam()
-    sys = sam.sys_struct
-    idx = Int64(1)
 
     @testset "ODE RHS" begin
         f = sam.integrator.f

@@ -4,10 +4,10 @@
 # Station twist dynamics equation generation
 
 """
-    validate_station_modes(stations, bodies)
+    validate_station_modes(sam)
 
-Check that each station's twist mode is coherent with its owning body's dynamics
-and its point count. Errors loudly on an inconsistent combination:
+Check that each station's twist mode of the run `sam` is coherent with its owning wing's
+dynamics and its point count. Errors loudly on an inconsistent combination:
 
 - `DYNAMIC` twist is an added rigid-body deformation DOF and needs
   a bridle couple, so it requires a `RIGID_DYNAMICS` body and ≥2 points.
@@ -18,58 +18,58 @@ and its point count. Errors loudly on an inconsistent combination:
   deformation, so a multi-point `STATIC` surface is an inert aero-section
   membership marker.
 """
-function validate_station_modes(stations, bodies)
-    for station in stations
-        if station.type == KINEMATIC
+function validate_station_modes(sam)
+    for (idx, station) in enumerate(sam.definition.spanwise_stations)
+        if station_type(station) == KINEMATIC
             # KINEMATIC surfaces are derived (no twist DOF, no owning-body couple);
             # a flap variant needs its owning wing and an ordered [main, flap] pair.
-            has_body_flap(station) || isempty(station.flap_body_idxs) || error(
+            has_body_flap(station) || isnothing(station.flap_bodies) || error(
                 "Station $(station.name): flap needs exactly 2 flap " *
-                "bodies [main, flap], got $(length(station.flap_body_idxs)).")
-            has_flap(station) && station.wing_idx == 0 && error(
-                "Station $(station.name): KINEMATIC flap needs a `wing`.")
+                "bodies [main, flap], got $(length(station.flap_bodies)).")
             continue
         end
-        owners = [body for body in bodies if station.idx in body.station_idxs]
+        owners = [wing_idx for wing_idx in eachindex(sam.definition.wings)
+                  if idx in wing_station_idxs(sam, wing_idx)]
         length(owners) == 1 || error(
-            "Station $(station.name) is in $(length(owners)) bodies; must be in exactly 1.")
-        wing = owners[1]
-        rigid = wing.dynamics_type == RIGID_DYNAMICS
-        npoints = length(station.point_idxs)
-        if station.type == DYNAMIC
+            "Station $(station.name) is in $(length(owners)) wings; must be in exactly 1.")
+        wing = sam.definition.wings[only(owners)]
+        dynamics_type = wing_dynamics_type(wing)
+        rigid = dynamics_type == RIGID_DYNAMICS
+        npoints = length(station.points)
+        if station_type(station) == DYNAMIC
             rigid || error(
-                "Station $(station.name): $(station.type) twist requires a " *
+                "Station $(station.name): $(station_type(station)) twist requires a " *
                 "RIGID_DYNAMICS wing (differential/algebraic twist is a rigid " *
-                "body DOF), but wing $(wing.name) is $(wing.dynamics_type).")
+                "body DOF), but wing $(wing.name) is $dynamics_type.")
             npoints >= 2 || error(
-                "Station $(station.name): $(station.type) twist needs a bridle couple " *
+                "Station $(station.name): $(station_type(station)) twist needs a bridle " *
+                "couple " *
                 "(≥2 points), got $npoints. A 1-point station must use STATIC twist.")
-        elseif station.type == STATIC
+        elseif station_type(station) == STATIC
             # STATIC = prescribed twist (default 0). On a rigid wing it imposes
             # the section twist; on a PARTICLE wing the free points carry the
             # deformation, so a multi-point STATIC surface is an inert
             # aero-section membership marker (its prescribed twist is unused).
         else
-            error("Station $(station.name): unsupported twist mode $(station.type).")
+            error("Station $(station.name): unsupported twist mode " *
+                  "$(station_type(station)).")
         end
     end
     return nothing
 end
 
 """
-    station_eqs!(eqs, defaults, stations, bodies, params;
+    station_eqs!(sam, eqs, defaults, params, initial;
                R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
                point_force, point_mass, station_y_airf, station_chord, station_le_pos)
 
-Generate equations for deformable wing station twist dynamics. The couple each
-of a surface's points delivers to its hinge is built from the shared
-[`twist_bridle_couple`](@ref).
+Generate equations for the twist dynamics of the deformable wing stations of the run
+`sam`. The couple each of a surface's points delivers to its hinge is built from the
+shared [`twist_bridle_couple`](@ref).
 
 # Arguments
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
-- `stations`: Collection of Station objects (deformable wing sections).
-- `bodies`: Collection of `Body` objects (the station owners).
-- `R_b_to_w`: Symbolic rotation matrix (body to world).
+- `R_b_to_w`: Symbolic rotation matrix (body to world), by body.
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
 - `station_aero_moment`: Symbolic aerodynamic moment on stations.
@@ -80,23 +80,20 @@ of a surface's points delivers to its hinge is built from the shared
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
 """
-function station_eqs!(eqs, defaults, stations, bodies, params, initial;
+function station_eqs!(sam, eqs, defaults, params, initial;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
                     point_force, point_mass, station_y_airf, station_chord,
                     station_le_pos)
-
+    stations = sam.definition.spanwise_stations
     length(stations) == 0 && return eqs, defaults
 
     # Stations may have differing point counts (e.g. left/right halves of a
     # bridle with an asymmetric number of attachment points). Size the per-point
     # arrays by the largest point count so every station fits, and fill the
     # unused tail slots with zero equations below so the system stays balanced.
-    max_npoints = maximum(length(ts.point_idxs) for ts in stations)
+    max_npoints = maximum(length(ts.points) for ts in stations)
 
     @variables begin
-        trailing_edge_angle(t)[eachindex(stations)]
-        trailing_edge_ω(t)[eachindex(stations)]
-        trailing_edge_α(t)[eachindex(stations)]
         free_twist_angle(t)[eachindex(stations)]
         twist_α(t)[eachindex(stations)]
         station_tether_force(t)[eachindex(stations)]
@@ -107,137 +104,133 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         r_vec(t)[1:3, 1:max_npoints, eachindex(stations)]
     end
 
-    for station in stations
-        # KINEMATIC surfaces have no twist DOF; zero-bind their vars (δ is emitted by station_delta_eqs!).
-        if station.type == KINEMATIC
+    for (station_idx, station) in enumerate(stations)
+        # KINEMATIC surfaces have no twist DOF; zero-bind their vars (δ is emitted by
+        # station_delta_eqs!).
+        if station_type(station) == KINEMATIC
             eqs = [
                 eqs
-                twist_angle[station.idx] ~ 0
-                twist_ω[station.idx] ~ 0
-                station_aero_moment[station.idx] ~ 0
-                station_y_airf[:, station.idx] ~ zeros(3)
-                station_chord[:, station.idx] ~ zeros(3)
-                station_le_pos[:, station.idx] ~ zeros(3)
-                station_tether_force[station.idx] ~ 0
-                station_tether_moment[station.idx] ~ 0
-                [tether_force[i, station.idx] ~ 0 for i in 1:max_npoints]
-                [tether_moment[i, station.idx] ~ 0 for i in 1:max_npoints]
-                [r_station[i, station.idx] ~ 0 for i in 1:max_npoints]
-                [r_vec[j, i, station.idx] ~ 0 for i in 1:max_npoints for j in 1:3]
+                twist_angle[station_idx] ~ 0
+                twist_ω[station_idx] ~ 0
+                station_aero_moment[station_idx] ~ 0
+                station_y_airf[:, station_idx] ~ zeros(3)
+                station_chord[:, station_idx] ~ zeros(3)
+                station_le_pos[:, station_idx] ~ zeros(3)
+                station_tether_force[station_idx] ~ 0
+                station_tether_moment[station_idx] ~ 0
+                [tether_force[i, station_idx] ~ 0 for i in 1:max_npoints]
+                [tether_moment[i, station_idx] ~ 0 for i in 1:max_npoints]
+                [r_station[i, station_idx] ~ 0 for i in 1:max_npoints]
+                [r_vec[j, i, station_idx] ~ 0 for i in 1:max_npoints for j in 1:3]
             ]
             continue
         end
 
-        found = 0
-        wing = nothing
-        for body in bodies
-            if station.idx in body.station_idxs
-                wing = body
-                found += 1
-            end
-        end
-        !(found == 1) && error(
-            "Kite station $(station.idx) is in $found bodies; must be in exactly 1.",
-        )
+        owners = [wing_idx for wing_idx in eachindex(sam.definition.wings)
+                  if station_idx in wing_station_idxs(sam, wing_idx)]
+        length(owners) == 1 || error("Kite station $station_idx is in " *
+            "$(length(owners)) wings; must be in exactly 1.")
+        wing_idx = only(owners)
 
         # An AeroNone owner drives no aero moment; aero_eqs! never sets it.
-        no_aero = !is_wing(wing)
+        no_aero = !has_aero(sam.aero[wing_idx])
         no_aero &&
-            (eqs = [eqs; station_aero_moment[station.idx] ~ 0])
+            (eqs = [eqs; station_aero_moment[station_idx] ~ 0])
 
         # Set station geometry from getters (allows runtime updates)
         eqs = [
             eqs
-            station_y_airf[:, station.idx] ~ params.stations[station.idx].y_airf
-            station_chord[:, station.idx] ~ params.stations[station.idx].chord
-            station_le_pos[:, station.idx] ~ params.stations[station.idx].le_pos
+            station_y_airf[:, station_idx] ~ params.spanwise_stations[station_idx].y_airf
+            station_chord[:, station_idx] ~ params.spanwise_stations[station_idx].chord
+            station_le_pos[:, station_idx] ~ params.spanwise_stations[station_idx].le_pos
         ]
 
-        if station.type == STATIC
+        if station_type(station) == STATIC
             eqs = [
                 eqs
-                twist_angle[station.idx] ~ params.stations[station.idx].twist
-                twist_ω[station.idx] ~ 0
-                station_tether_force[station.idx] ~ 0
-                station_tether_moment[station.idx] ~ 0
-                [tether_force[i, station.idx] ~ 0 for i in 1:max_npoints]
-                [tether_moment[i, station.idx] ~ 0 for i in 1:max_npoints]
-                [r_station[i, station.idx] ~ 0 for i in 1:max_npoints]
-                [r_vec[j, i, station.idx] ~ 0 for i in 1:max_npoints for j in 1:3]
+                twist_angle[station_idx] ~ params.spanwise_stations[station_idx].twist
+                twist_ω[station_idx] ~ 0
+                station_tether_force[station_idx] ~ 0
+                station_tether_moment[station_idx] ~ 0
+                [tether_force[i, station_idx] ~ 0 for i in 1:max_npoints]
+                [tether_moment[i, station_idx] ~ 0 for i in 1:max_npoints]
+                [r_station[i, station_idx] ~ 0 for i in 1:max_npoints]
+                [r_vec[j, i, station_idx] ~ 0 for i in 1:max_npoints for j in 1:3]
             ]
-            (!no_aero && isempty(station.unrefined_section_idxs)) &&
-                (eqs = [eqs; station_aero_moment[station.idx] ~ 0])
+            (!no_aero && isempty(run_value(sam, :spanwise_stations, station_idx,
+                                           :unrefined_section_idxs))) &&
+                (eqs = [eqs; station_aero_moment[station_idx] ~ 0])
             continue
         end
 
-        orientation = collect(R_b_to_w[:, :, wing.idx])
-        surface_params = params.stations[station.idx]
+        orientation = collect(R_b_to_w[:, :, wing_body(sam, wing_idx)])
+        surface_params = params.spanwise_stations[station_idx]
 
-        for (i, point_idx) in enumerate(station.point_idxs)
+        for (i, point_idx) in enumerate(station.points)
             couple = twist_bridle_couple(surface_params,
                                          params.points[point_idx].pos_undeformed_b,
-                                         twist_angle[station.idx], orientation)
+                                         twist_angle[station_idx], orientation)
             point_load = collect(point_force[:, point_idx])
             eqs = [
                 eqs
-                [r_vec[j, i, station.idx] ~ couple.offset[j]
+                [r_vec[j, i, station_idx] ~ couple.offset[j]
                  for j in 1:3]
-                r_station[i, station.idx] ~ couple.arm
-                tether_force[i, station.idx] ~ point_load ⋅ couple.direction
-                tether_moment[i, station.idx] ~
-                    r_station[i, station.idx] *
-                    tether_force[i, station.idx]
+                r_station[i, station_idx] ~ couple.arm
+                tether_force[i, station_idx] ~ point_load ⋅ couple.direction
+                tether_moment[i, station_idx] ~
+                    r_station[i, station_idx] *
+                    tether_force[i, station_idx]
             ]
         end
 
         # Zero out the unused tail rows for stations with fewer than
         # max_npoints points, so every declared array element gets exactly one
         # equation regardless of how many points this particular surface has.
-        npoints = length(station.point_idxs)
+        npoints = length(station.points)
         if npoints < max_npoints
             eqs = [
                 eqs
-                [tether_force[i, station.idx] ~ 0 for i in (npoints+1):max_npoints]
-                [tether_moment[i, station.idx] ~ 0 for i in (npoints+1):max_npoints]
-                [r_station[i, station.idx] ~ 0 for i in (npoints+1):max_npoints]
-                [r_vec[j, i, station.idx] ~ 0 for i in (npoints+1):max_npoints for j in 1:3]
+                [tether_force[i, station_idx] ~ 0 for i in (npoints+1):max_npoints]
+                [tether_moment[i, station_idx] ~ 0 for i in (npoints+1):max_npoints]
+                [r_station[i, station_idx] ~ 0 for i in (npoints+1):max_npoints]
+                [r_vec[j, i, station_idx] ~ 0 for i in (npoints+1):max_npoints for j in 1:3]
             ]
         end
 
         station_chord = collect(station_chord)
-        station_mass = sum(point_mass[point_idx] for point_idx in station.point_idxs) +
-            params.stations[station.idx].body_mass
+        station_mass = sum(point_mass[point_idx] for point_idx in station.points) +
+            params.spanwise_stations[station_idx].body_mass
         twist = station_dynamics(;
-            free_angle = free_twist_angle[station.idx],
-            twist_vel = twist_ω[station.idx],
-            aero_moment = station_aero_moment[station.idx],
-            node_moment = station_tether_moment[station.idx],
+            free_angle = free_twist_angle[station_idx],
+            twist_vel = twist_ω[station_idx],
+            aero_moment = station_aero_moment[station_idx],
+            node_moment = station_tether_moment[station_idx],
             mass = station_mass,
-            chord = station_chord[:, station.idx],
-            damping = params.stations[station.idx].damping,
-            stiffness = params.stations[station.idx].stiffness)
+            chord = station_chord[:, station_idx],
+            damping = params.spanwise_stations[station_idx].damping,
+            stiffness = params.spanwise_stations[station_idx].stiffness)
 
         eqs = [
             eqs
-            station_tether_force[station.idx] ~ sum(tether_force[:, station.idx])
-            station_tether_moment[station.idx] ~ sum(tether_moment[:, station.idx])
-            twist_α[station.idx] ~ twist.twist_acc
-            twist_angle[station.idx] ~ twist.angle
+            station_tether_force[station_idx] ~ sum(tether_force[:, station_idx])
+            station_tether_moment[station_idx] ~ sum(tether_moment[:, station_idx])
+            twist_α[station_idx] ~ twist.twist_acc
+            twist_angle[station_idx] ~ twist.angle
         ]
-        if station.type == DYNAMIC
+        if station_type(station) == DYNAMIC
             eqs = [
                 eqs
-                D(free_twist_angle[station.idx]) ~
-                    ifelse(fix_wing == true, 0, twist_ω[station.idx])
-                D(twist_ω[station.idx]) ~
+                D(free_twist_angle[station_idx]) ~
+                    ifelse(fix_wing == true, 0, twist_ω[station_idx])
+                D(twist_ω[station_idx]) ~
                     ifelse(fix_wing == true, 0, twist.twist_vel_rate)
             ]
             defaults = [
                 defaults
-                bind_initial!(initial.stations[station.idx].twist,
-                              free_twist_angle[station.idx])
-                bind_initial!(initial.stations[station.idx].twist_ω,
-                              twist_ω[station.idx])
+                bind_initial!(initial.spanwise_stations[station_idx].twist,
+                              free_twist_angle[station_idx])
+                bind_initial!(initial.spanwise_stations[station_idx].twist_ω,
+                              twist_ω[station_idx])
             ]
         else
             error("Wrong station type.")
@@ -248,9 +241,10 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
 end
 
 """
-    station_delta_eqs!(eqs, stations; station_delta, body_R_b_to_w, pos)
+    station_delta_eqs!(sam, eqs; station_delta, body_R_b_to_w, pos)
 
-Emit the live flap deflection δ for each station into `station_delta`; a surface
+Emit the live flap deflection δ for each station of the run `sam` into
+`station_delta`; a surface
 with no flap gets 0. The flap axis, reference chords and rest angle are frozen rest
 geometry baked in as constants.
 
@@ -260,29 +254,25 @@ aerodynamics is built on, so a chord that bends over several beam elements still
 reads a deflection. A body flap gets the signed angle between its two flap bodies'
 reference chords. Both are the shared [`hinge_angle`](@ref), referenced to rest.
 """
-function station_delta_eqs!(eqs, stations;
-                                  station_delta, body_R_b_to_w, pos)
-    length(stations) == 0 && return eqs
-    for station in stations
-        j = station.idx
+function station_delta_eqs!(sam, eqs; station_delta, body_R_b_to_w, pos)
+    for (j, station) in enumerate(sam.definition.spanwise_stations)
         if !has_flap(station)
             eqs = [eqs; station_delta[j] ~ 0]
             continue
         end
         if has_point_flap(station)
-            fore, hinge, aft = station.flap_point_idxs
+            fore, hinge, aft = station.flap_points
             eqs = [eqs
-                   station_delta[j] ~ point_flap_delta_expression(station,
+                   station_delta[j] ~ point_flap_delta_expression(sam, j,
                        collect(pos[:, fore]), collect(pos[:, hinge]),
                        collect(pos[:, aft]),
-                       collect(body_R_b_to_w[:, :, station.wing_idx]))]
+                       collect(body_R_b_to_w[:, :, wing_body(sam, station.wing)]))]
             continue
         end
-        R_main = collect(body_R_b_to_w[:, :, station.flap_body_idxs[1]])
-        R_flap = collect(body_R_b_to_w[:, :, station.flap_body_idxs[2]])
+        R_main = collect(body_R_b_to_w[:, :, station.flap_bodies[1]])
+        R_flap = collect(body_R_b_to_w[:, :, station.flap_bodies[2]])
         eqs = [eqs
-               station_delta[j] ~
-                   flap_delta_expression(station, R_main, R_flap)]
+               station_delta[j] ~ flap_delta_expression(sam, j, R_main, R_flap)]
     end
     return eqs
 end

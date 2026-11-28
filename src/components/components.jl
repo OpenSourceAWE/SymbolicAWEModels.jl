@@ -46,7 +46,7 @@ struct ProfileWind <: WindMode end
 """
     PerPointWind()
 
-Wind mode in which every point carries its own wind vector: `point.wind_vec` becomes
+Wind mode in which every point carries its own wind vector: its `wind_vec` becomes
 a parameter, settable between steps, instead of an output of the height profile. A
 segment takes the mean of its two endpoints' winds and a wing reads its own
 `wing.wind_vec`; `set.profile_law` is unused. `reinit!` seeds every point and wing
@@ -55,10 +55,10 @@ with `set.wind_vec`, so a model that is never written to flies in a uniform wind
 struct PerPointWind <: WindMode end
 
 """The [`WindMode`](@ref) of the run a build-time `params` view reads."""
-wind_mode(params) = params.reg.sys_struct.wind_mode
+wind_mode(params) = params.reg.sam.wind_mode
 
-"""Whether the run `state` takes its wind per point ([`PerPointWind`](@ref))."""
-per_point_wind(state) = state.wind_mode isa PerPointWind
+"""Whether the run `sam` takes its wind per point ([`PerPointWind`](@ref))."""
+per_point_wind(sam) = sam.wind_mode isa PerPointWind
 
 """
     AbstractWindSource
@@ -156,7 +156,7 @@ segment_wind_source(::PerPointWind, params, idx, src_wind, dst_wind, ground) =
 
 The wind source a segment kernel uses and the parameters it has to declare for it.
 Under [`PerPointWind`](@ref) a drag-carrying segment mints `src_wind`/`dst_wind`,
-which `bind_segment_winds!` points at its two endpoints' `point.wind_vec` — the
+which `bind_segment_winds!` points at its two endpoints' `wind_vec` — the
 kernel is instanced over `:segments`, so the endpoints cannot be reached through the
 registry's per-instance index remapping. The monolith reads its endpoints'
 `wind_at_point` directly and calls [`segment_wind_source`](@ref) itself.
@@ -215,7 +215,7 @@ end
     point_particle_params(params, idx)
 
 The shared DYNAMIC-particle parameters read from `params.points[idx]` — mass, drag,
-area and world-frame damping as the point's own struct fields — plus the registered
+area and world-frame damping as the point's run values — plus the registered
 gravity `g_earth` and the point's [`point_wind_source`](@ref). Returns a named tuple
 consumed by [`dynamic_point_dynamics`](@ref); each read registers the parameter on
 `params`, so gravity stays settable after construction.
@@ -248,50 +248,60 @@ function confined_derivatives(pos, vel, accel, pars)
 end
 
 """
-    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force;
+                           frame_damping=zeros(3))
 
 Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
-`D(vel)=point_acceleration(...)` from the shared kernel, and the point's observed
-`net_force`, reading its drag/damping/wind parameters `pars` (a
+`D(vel)=point_acceleration(...)` from the shared kernel less `frame_damping`, and the
+point's observed `net_force`, reading its drag/damping/wind parameters `pars` (a
 [`point_particle_params`](@ref) named tuple).
 """
-function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force;
+                                frame_damping=zeros(3))
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
         pars.wind_source, pars.g_earth; pars.apparent_mass)
-    velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
+    velocity, acceleration = confined_derivatives(pos, vel,
+                                                  motion.accel .- frame_damping, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
 end
 
 """
-    wing_structural_segment(sys_struct, idx)
+    wing_node(sys, point)
+
+Whether point `point` of definition `sys` is a structural node of a wing: a member of one
+of its spanwise stations.
+"""
+wing_node(sys, point) = any(station -> point in station.points, sys.spanwise_stations)
+
+"""
+    wing_structural_segment(sys, idx)
 
 Whether segment `idx` is an internal wing-structural link — both endpoints are wing
 nodes. Such a segment carries no tether drag (its aerodynamic load is owned by the
 wing's VSM), so the assembly gives it the drag-free segment type rather than passing
 a per-segment drag coefficient.
 """
-function wing_structural_segment(sys_struct, idx)
-    seg = sys_struct.segments[idx]
-    return sys_struct.points[seg.point_idxs[1]].is_wing_node &&
-           sys_struct.points[seg.point_idxs[2]].is_wing_node
-end
+wing_structural_segment(sys, idx) =
+    all(point -> wing_node(sys, point), sys.segments[idx].points)
 
 """
-    segment_role(sys_struct, segment) -> Symbol
+    segment_role(sys, segment) -> Symbol
 
-What `segment` is in the system: `:winched_tether` when it is in a tether a winch reels,
-`:unwinched_tether` when it is in a tether no winch reels, `:wing` when it is a
-[`wing_structural_segment`](@ref), and `:free` otherwise.
+What `segment`, a segment row of definition `sys`, is in the system:
+`:winched_tether` when it is in a tether a winch reels, `:unwinched_tether` when it is in a
+tether no winch reels, `:wing` when it is a [`wing_structural_segment`](@ref), and `:free`
+otherwise.
 """
-function segment_role(sys_struct, segment)
-    for tether in sys_struct.tethers
-        segment.idx in tether.segment_idxs || continue
-        winched = any(tether.idx in winch.tether_idxs for winch in sys_struct.winches)
+function segment_role(sys, segment)
+    idx = findfirst(row -> row.name == segment.name, sys.segments)
+    for (tether_idx, tether) in enumerate(sys.tethers)
+        idx in tether.segments || continue
+        winched = any(tether_idx in winch.tethers for winch in sys.winches)
         return winched ? :winched_tether : :unwinched_tether
     end
-    wing_structural_segment(sys_struct, segment.idx) && return :wing
+    wing_structural_segment(sys, idx) && return :wing
     return :free
 end
 
@@ -299,7 +309,7 @@ end
     segment_spring_params(params, idx; with_drag=true)
 
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
-compression fraction, diameter, density as the segment's own struct fields), plus
+compression fraction, diameter, density as the segment's run values), plus
 the global tether drag `cd_tether` (`params.set.cd_tether`). With `with_drag=false`
 (the [`wing_structural_segment`](@ref) edge) `cd_tether` is a literal `0` and unused.
 `nonlinear` marks a callable `unit_stiffness` force law. Each read registers the
@@ -308,7 +318,7 @@ parameter on `params`.
 function segment_spring_params(params, idx; with_drag = true)
     seg = params.segments[idx]
     cd_tether = with_drag ? params.set.cd_tether : 0.0
-    nonlinear = !(params.reg.sys_struct.segments[idx].unit_stiffness isa Real)
+    nonlinear = !(run_value(params.reg.sam, :segments, idx, :unit_stiffness) isa Real)
     return (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
             compression_frac = seg.compression_frac,
             compression_damping_frac = seg.compression_damping_frac,
@@ -440,10 +450,24 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
         elevation_vel = dot(vel, -R_t_to_w[:, 1]) / distance,
         elevation_acc = dot(acc, -R_t_to_w[:, 1]) / distance,
         azimuth = KiteUtils.azimuth_east(rel_pos),
-        azimuth_vel = dot(vel, -R_t_to_w[:, 2]) / ground_radius,
-        azimuth_acc = dot(acc, -R_t_to_w[:, 2]) / ground_radius,
+        azimuth_vel = dot(vel, R_t_to_w[:, 2]) / ground_radius,
+        azimuth_acc = dot(acc, R_t_to_w[:, 2]) / ground_radius,
         course = atan(vel ⋅ R_t_to_w[:, 2], vel ⋅ R_t_to_w[:, 1]),
         angle_of_attack = calc_angle_of_attack(va_b) + twist_offset)
+end
+
+"""
+    mid_span_twist(twist, station_idxs)
+
+The twist at the middle of a wing's span [rad]: its middle station's, or the mean of the
+two middle ones, and zero for a wing with no station. `twist(i)` is station `i`'s twist.
+"""
+function mid_span_twist(twist, station_idxs)
+    isempty(station_idxs) && return 0.0
+    first_station = first(station_idxs)
+    n_stations = length(station_idxs)
+    return 0.5 * twist(first_station + (n_stations - 1) ÷ 2) +
+           0.5 * twist(first_station + n_stations ÷ 2)
 end
 
 """
@@ -477,13 +501,13 @@ function timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
 end
 
 """
-    timoshenko_element_wrench(tube, params; frame, theta_a, theta_b, force_a, force_b,
+    timoshenko_element_wrench(tube_idx, params; frame, theta_a, theta_b, force_a, force_b,
         moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Corotational Timoshenko element wrench. Given the two nodes' world poses (`pos`,
-`R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the tube's rest
-geometry/rigidities, it builds the
+Corotational Timoshenko element wrench of tube `tube_idx` of the run `params` reads.
+Given the two nodes' world poses (`pos`, `R_b_to_w`, `com`, `com_vel`, world spin
+`omega_w`) and the tube's rest geometry/rigidities, it builds the
 element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
 (axial, torsion, two bending planes with shear reduction `Φ`) and damping, and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the restoring wrench on
@@ -492,12 +516,11 @@ each node (world frame, transported to each COM). `frame`/`theta_a`/`theta_b`/`f
 standalone ones as the caller binds them, so the reused frame/force subtrees are not
 re-embedded; `tear_eqs` binds them.
 """
-function timoshenko_element_wrench(tube, params;
+function timoshenko_element_wrench(tube_idx, params;
         frame, theta_a, theta_b, force_a, force_b, moment_a, moment_b,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
-    tp = params.tubes[tube.idx]
-    tube_model = tp.model
+    tp = params.tubes[tube_idx]
     anchor_a = collect(tp.anchor_a_b)
     anchor_b = collect(tp.anchor_b_b)
     Ra = collect(R_a)
@@ -509,9 +532,9 @@ function timoshenko_element_wrench(tube, params;
                   e1[2] e2[2] e3[2];
                   e1[3] e2[3] e3[3]]
     element_frame = collect(frame)
-    L0 = tube_model.rest_length
-    R_a_rel0 = collect(tube_model.R_a_rel0)
-    R_b_rel0 = collect(tube_model.R_b_rel0)
+    L0 = tp.rest_length
+    R_a_rel0 = collect(tp.R_a_rel0)
+    R_b_rel0 = collect(tp.R_b_rel0)
     Da = (element_frame' * Ra) * R_a_rel0'
     Db = (element_frame' * Rb) * R_b_rel0'
     θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]),
@@ -523,19 +546,19 @@ function timoshenko_element_wrench(tube, params;
     θ_a = collect(theta_a)
     θ_b = collect(theta_b)
     δ = len - L0
-    kshear = tube_model.shear_coeff
+    kshear = tp.shear_coeff
     ε = δ / L0
     κt = (θ_b[1] - θ_a[1]) / L0
     κy = (θ_b[2] - θ_a[2]) / L0
     κz = (θ_b[3] - θ_a[3]) / L0
     γy = 0.5 * (θ_a[2] + θ_b[2])
     γz = 0.5 * (θ_a[3] + θ_b[3])
-    rigidities = (timoshenko_rigidity(tube, params, :EA, ε),
-                  timoshenko_rigidity(tube, params, :GA, γy),
-                  timoshenko_rigidity(tube, params, :GA, γz),
-                  timoshenko_rigidity(tube, params, :GJ, κt),
-                  timoshenko_rigidity(tube, params, :EIy, κy),
-                  timoshenko_rigidity(tube, params, :EIz, κz))
+    rigidities = (timoshenko_rigidity(tube_idx, params, :EA, ε),
+                  timoshenko_rigidity(tube_idx, params, :GA, γy),
+                  timoshenko_rigidity(tube_idx, params, :GA, γz),
+                  timoshenko_rigidity(tube_idx, params, :GJ, κt),
+                  timoshenko_rigidity(tube_idx, params, :EIy, κy),
+                  timoshenko_rigidity(tube_idx, params, :EIz, κz))
     stiff = timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
@@ -547,7 +570,7 @@ function timoshenko_element_wrench(tube, params;
     # Element-frame spin: roll follows node A, tilt is the chord's own rotation
     # rate. Subtracting it leaves deformation rate only, so rigid motion is mute.
     frame_spin = (axis ⋅ ω_a_w) .* axis .+ (axis × Δv) ./ len
-    beta = tube_model.damping
+    beta = tp.damping
     rate_a = element_frame' * (ω_a_w .- frame_spin)
     rate_b = element_frame' * (ω_b_w .- frame_spin)
     damp = timoshenko_local_wrench(rigidities, L0, kshear, beta * stretch_vel,
@@ -569,22 +592,21 @@ function timoshenko_element_wrench(tube, params;
 end
 
 """
-    elastic_tube_wrench(tube, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
-        omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    elastic_tube_wrench(tube_idx, params; force_w, torque_w, pos_a, R_a, com_a,
+        com_vel_a, omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Lumped 6-DOF [`ElasticTube`](@ref) restoring wrench. From the relative
-pose of the two anchors (in body A's frame) it builds the per-DOF restoring
-force/torque (axial,
-shear, torsion, bending stiffness + damping) and returns
+Lumped 6-DOF restoring wrench of elastic tube `tube_idx` ([`ElasticTubeModel`](@ref)) of
+the run `params` reads. From the relative pose of the two anchors (in body A's frame) it
+builds the per-DOF restoring force/torque (axial, shear, torsion, bending stiffness +
+damping) and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the equal-and-opposite
 wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
 wrench variables, array slices or standalone ones as the caller binds them.
 """
-function elastic_tube_wrench(tube, params; force_w, torque_w,
+function elastic_tube_wrench(tube_idx, params; force_w, torque_w,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
-    tp = params.tubes[tube.idx]
-    tube_model = tp.model
+    tp = params.tubes[tube_idx]
     Ra = collect(R_a)
     Rb = collect(R_b)
     anchor_a = collect(tp.anchor_a_b)
@@ -593,8 +615,8 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
     cb = collect(com_b)
     pos_anchor_a = collect(pos_a) .+ Ra * anchor_a
     pos_anchor_b = collect(pos_b) .+ Rb * anchor_b
-    rest_offset = collect(tube_model.rest_offset_a)
-    R_rel0 = collect(tube_model.R_rel0)
+    rest_offset = collect(tp.rest_offset_a)
+    R_rel0 = collect(tp.R_rel0)
     Δr_a = Ra' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
     R_rel = R_rel0' * (Ra' * Rb)
     Δθ_a = [0.5 * (R_rel[3, 2] - R_rel[2, 3]),
@@ -609,10 +631,10 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
     Δv_a = Ra' * ((vel_anchor_b .- vel_anchor_a) .-
                   (ω_a_w × (pos_anchor_b .- pos_anchor_a)))
     Δω_a = Ra' * (ω_b_w .- ω_a_w)
-    beta = tube_model.damping
+    beta = tp.damping
     elastic(kind, Δ, rate) =
-        -tube_stiffness_term(tube, params, kind, Δ) -
-        tube_rayleigh_term(tube, params, kind, Δ, rate, beta)
+        -tube_stiffness_term(tube_idx, params, kind, Δ) -
+        tube_rayleigh_term(tube_idx, params, kind, Δ, rate, beta)
     force_a = [elastic(1, Δr_a[1], Δv_a[1]),
                elastic(2, Δr_a[2], Δv_a[2]),
                elastic(2, Δr_a[3], Δv_a[3])]
@@ -634,11 +656,11 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
 end
 
 """
-    beam_hermite_ride_expressions(tube, params, point_idx; pos_a, R_a, com_a, com_vel_a,
-        omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    beam_hermite_ride_expressions(tube_idx, params, point_idx; pos_a, R_a, com_a,
+        com_vel_a, omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Kinematics of a point riding `tube`'s corotational cubic-Hermite centerline at the
-point's `beam_frac`. From the two end bodies' world poses it
+Kinematics of a point riding the corotational cubic-Hermite centerline of tube `tube_idx` of
+the run `params` reads at the point's `beam_frac`. From the two end bodies' world poses it
 builds the element frame, the two nodes' chord-relative rotations, the transverse Hermite
 deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac,
 ride_velocity)` — the ride position, its rigid-blend velocity, the axial fraction that
@@ -647,12 +669,11 @@ splits any force at the point onto the two end bodies (`(1−sfrac)` to A, `sfra
 position `p`, so a backend can tear `pos_point` first and avoid re-embedding the heavy
 element-frame subtree in the velocity.
 """
-function beam_hermite_ride_expressions(tube, params, point_idx;
+function beam_hermite_ride_expressions(tube_idx, params, point_idx;
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w,
         frame = nothing, theta_a = nothing, theta_b = nothing)
-    tp = params.tubes[tube.idx]
-    tube_model = tp.model
+    tp = params.tubes[tube_idx]
     Ra = collect(R_a)
     Rb = collect(R_b)
     x_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
@@ -662,8 +683,8 @@ function beam_hermite_ride_expressions(tube, params, point_idx;
                   e1[2] e2[2] e3[2];
                   e1[3] e2[3] e3[3]]
     element_frame = frame === nothing ? frame_expr : collect(frame)
-    Da = (element_frame' * Ra) * collect(tube_model.R_a_rel0)'
-    Db = (element_frame' * Rb) * collect(tube_model.R_b_rel0)'
+    Da = (element_frame' * Ra) * collect(tp.R_a_rel0)'
+    Db = (element_frame' * Rb) * collect(tp.R_b_rel0)'
     θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
                 0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
@@ -936,9 +957,9 @@ end
     point_wind_eqs(s, params, idx, io)
 
 Bind `wind_vec` to the point's [`point_wind_source`](@ref) at its own height — the
-monolith's `wind_at_point`, scattered into `point.wind_vec` — and `total_drag` to the
+monolith's `wind_at_point`, scattered into its `wind_vec` — and `total_drag` to the
 point's own aerodynamic drag against it plus the share its segments deliver, which
-the state getter scatters into `point.drag_force`.
+the state getter scatters into its `drag_force`.
 """
 function point_wind_eqs(s, params, idx, io)
     point = params.points[idx]
@@ -998,7 +1019,7 @@ end
 
 The rope mass `sum_len · ρ · π (d/2)²` driving a pulley's rope split, built in
 equation from the pulley's `sum_len` and one of its segments' material, so it
-follows the struct live.
+follows the run live.
 """
 function pulley_rope_mass(params, pulley_idx, segment_idx)
     segment = params.segments[segment_idx]
@@ -1007,15 +1028,19 @@ function pulley_rope_mass(params, pulley_idx, segment_idx)
 end
 
 """
-    PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
+    PulleyParticle(s, params, idx, pulley_idx, segment_idx; name, with_damping=false,
+                   based=true)
 
 A [`Particle`](@ref) that also owns a pulley's rope split: `D(pulley_len) =
 pulley_vel` and `D(pulley_vel) = tension_in / rope_mass − damping · pulley_vel`,
 with `tension_in` the imbalance `spring[seg1] − spring[seg2]` its two segments
 deliver and `line_in` their mean, which the friction scales with. `pulley_len_out`
-exposes the split so those segments read it as their rest length.
+exposes the split so those segments read it as their rest length. `with_damping`
+damps it against its wing's frame through [`wing_frame_damping`](@ref), as
+[`WingNodePoint`](@ref) does.
 """
-function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
+function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name,
+                        with_damping = false, based = true)
     io = point_variables()
     extra = @variables begin
         tension_in(t), [input = true]
@@ -1025,10 +1050,13 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         pulley_len(t)
         pulley_vel(t)
     end
+    frame, frame_damping = with_damping ?
+        wing_frame_damping(params, idx, io.pos, io.vel; based) : ((), zeros(3))
     pars = point_particle_params(params, idx)
     eqs = [
         dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
-                               pars.extra_mass + io.mass_in, pars, io.net_force)
+                               pars.extra_mass + io.mass_in, pars, io.net_force;
+                               frame_damping)
         point_wind_eqs(s, params, idx, io)
         pulley_split_eqs(extra[5], extra[6], extra[1], extra[2],
                          pulley_rope_mass(params, pulley_idx, segment_idx),
@@ -1036,23 +1064,24 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         extra[4] ~ pulley_len_rate(params.pulleys[pulley_idx], extra[6])
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force, extra...]
+            io.wind_vec, io.net_force, extra..., frame...]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    WinchAnchor(s, params, winch, idx; name)
+    WinchAnchor(s, params, winch_idx, idx; name)
 
-A reeling winch at the STATIC point `idx`. It owns the motor speed `winch_vel` and
-one `tether_len_k` state per connected tether, each an output its tether's segments
-read as their rest length, alongside a `tether_vel_k` output carrying that length's
-rate for their dampers. The motor law is [`winch_component`](@ref) reused
+Winch `winch_idx` of the run `s`, reeling at the STATIC point `idx`. It owns the motor
+speed `winch_vel` and one `tether_len_k` state per connected tether, each an output its
+tether's segments read as their rest length, alongside a `tether_vel_k` output carrying
+that length's rate for their dampers. The motor law is [`winch_component`](@ref) reused
 verbatim; it reads the tension gathered at the winch point (the vector sum of the
 spring forces there, as `winch_eqs!` forms it), the mean tether length, the control
 `set_value` and the `brake`, and returns the drum acceleration.
 """
-function WinchAnchor(s, params, winch, idx; name)
-    count = length(winch.tether_idxs)
+function WinchAnchor(s, params, winch_idx, idx; name)
+    winch = s.definition.winches[winch_idx]
+    count = length(winch.tethers)
     io = point_variables()
     extra = @variables begin
         tension_in(t)[1:3], [input = true]
@@ -1070,10 +1099,9 @@ function WinchAnchor(s, params, winch, idx; name)
         only(@variables $vel_name(t), [output = true])
     end
     set_value = make_param(:set_value, 0.0)
-    brake = params.winches[winch.idx].brake
+    brake = params.winches[winch_idx].brake
     reel = ifelse(brake > 0.5, 0.0, extra[2])
-    motor = winch_component(winch.model.dynamics, s.state, winch.idx;
-                            name = :motor, params)
+    motor = winch_component(winch.model.dynamics, s, winch_idx; name = :motor, params)
     validate_winch_component(motor, winch)
     pars = point_particle_params(params, idx)
     eqs = [
@@ -1090,7 +1118,7 @@ function WinchAnchor(s, params, winch, idx; name)
         motor.set_value ~ set_value
         motor.brake ~ brake
         extra[5] ~ motor.friction
-        extra[4] ~ ifelse(params.winches[winch.idx].speed_controlled == true,
+        extra[4] ~ ifelse(params.winches[winch_idx].speed_controlled == true,
                           0.0, motor.acc)
         D(extra[2]) ~ ifelse(brake > 0.5, 0.0, extra[4])
         [rate ~ reel for rate in rates]
@@ -1167,13 +1195,13 @@ end
 """
     SpringSegment(s, params, idx; name, with_drag=true)
 
-A spring-damper segment at a fixed rest length (`params.segments[idx].l0`). With
+A spring-damper segment at a fixed rest length (`params.segments[idx].rest_length`). With
 `with_drag = false` it is the drag-free wing-structural link — a distinct compiled
 type rather than a zeroed drag coefficient.
 """
 function SpringSegment(s, params, idx; name, with_drag = true)
     io = segment_variables()
-    eqs, _, wind = segment_eqs(s, params, idx, io, params.segments[idx].l0;
+    eqs, _, wind = segment_eqs(s, params, idx, io, params.segments[idx].rest_length;
                                with_drag)
     return System(eqs, t, io.all, [param_unknowns(params); wind]; name)
 end
@@ -1244,7 +1272,7 @@ The variables a rigid-body component declares, as a named tuple: the aggregated
 `force_in`/`moment_in` at and about its COM, the pose outputs a point riding the
 body reads (`pos`, `vel`, `frame` — `R_b_to_w` column-major — `com`, `com_velocity`,
 `omega_w`), and the observed `acc`/`orientation`/`omega_b`/`alpha_b` the state getter
-scatters into the struct or feeds to the reported scalars.
+scatters into the run or feeds to the reported scalars.
 """
 function body_variables()
     vars = @variables begin
@@ -1364,7 +1392,7 @@ function RigidBody(s, params, idx; name, parented = false, based = true)
                           orientation_p * collect(omega_p))
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
         body.total_mass, body.R_b_to_p, body.apparent_mass,
-        body.com_offset_b, com_w, com_vel, Q, omega_p;
+        body.total_com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
                          com_acc, orientation_p; frame, wing_frame)...)
     eqs = [
@@ -1474,8 +1502,8 @@ end
 The variables shared by every anchored point's *statics* half, as a named tuple:
 its own `height` and `vel` from the kinematics half, the `force_in`/`mass_in`/
 `drag_in` its segments deliver, and the observed `total_drag`/`wind_vec`/`net_force`
-— the same three [`point_variables`](@ref) declares, so the struct reads the same
-fields back whether a point rides something or flies free. The moment arms differ
+— the same three [`point_variables`](@ref) declares, so the run reads the same
+quantities back whether a point rides something or flies free. The moment arms differ
 per anchor kind and are declared by the component itself.
 """
 function ride_wrench_variables()
@@ -1522,7 +1550,7 @@ end
 The three observables every anchored point's statics half reports, whatever it
 rides: its `total_drag` (its own plus its segments' share), the `wind_vec` at its
 own height and its `net_force`. `point_eqs!` writes all three for every point, so
-binding them here is what lets the struct read the same fields back on either
+binding them here is what lets the run read the same quantities back on either
 backend.
 """
 ride_wrench_eqs(io, ride) = [
@@ -1576,9 +1604,8 @@ function HermiteRidePoint(s, params, idx; name)
         arm_b(t)[1:3], [output = true]
         height(t), [output = true]
     end
-    sys_struct = params.reg.sys_struct
-    tube = sys_struct.tubes[sys_struct.points[idx].tube_idx]
-    ex = beam_hermite_ride_expressions(tube, params, idx; joint_poses(io)...)
+    ex = beam_hermite_ride_expressions(s.definition.points[idx].tube, params, idx;
+                                       joint_poses(io)...)
     eqs = [
         collect(vars[1]) .~ ex.pos_point
         collect(vars[2]) .~ ex.ride_velocity(vars[1])
@@ -1707,15 +1734,14 @@ joint_wrench_eqs(io, ex) = [
 """
     ElasticTubeComponent(s, params, idx; name)
 
-Tube `idx` as a lumped 6-DOF [`ElasticTube`](@ref): reads both end bodies' poses and
-emits the restoring wrench on each, through [`elastic_tube_wrench`](@ref).
+Tube `idx` as a lumped 6-DOF spring ([`ElasticTubeModel`](@ref)): reads both end bodies'
+poses and emits the restoring wrench on each, through [`elastic_tube_wrench`](@ref).
 """
 function ElasticTubeComponent(s, params, idx; name)
     io = joint_variables()
     torn = @variables joint_force(t)[1:3] joint_torque(t)[1:3]
-    tube = params.reg.sys_struct.tubes[idx]
-    ex = elastic_tube_wrench(tube, params; force_w = torn[1],
-                              torque_w = torn[2], joint_poses(io)...)
+    ex = elastic_tube_wrench(idx, params; force_w = torn[1], torque_w = torn[2],
+                             joint_poses(io)...)
     return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
                   param_unknowns(params); name)
 end
@@ -1739,30 +1765,37 @@ function TimoshenkoTubeComponent(s, params, idx; name)
         element_moment_a(t)[1:3]
         element_moment_b(t)[1:3]
     end
-    tube = params.reg.sys_struct.tubes[idx]
-    ex = timoshenko_element_wrench(tube, params; frame = torn[1],
-        theta_a = torn[2], theta_b = torn[3], force_a = torn[4],
-        force_b = torn[5], moment_a = torn[6], moment_b = torn[7],
-        joint_poses(io)...)
+    ex = timoshenko_element_wrench(idx, params; frame = torn[1], theta_a = torn[2],
+        theta_b = torn[3], force_a = torn[4], force_b = torn[5], moment_a = torn[6],
+        moment_b = torn[7], joint_poses(io)...)
     return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
                   param_unknowns(params); name)
 end
 
 """
-    flap_delta_expression(station, R_main, R_flap)
+    body_flap_angle(sam, s, R_main, R_flap)
 
-The signed live deflection δ of a flapped station: the angle between its two
-flap bodies' reference chords about the world hinge axis, referenced to rest. The
-axis, the reference chords and the rest angle are frozen rest geometry, so δ is a
-function of the two bodies' orientations alone.
+The signed angle of the flap of station `s` of `sam` from its two flap bodies'
+orientations `R_main`, `R_flap`: the angle between their reference chords about the
+world hinge axis ([`flap_chord_refs`](@ref), the station's `flap_axis`).
 """
-function flap_delta_expression(station, R_main, R_flap)
-    main_w = collect(R_main) * collect(station.flap_chord_refs[1])
-    flap_w = collect(R_flap) * collect(station.flap_chord_refs[2])
-    return hinge_angle(main_w, flap_w,
-                       collect(R_main) * collect(station.flap_axis)) -
-        station.flap_rest_delta
+function body_flap_angle(sam, s, R_main, R_flap)
+    refs = flap_chord_refs(sam, s)
+    axis = collect(run_value(sam, Val(:spanwise_stations), s, Val(:flap_axis)))
+    return hinge_angle(collect(R_main) * collect(refs[1]),
+                       collect(R_flap) * collect(refs[2]), collect(R_main) * axis)
 end
+
+"""
+    flap_delta_expression(sam, s, R_main, R_flap)
+
+The signed live deflection δ of the flap of station `s` of `sam`: its
+[`body_flap_angle`](@ref) referenced to rest ([`flap_rest_delta`](@ref)). The axis, the
+reference chords and the rest angle are frozen rest geometry, so δ is a function of the
+two bodies' orientations alone.
+"""
+flap_delta_expression(sam, s, R_main, R_flap) =
+    body_flap_angle(sam, s, R_main, R_flap) - flap_rest_delta(sam, s)
 
 """
     hinge_angle(vec_a, vec_b, axis)
@@ -1785,25 +1818,31 @@ function hinge_angle(vec_a, vec_b, axis)
 end
 
 """
-    point_flap_delta_expression(station, fore, hinge, aft, R_wing)
+    point_flap_angle(sam, s, fore, hinge, aft, R_wing)
 
-Deflection δ [rad] of a point flap from three structural positions: the signed angle
-the aft segment `hinge`→`aft` makes with the fore segment `fore`→`hinge` about the
-hinge axis, less the rest angle the initial pose holds. Positive δ is a trailing edge
-deflected down, the sign the polars are tabulated on.
-
-`R_wing` takes the axis from the wing's frame to the frame the positions are in, so
-the same expression reads the live positions at run time and the initial pose at init.
-Nothing here is a body: a chord bending over several beam elements still reads a
-deflection, and it is read off the very points the aerodynamics is built on rather
-than off a pair of orientations standing in for a hinge.
+The angle of the point flap of station `s` of `sam` from three structural positions: the
+signed angle the aft segment `hinge`→`aft` makes with the fore segment `fore`→`hinge`
+about the hinge axis. Positive is a trailing edge deflected down, the sign the polars are
+tabulated on. `R_wing` takes the axis from the wing's frame to the frame the positions are
+in, so the same expression reads the live positions at run time and the initial pose at
+rest.
 """
-function point_flap_delta_expression(station, fore, hinge, aft, R_wing)
-    return hinge_angle(collect(hinge) .- collect(fore),
-                       collect(aft) .- collect(hinge),
-                       collect(R_wing) * collect(station.flap_axis)) -
-        station.flap_rest_delta
-end
+point_flap_angle(sam, s, fore, hinge, aft, R_wing) =
+    hinge_angle(collect(hinge) .- collect(fore), collect(aft) .- collect(hinge),
+                collect(R_wing) *
+                collect(run_value(sam, Val(:spanwise_stations), s, Val(:flap_axis))))
+
+"""
+    point_flap_delta_expression(sam, s, fore, hinge, aft, R_wing)
+
+Deflection δ [rad] of the point flap of station `s` of `sam`: its
+[`point_flap_angle`](@ref) less the rest angle the initial pose holds. Nothing here is a
+body: a chord bending over several beam elements still reads a deflection, and it is read
+off the very points the aerodynamics is built on rather than off a pair of orientations
+standing in for a hinge.
+"""
+point_flap_delta_expression(sam, s, fore, hinge, aft, R_wing) =
+    point_flap_angle(sam, s, fore, hinge, aft, R_wing) - flap_rest_delta(sam, s)
 
 """
     FlapDelta(s, params, idx; name)
@@ -1818,8 +1857,7 @@ function FlapDelta(s, params, idx; name)
     main = indexed_scalar_variables(:main_frame, 9; input = true)
     flap = indexed_scalar_variables(:flap_frame, 9; input = true)
     delta = scalar_output(:delta)
-    station = params.reg.sys_struct.stations[idx]
-    eqs = [delta ~ flap_delta_expression(station, reshape(main, 3, 3),
+    eqs = [delta ~ flap_delta_expression(params.reg.sam, idx, reshape(main, 3, 3),
                                          reshape(flap, 3, 3))]
     return System(eqs, t, [main; flap; delta], param_unknowns(params); name)
 end
@@ -1835,9 +1873,9 @@ function PointFlapDelta(s, params, idx; name)
     positions = indexed_vector_variables(:point_pos, 3; input = true)
     frame = indexed_scalar_variables(:wing_frame, 9; input = true)
     delta = scalar_output(:delta)
-    station = params.reg.sys_struct.stations[idx]
-    eqs = [delta ~ point_flap_delta_expression(station, positions[1], positions[2],
-                                               positions[3], reshape(frame, 3, 3))]
+    eqs = [delta ~ point_flap_delta_expression(params.reg.sam, idx, positions[1],
+                                               positions[2], positions[3],
+                                               reshape(frame, 3, 3))]
     return System(eqs, t, [positions; frame; delta], param_unknowns(params); name)
 end
 
@@ -1876,62 +1914,64 @@ function indexed_scalar_variables(base::Symbol, count::Int; input = false)
 end
 
 """
-    flap_delta_eqs(wing, subsys, delta_of) -> Vector{Equation}
+    flap_delta_eqs(mode, subsys, delta_of) -> Vector{Equation}
 
-Bind every per-panel `delta` connector of `wing`'s aero component to the deflection
-`delta_of` returns for the station that panel deflects with. A panel mapped to
-no surface is bound to zero. Empty when the aero exposes no `delta` connector.
+Bind every per-panel `delta` connector of the aero component `subsys` of a wing flown
+with aero mode `mode` to the deflection `delta_of` returns for the station that panel
+deflects with. A panel mapped to no surface is bound to zero. Empty when the aero
+exposes no `delta` connector.
 """
-function flap_delta_eqs(wing, subsys, delta_of)
+function flap_delta_eqs(mode, subsys, delta_of)
     (hasproperty(subsys, :delta) && subsys.delta !== nothing) ||
         return Equation[]
-    panel_map = wing.aero.panel_station
+    panel_map = mode.panel_station
     return [subsys.delta[i] ~ (panel_map[i] == 0 ? 0 : delta_of(panel_map[i]))
             for i in eachindex(panel_map)]
 end
 
 """
-    flap_delta_inputs(wing, subsys) -> (; vars, eqs)
+    flap_delta_inputs(sam, w, subsys) -> (; vars, eqs)
 
-One `flap_delta_g` input per station some panel of `wing` maps to, and the
+One `flap_delta_g` input per station some panel of wing `w` of `sam` maps to, and the
 [`flap_delta_eqs`](@ref) binding the aero component's per-panel `delta` connector to
 them. Empty when the wing's aero exposes no `delta` connector.
 """
-function flap_delta_inputs(wing, subsys)
-    surfaces = wing_flap_surfaces(wing)
+function flap_delta_inputs(sam, w, subsys)
+    surfaces = wing_flap_surfaces(sam, w)
     isempty(surfaces) && return (; vars = Any[], eqs = Equation[])
     inputs = Dict(surface => scalar_input(Symbol(:flap_delta_, surface))
                   for surface in surfaces)
-    eqs = flap_delta_eqs(wing, subsys, surface -> inputs[surface])
+    eqs = flap_delta_eqs(sam.aero[w], subsys, surface -> inputs[surface])
     return (; vars = Any[inputs[surface] for surface in surfaces], eqs)
 end
 
 """
-    wing_flap_surfaces(wing) -> Vector{Int}
+    wing_flap_surfaces(sam, w) -> Vector{Int}
 
-The stations `wing`'s aero panels deflect with, sorted and unique, or empty
-when its aero mode has no per-panel flap coupling. One `flap_delta` input and one
+The stations the aero panels of wing `w` of `sam` deflect with, sorted and unique, or
+empty when its aero mode has no per-panel flap coupling. One `flap_delta` input and one
 [`FlapDelta`](@ref) instance exist per entry. The `0` of an unmapped panel is not a
 surface and is left out.
 """
-function wing_flap_surfaces(wing)
-    hasproperty(wing.aero, :panel_station) || return Int[]
-    panel_map = wing.aero.panel_station
-    (length(panel_map) == length(wing.vsm_aero.panels) &&
+function wing_flap_surfaces(sam, w)
+    mode = sam.aero[w]
+    hasproperty(mode, :panel_station) || return Int[]
+    panel_map = mode.panel_station
+    (length(panel_map) == length(mode.vsm_aero.panels) &&
      any(!=(0), panel_map)) || return Int[]
     return sort!(unique(filter(!=(0), panel_map)))
 end
 
 """
-    station_aero_driven(station) -> Bool
+    station_aero_driven(sam, s) -> Bool
 
-Whether a wing's aero drives this station's hinge moment. A `STATIC` surface
-with no aero sections has nothing to drive it with, and `station_eqs!` binds
+Whether a wing's aero drives the hinge moment of station `s` of `sam`. A `STATIC`
+surface with no aero sections has nothing to drive it with, and `station_eqs!` binds
 its moment to zero instead.
 """
-station_aero_driven(station) =
-    !(station.type == STATIC &&
-      isempty(station.unrefined_section_idxs))
+station_aero_driven(sam, s) =
+    !(station_type(sam.definition.spanwise_stations[s]) == STATIC &&
+      isempty(run_value(sam, :spanwise_stations, s, :unrefined_section_idxs)))
 
 """
     particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
@@ -1964,25 +2004,24 @@ function particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
 end
 
 """
-    rigid_wing_aero_wiring(s, subsys, wing; apparent_wind_b, height, frame,
+    rigid_wing_aero_wiring(s, subsys, w; apparent_wind_b, height, frame,
                            omega_b, twist_angles, twist_rates)
         -> (; eqs, force_b, moment_b, twist_moments)
 
-Feed a `RIGID_DYNAMICS` wing's aero component: its body-frame apparent wind, the
-[`air_density`](@ref) at `height`, its body-to-world `frame` as a column-major
-nine-vector, its
-body-frame angular velocity, and one twist angle and rate per station it
-carries. Returns the body-frame wrench and one hinge moment per station, in
-the order of `wing.station_idxs`; which of those a backend binds is its own
+Feed the aero component of `RIGID_DYNAMICS` wing `w` of the run `s`: its body-frame
+apparent wind, the [`air_density`](@ref) at `height`, its body-to-world `frame` as a
+column-major nine-vector, its body-frame angular velocity, and one twist angle and rate
+per station it carries. Returns the body-frame wrench and one hinge moment per station,
+in the order of [`wing_station_idxs`](@ref); which of those a backend binds is its own
 choice ([`station_aero_driven`](@ref)).
 """
-function rigid_wing_aero_wiring(s, subsys, wing; apparent_wind_b, height, frame,
+function rigid_wing_aero_wiring(s, subsys, w; apparent_wind_b, height, frame,
                                 omega_b, twist_angles, twist_rates)
     eqs = [collect(subsys.va) .~ collect(apparent_wind_b)
            subsys.rho ~ air_density(s.am, height)
            vec(collect(subsys.R_b_w)) .~ collect(frame)
            collect(subsys.omega) .~ collect(omega_b)]
-    surfaces = wing.station_idxs
+    surfaces = wing_station_idxs(s, w)
     if !isempty(surfaces)
         eqs = [eqs
                collect(subsys.twist) .~ twist_angles
@@ -2011,9 +2050,7 @@ point; a live mode solves in place. The wing's lumped `aero_force_b`/`aero_momen
 are observed.
 """
 function ParticleWingAero(s, params, idx; name)
-    sys_struct = params.reg.sys_struct
-    wing = sys_struct.wings[idx]
-    points = wing_points(sys_struct, wing)
+    points = wing_points(s, idx)
     count = length(points)
     pose = @variables begin
         wing_pos(t)[1:3], [input = true]
@@ -2024,13 +2061,14 @@ function ParticleWingAero(s, params, idx; name)
     positions = indexed_vector_variables(:point_pos, count; input = true)
     velocities = indexed_vector_variables(:point_vel, count; input = true)
     forces = indexed_vector_variables(:point_force, count)
-    subsys = aero_component(wing.aero, wing, sys_struct; name = :aero, params)
-    validate_aero_component(subsys, wing)
+    subsys = aero_component(s.aero[idx], wing_dynamics(s, idx), s, idx;
+                            name = :aero, params)
+    validate_aero_component(subsys, s, idx)
     orientation = reshape(collect(pose[2]), 3, 3)
     origin = collect(pose[1])
     heights = [collect(positions[k])[3] for k in 1:count]
     apparent_winds = [orientation' *
-                      (point_wind_source(params, points[k].idx)(heights[k]) .-
+                      (point_wind_source(params, points[k])(heights[k]) .-
                        collect(velocities[k]))
                       for k in 1:count]
     wiring = particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
@@ -2042,7 +2080,7 @@ function ParticleWingAero(s, params, idx; name)
     end
     append!(eqs, collect(pose[3]) .~ wiring.force_b)
     append!(eqs, collect(pose[4]) .~ wiring.moment_b)
-    flaps = flap_delta_inputs(wing, subsys)
+    flaps = flap_delta_inputs(s, idx, subsys)
     append!(eqs, flaps.eqs)
     vars = [pose; positions; velocities; forces; flaps.vars]
     return System(eqs, t, vars, param_unknowns(params); name, systems = [subsys])
@@ -2109,12 +2147,11 @@ physics is the shared [`wagner_lag_eqs`](@ref), so this emits what a whole-wing
 system emits.
 """
 function WagnerLag(s, params, wing_idx; name)
-    wing = params.reg.sys_struct.wings[wing_idx]
     io = @variables begin
         va_in(t)[1:3], [input = true]
         deficiency(t), [output = true]
     end
-    x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
+    x_ref, z_ref, chord_ref = wagner_reference_frame(s, wing_idx)
     eqs, vars, lag, defaults = wagner_lag_eqs(
         wagner_gain_params(params, wing_idx), wagner_rate_params(params, wing_idx),
         collect(io[1]), x_ref, z_ref, chord_ref)
@@ -2139,7 +2176,7 @@ A wing with [`wagner_enabled`](@ref) takes one more, the lag deficiency its
 [`WagnerLag`](@ref) hands to every panel.
 """
 function AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
-    wing = params.reg.sys_struct.wings[wing_idx]
+    mode = s.aero[wing_idx]
     panel = params.wings[wing_idx].aero.panels[panel_idx]
     io = @variables begin
         le_a(t)[1:3], [input = true]
@@ -2153,13 +2190,12 @@ function AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
         force_out(t)[1:3], [output = true]
         couple_out(t)[1:3], [output = true]
     end
-    dva = flow_curvature_enabled(wing) ?
+    dva = flow_curvature_enabled(mode) ?
         (vector_input(:dva_a, 3), vector_input(:dva_b, 3)) : (nothing, nothing)
     delta = with_flap ? scalar_input(:flap_delta) : nothing
-    lag = wagner_enabled(wing) ? scalar_input(:wagner_deficiency) : nothing
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
-    scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
-        wing.aero_scale_chord : AERO_SCALE_CHORD)
+    lag = wagner_enabled(mode) ? scalar_input(:wagner_deficiency) : nothing
+    spanwise = collect(SimFloat, mode.vsm_wing.spanwise_direction)
+    scale = 1.0 + mode.aero_scale_chord
     slots = panel_force_slots(1)
     sections = (collect(io[1]) .+ collect(panel.le_offset_a),
                 collect(io[2]) .+ collect(panel.te_offset_a),
@@ -2172,7 +2208,7 @@ function AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
                           (panel.cl, panel.cd, panel.cm),
                           spanwise, scale, panel.chord_weight, delta,
                           lag === nothing ? 0.0 : lag)
-    couple = scatter_couple(wing.aero, slots, 1, panel)
+    couple = scatter_couple(mode, slots, 1, panel)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
     append!(eqs, collect(io[10]) .~ couple)
     vars = [io; panel_force_vars(slots)]
@@ -2200,8 +2236,7 @@ function AeroPointForce(s, params, wing_idx, point_idx; name)
         force_b(t)[1:3], [output = true]
         moment_b(t)[1:3], [output = true]
     end
-    mode = params.reg.sys_struct.wings[wing_idx].aero
-    offset = aero_point_offset(mode, params, wing_idx, point_idx)
+    offset = aero_point_offset(s.aero[wing_idx], params, wing_idx, point_idx)
     load = offset === nothing ? collect(io[3]) :
            collect(io[3]) .+ collect(offset)
     orientation = reshape(collect(io[2]), 3, 3)
@@ -2248,7 +2283,8 @@ scalar_output(name::Symbol) = only(@variables $name(t), [output = true])
 """
     WingAero(s, params, idx; name)
 
-The aerodynamic wrench of a `RIGID_DYNAMICS` wing: its body's pose in, the world
+The aerodynamic wrench of `RIGID_DYNAMICS` wing `idx` of the run `s`: its body's pose in,
+the world
 force and the moment about its COM out, plus one twist moment per station it
 carries. It builds the wing's apparent wind from that pose, feeds the wing's aero
 component through [`rigid_wing_aero_wiring`](@ref), and transports the returned
@@ -2258,8 +2294,7 @@ depend on the force it receives, so aero after pose and before the body's deriva
 is just another schedule layer.
 """
 function WingAero(s, params, idx; name)
-    sys_struct = params.reg.sys_struct
-    wing = sys_struct.wings[idx]
+    body_idx = wing_body(s, idx)
     pose = body_pose_variables()
     io = @variables begin
         force_out(t)[1:3], [output = true]
@@ -2269,16 +2304,17 @@ function WingAero(s, params, idx; name)
         va_b(t)[1:3]
         wind_vel(t)[1:3]
     end
-    surfaces = wing.station_idxs
+    surfaces = wing_station_idxs(s, idx)
     twists = [scalar_input(Symbol(:twist_angle_, surface)) for surface in surfaces]
     rates = [scalar_input(Symbol(:twist_vel_, surface)) for surface in surfaces]
     moments = [scalar_output(Symbol(:twist_moment_, surface)) for surface in surfaces]
-    subsys = aero_component(wing.aero, wing, sys_struct; name = :aero, params)
-    validate_aero_component(subsys, wing)
+    subsys = aero_component(s.aero[idx], wing_dynamics(s, idx), s, idx;
+                            name = :aero, params)
+    validate_aero_component(subsys, s, idx)
     orientation = reshape(collect(pose.pose_frame), 3, 3)
     origin = collect(pose.pose_pos)
     velocity = rigid_body_point_velocity(pose, origin .- collect(pose.pose_com))
-    wiring = rigid_wing_aero_wiring(s, subsys, wing;
+    wiring = rigid_wing_aero_wiring(s, subsys, idx;
         apparent_wind_b = collect(io[5]), height = origin[3],
         frame = collect(pose.pose_frame),
         omega_b = orientation' * collect(pose.pose_omega),
@@ -2292,7 +2328,7 @@ function WingAero(s, params, idx; name)
         collect(io[4]) .~ wiring.moment_b
         collect(io[1]) .~ orientation * collect(io[3])
         collect(io[2]) .~ orientation * (collect(io[4]) .+
-            (collect(io[3]) × collect(params.bodies[idx].com_offset_b)))
+            (collect(io[3]) × collect(params.bodies[body_idx].total_com_offset_b)))
     ]
     append!(eqs, [moments[j] ~ wiring.twist_moments[j] for j in eachindex(surfaces)])
     vars = [pose.all; io; twists; rates; moments]
@@ -2321,7 +2357,7 @@ function StationDOF(s, params, idx; name)
     end
     report = station_diagnostics()
     state = @variables free_twist_angle(t) twist_omega(t)
-    surface = params.stations[idx]
+    surface = params.spanwise_stations[idx]
     twist = station_dynamics(; free_angle = state[1], twist_vel = state[2],
                                    aero_moment = vars[1], node_moment = vars[2],
                                    mass = vars[4] + surface.body_mass,
@@ -2364,7 +2400,7 @@ function PrescribedTwist(s, params, idx; name)
         twist_vel(t), [output = true]
     end
     report = station_diagnostics()
-    eqs = [vars[2] ~ params.stations[idx].twist
+    eqs = [vars[2] ~ params.spanwise_stations[idx].twist
            vars[3] ~ 0
            report[1] ~ 0
            report[2] ~ 0
@@ -2386,7 +2422,7 @@ dropping the axial term would shrink their spanwise spread by `cos(angle)`.
 """
 function twist_deformed_offset(params, idx, surface_idx, angle)
     surface_idx == 0 && return collect(params.points[idx].pos_undeformed_b)
-    surface = params.stations[surface_idx]
+    surface = params.spanwise_stations[surface_idx]
     leading_edge = collect(surface.le_pos)
     axis = collect(surface.y_airf)
     offset = collect(params.points[idx].pos_undeformed_b) .- leading_edge
@@ -2477,7 +2513,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
     extra = Any[twist]
     if surface_idx > 0
         point = params.points[idx]
-        surface = params.stations[surface_idx]
+        surface = params.spanwise_stations[surface_idx]
         node_force = scalar_output(:node_force)
         node_moment = scalar_output(:node_moment)
         node_mass = scalar_output(:node_mass)
@@ -2616,43 +2652,48 @@ body_frame_damp_accel(vel, body_damp, orientation, frame, pos) =
 
 A free particle tied to a wing: the shared [`Particle`](@ref) motion plus the
 body-frame damping `point_eqs!` adds for a point that damps against its wing's
-[`small_earth_frame`](@ref) rather than the world, which reads the
-`wing_frame`/`wing_com`/`wing_velocity`/`wing_spin` the wing's body supplies and the
-`base_pos` of its tether, dropped with `based = false` where no transform moves the
-wing. Its aerodynamic force arrives at `force_in` from [`ParticleWingAero`](@ref), like
-any other load. `with_damping = false` drops the damping term whose coefficient the
-struct leaves unset, so no zero-valued parameter is generated, matching the monolith.
+[`small_earth_frame`](@ref) rather than the world, through
+[`wing_frame_damping`](@ref). Its aerodynamic force arrives at `force_in` from
+[`ParticleWingAero`](@ref), like any other load. `with_damping = false` drops the
+damping term whose coefficient the run leaves unset, so no zero-valued parameter is
+generated, matching the monolith.
 """
 function WingNodePoint(s, params, idx; name, with_damping = true, based = true)
     io = point_variables()
-    extra = @variables begin
+    frame, frame_damping = wing_frame_damping(params, idx, io.pos, io.vel;
+                                              with_damping, based)
+    pars = point_particle_params(params, idx)
+    eqs = [dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
+               pars.extra_mass + io.mass_in, pars, io.net_force; frame_damping);
+           point_wind_eqs(s, params, idx, io)]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            io.wind_vec, io.net_force, frame...]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    wing_frame_damping(params, idx, pos, vel; with_damping=true, based=true)
+        -> (variables, accel)
+
+The `wing_frame`/`wing_com`/`wing_velocity`/`wing_spin` inputs the body of point `idx`'s
+wing supplies, with the `base_pos` of its tether where `based`, and the
+[`body_frame_damp_accel`](@ref) of the point at `pos` moving at `vel` against that wing's
+[`small_earth_frame`](@ref), zero and without `base_pos` when not `with_damping`.
+`based = false` is for a wing no transform moves.
+"""
+function wing_frame_damping(params, idx, pos, vel; with_damping = true, based = true)
+    wing = @variables begin
         wing_frame(t)[1:9], [input = true]
         wing_com(t)[1:3], [input = true]
         wing_velocity(t)[1:3], [input = true]
         wing_spin(t)[1:3], [input = true]
     end
+    with_damping || return wing, zeros(3)
     @variables base_pos(t)[1:3] [input = true]
-    orientation = reshape(collect(extra[1]), 3, 3)
-    point = params.points[idx]
-    frame = small_earth_frame(based ? collect(base_pos) : nothing, extra[2], extra[3],
-                              orientation[:, 2], extra[4])
-    pars = point_particle_params(params, idx)
-    mass = pars.extra_mass + io.mass_in
-    motion = point_acceleration(s, collect(io.pos), collect(io.vel),
-        collect(io.force_in), mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), pars.wind_source, pars.g_earth;
-        pars.apparent_mass)
-    accel = motion.accel
-    with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
-        point.body_frame_damping, orientation, frame, io.pos))
-    velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
-    eqs = [
-        D.(collect(io.pos)) .~ velocity
-        D.(collect(io.vel)) .~ acceleration
-        collect(io.net_force) .~ motion.net_force
-        point_wind_eqs(s, params, idx, io)
-    ]
-    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force, extra..., (based ? (base_pos,) : ())...]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    orientation = reshape(collect(wing[1]), 3, 3)
+    frame = small_earth_frame(based ? collect(base_pos) : nothing, wing[2], wing[3],
+                              orientation[:, 2], wing[4])
+    return (based ? [wing..., base_pos] : wing),
+        body_frame_damp_accel(vel, params.points[idx].body_frame_damping, orientation,
+                              frame, pos)
 end

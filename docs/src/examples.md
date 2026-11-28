@@ -17,7 +17,7 @@ using MakieControlPlots  # together these load the plotting extension
 
 **3D system structure** — interactive visualization with clickable segments:
 ```julia
-plot(sam.state)
+plot(sam)
 ```
 
 ![2-plate kite structure](assets/2plate_kite_structure.png)
@@ -25,19 +25,19 @@ plot(sam.state)
 **Time-series data** — multi-panel plots of simulation results:
 ```julia
 (log, _) = sim!(sam, set_values)
-plot(sam.sys_struct, log; plot_default=true)
+plot(sam, log; plot_default=true)
 ```
 
 **Interactive replay** — scrub through a simulation with playback controls:
 ```julia
 save_log(logger, "my_run")
 syslog = load_log("my_run")
-replay(syslog, sam.sys_struct)
+replay(syslog, sam)
 ```
 
 **Record to video** — save a simulation as an MP4 file:
 ```julia
-record(syslog, sam.sys_struct, "simulation.mp4"; framerate=30)
+record(syslog, sam, "simulation.mp4"; framerate=30)
 ```
 
 **Static or vector figure** — draw into an `Axis3` with CairoMakie and save a
@@ -77,7 +77,7 @@ These examples demonstrate the building blocks without aerodynamics:
 | `pulley.jl` | Pulley system with winch control |
 | `saddle_form.jl` | Complex mesh demonstrating 3D structures |
 | `airbag.jl` | Pressurized square membrane inflating under internal gauge pressure |
-| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the [`Body`](@ref)/[`ElasticTube`](@ref) chain as a cantilever |
+| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the body/[`ElasticTubeModel`](@ref) chain as a cantilever |
 | `custom_tape_winch.jl` | Plugging in a custom [`AbstractWinchModel`](@ref) |
 
 ## Coupled examples
@@ -104,18 +104,20 @@ vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings"); data_prefix=false)
 
 # Build system structure from YAML
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set, vsm_set)
+sys, transforms = load_authoring(struc_yaml;
+    name="2plate_kite", set)
 
-sam = SymbolicAWEModel(set, sys; transforms)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam)
 
 # Run with a steering ramp
 for step in 1:600
     t = step * (10.0 / 600)
     ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.state.segments[:kcu_steering_left].l0 -= 0.1 * ramp
-    sam.state.segments[:kcu_steering_right].l0 += 0.1 * ramp
+    for (name, sign) in ((:kcu_steering_left, -1), (:kcu_steering_right, 1))
+        rest_length = run_value(sam, :segments, name, :rest_length)
+        set_run_value!(sam, :segments, name, :rest_length, rest_length + sign * 0.1 * ramp)
+    end
     next_step!(sam; dt=10.0/600, vsm_interval=1)
 end
 ```
@@ -133,7 +135,6 @@ See `coupled_2plate_kite.jl` for the full example with logging and replay.
 | `coupled_linearize.jl` | State-space linearization of a coupled model |
 | `cosine_steering_trajectory.jl` | Prescribed cosine steering input |
 | `heading_gate.jl` | Heading tracking through a gate |
-| `kps4_comparison.jl` | [`PlateWing`](@ref) kite against the KiteModels kps4 reference |
 | `vsm_linearization.jl` | Plots the VSM linearisation tangents around the operating point |
 | `sam_tutorial.jl` | Step-by-step model build, mirroring the Julia tutorial |
 
@@ -149,18 +150,18 @@ have been moved to dedicated packages:
 
 ## Real-time visualization
 
-To watch a simulation live, call `plot(sam.state)` once to build the scene
-and then `plot!(sam.state)` inside the loop. `plot!` pushes new positions
+To watch a simulation live, call `plot(sam)` once to build the scene
+and then `plot!(sam)` inside the loop. `plot!` pushes new positions
 into the existing Makie observables rather than rebuilding the scene, so the
 cost per frame is a redraw, not a re-plot:
 
 ```julia
-plot(sam.state)
+plot(sam)
 dt = 0.05
 for _ in 1:500
     t_start = time()
     next_step!(sam; dt)
-    plot!(sam.state)
+    plot!(sam)
     sleep(max(0, dt - (time() - t_start)))
 end
 ```

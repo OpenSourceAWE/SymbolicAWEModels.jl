@@ -3,11 +3,14 @@
 The VSM solve is steady: it answers what the loading would be if the wing held its
 current shape and inflow forever. Two corrections restore what a wing actually feels
 while that state is changing. Both are off by default and live on the wing's
-`UnsteadyAero`, held by its `VSMEngine`:
+`UnsteadyAero`, held by the `VSMEngine` of its aero mode; give one to the mode a model
+flies the wing with:
 
 ```julia
-sys.wings[1].unsteady.apparent_mass = 1.0   # thin-plate value
-sys.wings[1].unsteady.wagner = true
+unsteady = UnsteadyAero(; apparent_mass=1.0,   # thin-plate value
+                        wagner=true)
+sam = SymbolicAWEModel(set, sys; transforms,
+                        aero=Dict(:main_wing => ContinuousAero(; unsteady)))
 ```
 
 They are independent — either can be used alone.
@@ -62,7 +65,7 @@ often not the node. `apparent_mass_carriers` picks it, and there are three cases
 - a free `DYNAMIC` node carries its own air, through `point_acceleration`;
 - a node anchored to a rigid body is *placed* by that body and integrates nothing of
   its own, so its air goes to the body, through `rigid_body_pose_expressions`;
-- a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two bodies
+- a node riding a Timoshenko tube's deformed centerline is placed by the two bodies
   the tube spans, which split its air by `beam_frac`, where along the element it
   sits.
 
@@ -151,6 +154,11 @@ D(xᵢ) = (2·v/c)·(α - bᵢ·xᵢ)
 
 which is what `wagner_lag_eqs` emits.
 
+The `xᵢ` are unknowns of the ODE, not columns of `SysState`, so a log does not carry
+them: a run resumed from a logged `SysState` starts its lag states from steady flow,
+`xᵢ = α/bᵢ`, and the deficiency it had at that moment is lost. Everything else a VSM
+wing needs is in the log, its circulation in `gamma_distribution` among it.
+
 ### One lag for the whole wing
 
 There are **two states for the entire wing**, not two per panel. The reference angle
@@ -188,11 +196,12 @@ whose `va_in` is gathered at equal weight over the wing's nodes and whose
 `deficiency` output feeds every `AeroPanel` as an input. `ParticleWingAero` calls
 `aero_component` and so inherits the monolith form.
 
-The four lag constants are **registered parameters**, read from
-`wing.unsteady` like any other tunable scalar in the model. Only the `wagner` switch
-itself is structure — it is what adds or removes the two states — so it alone reaches
-the model cache key. Retuning a lag is a `sync_params!`, not a rebuild, which is what
-makes sweeping the constants cheap.
+The four lag constants are **registered parameters**, read from the wing's aero mode,
+`unsteady_aero(sam.aero[wing_idx])`, like any other tunable scalar in the model. Only the
+`wagner` switch itself is structure — it is what adds or removes the two states — so it
+alone reaches the model cache key. A retuned lag is synced into the integrator at the
+next `init!` or aerodynamic refresh, not rebuilt, which is what makes sweeping the
+constants cheap.
 
 ## Tuning the lag
 
@@ -201,8 +210,9 @@ The rates are per semi-chord travelled, so the physical time constants scale wit
 sweep can set them between runs on one compiled model:
 
 ```julia
-sys.wings[1].unsteady.wagner_rates = [0.0455, 0.3] .* 0.5   # twice as slow
-sys.wings[1].unsteady.wagner_gains = [0.165, 0.335]         # φ(0) = 0.5
+unsteady = unsteady_aero(sam.aero[1])
+unsteady.wagner_rates = [0.0455, 0.3] .* 0.5   # twice as slow
+unsteady.wagner_gains = [0.165, 0.335]         # φ(0) = 0.5
 ```
 
 The gains set how much lift is withheld initially: `φ(0) = 1 - A₁ - A₂`. Raising

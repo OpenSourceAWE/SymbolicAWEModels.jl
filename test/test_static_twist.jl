@@ -12,48 +12,54 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, validate_station_modes,
-    Wing, Station, update_sys_struct!
+using SymbolicAWEModels: VortexStepMethod, validate_station_modes, update_run_state!
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
+"""The run of the smallest system with one station of `npoints` points and twist `type` on
+a wing of `dynamics`, flown without aero."""
+function station_check_model(npoints, type, dynamics)
+    set = Settings("system.yaml")
+    points = [Point(; name=Symbol(:p, i), pos_ENU=[0.0, Float64(i), 0.0])
+              for i in 1:npoints]
+    station = SpanwiseStation(; name=:g, wing=:wing,
+                              points=[point.name for point in points],
+                              model=StationModel(; type=string(type), moment_frac=0.25))
+    wing = KiteGeometry.Wing(; name=:wing, pos_ENU=zeros(3), body=:wing,
+        model=WingModel(; aero_mode="AeroNone", dynamics_type=string(dynamics),
+                        stations=[:g],
+                        origin_idx=dynamics == PARTICLE_DYNAMICS ? :p1 : nothing))
+    body = Body(; name=:wing, pos_ENU=zeros(3), extra_mass=1.0,
+                extra_inertia_KA=Matrix(Diagonal(ones(3))),
+                model=BodyModel(; angular_damping=0.0))
+    sys = system_definition("station_modes", set; points, spanwise_stations=[station],
+                            wings=[wing], bodies=[body])
+    return SymbolicAWEModel(set, sys)
+end
+
+"""Whether `validate_station_modes` accepts the station of
+[`station_check_model`](@ref)."""
+station_modes_valid(npoints, type, dynamics) =
+    validate_station_modes(station_check_model(npoints, type, dynamics)) === nothing
+
 @testset "validate_station_modes" begin
-    rigid = Wing(:rigid, NameRef[], [1.0, 0.0, 0.0, 0.0],
-        zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
-    rigid.idx = 1
-    particle = Wing(:particle, NameRef[], [1.0, 0.0, 0.0, 0.0],
-        zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
-    particle.idx = 1
-
-    mkstation(name, npoints, type) = begin
-        g = Station(name, collect(1:npoints), type, 0.25)
-        g.idx = 1
-        g.point_idxs = collect(1:npoints)
-        g
-    end
-
     # DYNAMIC on rigid + >=2 points -> ok
-    rigid.station_idxs = [1]
-    @test validate_station_modes([mkstation(:g, 2, DYNAMIC)], [rigid]) === nothing
+    @test station_modes_valid(2, DYNAMIC, RIGID_DYNAMICS)
     # STATIC on rigid, any point count -> ok
-    @test validate_station_modes([mkstation(:g, 1, STATIC)], [rigid]) === nothing
-    @test validate_station_modes([mkstation(:g, 3, STATIC)], [rigid]) === nothing
-
+    @test station_modes_valid(1, STATIC, RIGID_DYNAMICS)
+    @test station_modes_valid(3, STATIC, RIGID_DYNAMICS)
     # DYNAMIC on particle -> reject (needs rigid)
-    particle.station_idxs = [1]
-    @test_throws ErrorException validate_station_modes(
-        [mkstation(:g, 2, DYNAMIC)], [particle])
+    @test_throws ErrorException station_modes_valid(2, DYNAMIC, PARTICLE_DYNAMICS)
     # DYNAMIC 1-point -> reject (needs bridle couple)
-    @test_throws ErrorException validate_station_modes(
-        [mkstation(:g, 1, DYNAMIC)], [rigid])
+    @test_throws ErrorException station_modes_valid(1, DYNAMIC, RIGID_DYNAMICS)
     # STATIC on particle + multi-point -> ok (inert aero-section membership
     # marker; the free particles carry the deformation)
-    @test validate_station_modes([mkstation(:g, 2, STATIC)], [particle]) === nothing
+    @test station_modes_valid(2, STATIC, PARTICLE_DYNAMICS)
     # STATIC on particle + 1 point -> ok
-    @test validate_station_modes([mkstation(:g, 1, STATIC)], [particle]) === nothing
+    @test station_modes_valid(1, STATIC, PARTICLE_DYNAMICS)
 end
 
 @testset "STATIC twist on rigid VSM wing" begin
@@ -81,60 +87,63 @@ end
     fixed_yaml = joinpath(get_data_path(), "rigid_fixed_twist_geometry.yaml")
     write(fixed_yaml, txt)
 
-    sys, transforms = load_sys_struct_from_yaml(fixed_yaml;
-        system_name="2plate_fixed", set, vsm_set)
+    sys, transforms = load_authoring(fixed_yaml;
+        name="2plate_fixed", set)
     sys.winches[:main_winch].brake = true
-    @test all(g.type == STATIC for g in sys.stations)
+    @test all(station_type(g) == STATIC for g in sys.spanwise_stations)
 
     # Prescribe distinct twist angles per station.
     prescribed = Dict(:left => 0.05, :center => -0.10, :right => 0.08)
-    for g in sys.stations
+    for g in sys.spanwise_stations
         g.twist = prescribed[g.name]
     end
 
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     init!(sam; prn=false, remake=true, remake_vsm=false)
     next_step!(sam)
 
     # twist_angle must track the prescribed value (no dynamics, no clamp drift).
-    for g in sam.state.stations
-        @test isapprox(g.twist, prescribed[g.name]; atol=1e-9)
+    for (station_idx, g) in enumerate(sys.spanwise_stations)
+        @test isapprox(run_value(sam, :spanwise_stations, station_idx, :twist),
+                       prescribed[g.name]; atol=1e-9)
     end
     rm(fixed_yaml; force=true)
 end
 
-"""The sum of `field`, a point mass, over the points of `station`."""
-station_point_mass(points, station, field) =
-    sum(getproperty(points[idx], field) for idx in station.point_idxs)
+"""The sum of point mass `quantity` over the points of station `station_idx` of `sam`."""
+station_point_mass(sam, station_idx, quantity) =
+    sum(run_value(sam, :points, i, quantity)
+        for i in sam.definition.spanwise_stations[station_idx].points)
 
-@testset "DYNAMIC station twists with the total mass of its points" begin
+@testset "DYNAMIC station twists with the total mass of its points, $backend" for
+        backend in (MonolithBackend(), KernelBackend())
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     set = Settings("system.yaml")
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
-    sys, transforms = load_sys_struct_from_yaml(
+    sys, transforms = load_authoring(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
-        system_name="2plate_kite", set, vsm_set)
+        name="2plate_kite", set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set, backend)
     init!(sam; prn=false, remake=false, remake_vsm=false)
-    update_sys_struct!(sam.prob, sam.integrator, sam.state)
+    update_run_state!(sam.prob, sam.integrator, sam)
 
-    stations = sam.state.stations
-    points = sam.sys_struct.points
-    @test all(station_point_mass(points, station, :total_mass) >
-              1.01 * station_point_mass(points, station, :extra_mass)
-              for station in stations)
-    moment = [station.aero_moment + station.tether_moment for station in stations]
-    inertia = [(station_point_mass(points, station, :total_mass) + station.body_mass) *
-               norm(station.chord)^2 / 3 for station in stations]
-    @test all(station.twist_ω == 0 for station in stations)
+    stations = eachindex(sys.spanwise_stations)
+    station(i, quantity) = run_value(sam, :spanwise_stations, i, quantity)
+    @test all(station_point_mass(sam, i, :total_mass) >
+              1.01 * station_point_mass(sam, i, :extra_mass)
+              for i in stations)
+    moment = [station(i, :aero_moment) + station(i, :tether_moment) for i in stations]
+    inertia = [(station_point_mass(sam, i, :total_mass) + station(i, :body_mass)) *
+               norm(station(i, :chord))^2 / 3 for i in stations]
+    @test all(station(i, :twist_ω) == 0 for i in stations)
 
     # From rest the twist rate gains `moment / inertia · dt` to first order in `dt`.
     dt = 1e-6
     next_step!(sam; dt, vsm_interval=0)
-    twist_acc = [station.twist_ω / dt for station in stations]
+    twist_acc = [station(i, :twist_ω) / dt for i in stations]
     @test twist_acc .* inertia ≈ moment rtol=2e-3
 end
 nothing

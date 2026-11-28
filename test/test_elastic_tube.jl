@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_elastic_tube.jl - Lumped 6-DOF ElasticTube between two RigidBodies.
+# test_elastic_tube.jl - Lumped 6-DOF elastic tube between two rigid bodies.
 #
 # Gravity is disabled (g_earth = 0) to isolate the tube dynamics. One model
 # (two bodies + one tube) is built once; each test varies stiffness and the
@@ -21,6 +21,7 @@ end
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KiteGeometry
 using KiteUtils
 using LinearAlgebra
 using Statistics: mean
@@ -72,7 +73,7 @@ function period_from_crossings(times, signal)
     return 2 * mean(half_periods)
 end
 
-@testset "ElasticTube" begin
+@testset "Elastic tube" begin
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(pkg_root, "data", "2plate_kite")
     tmpdir = mktempdir()
@@ -85,61 +86,87 @@ end
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body1 = Body(:b1; extra_mass=1.0, inertia_principal=inertia,
-                      pos=[0.0, 0.0, 0.0])
-    body2 = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
-                      pos=[1.0, 0.0, 0.0])
+    materials = [Material(; name=:breukels2011, law="breukels2011",
+                          parameters=KiteGeometry.tube_law_parameters(:breukels2011))]
+    body1 = Body(; name=:b1, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                 extra_inertia_KA=Matrix(Diagonal(inertia)))
+    body2 = Body(; name=:b2, pos_ENU=[1.0, 0.0, 0.0], extra_mass=1.0,
+                 extra_inertia_KA=Matrix(Diagonal(inertia)))
     # Anchors meet at the midpoint [0.5, 0, 0] when relaxed.
-    tube = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
-        anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
-        model=ElasticTube(stiffness_axial=0.0, stiffness_shear=0.0,
-                          stiffness_torsion=0.0, stiffness_bending=0.0))
-    sys = SystemStructure("joint_test", set;
+    tube = Tube(; name=:j1, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+        material=:breukels2011,
+        model=ElasticTubeModel(; stiffness_axial=0.0, stiffness_shear=0.0,
+                               stiffness_torsion=0.0, stiffness_bending=0.0,
+                               anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0]))
+    sys = system_definition("joint_test", set; materials,
         bodies=[body1, body2], tubes=[tube])
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 2
         @test length(sys.tubes) == 1
-        @test sys.tubes[:j1].body_a_idx == 1
-        @test sys.tubes[:j1].body_b_idx == 2
+        @test collect(sys.tubes[:j1].bodies) == [1, 2]
     end
 
     @testset "Tubes built from one element keep their own anchors" begin
-        element = ElasticTube(stiffness_axial=1.0, stiffness_shear=1.0,
-                              stiffness_torsion=1.0, stiffness_bending=1.0)
-        first_tube = Tube(1, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
-                          anchor_a=[0.5, 0.0, 0.0])
-        second_tube = Tube(2, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
-                           anchor_a=[0.25, 0.0, 0.0])
-        @test first_tube.anchor_a_b == [0.5, 0.0, 0.0]
-        @test second_tube.anchor_a_b == [0.25, 0.0, 0.0]
+        element = (; stiffness_axial=1.0, stiffness_shear=1.0, stiffness_torsion=1.0,
+                   stiffness_bending=1.0)
+        first_tube = Tube(; name=Symbol(1), bodies=(:b1, :b2), diameter=0.1,
+                          pressure=3e4, material=:breukels2011,
+                          model=ElasticTubeModel(; element..., anchor_a=[0.5, 0.0, 0.0]))
+        second_tube = Tube(; name=Symbol(2), bodies=(:b1, :b2), diameter=0.1,
+                           pressure=3e4, material=:breukels2011,
+                           model=ElasticTubeModel(; element..., anchor_a=[0.25, 0.0, 0.0]))
+        # The anchors are quantities of the run, so read them from a run.
+        pair = [Body(; name, pos_ENU, extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+                for (name, pos_ENU) in ((:b1, [0.0, 0.0, 0.0]), (:b2, [1.0, 0.0, 0.0]))]
+        pair_sam = SymbolicAWEModel(set, system_definition("joint_test", set;
+            materials, bodies=pair, tubes=[first_tube, second_tube]))
+        @test run_value(pair_sam, :tubes, 1, :anchor_a_b) == [0.5, 0.0, 0.0]
+        @test run_value(pair_sam, :tubes, 2, :anchor_a_b) == [0.25, 0.0, 0.0]
         @test first_tube.name === Symbol("1")
+    end
+
+    @testset "An elastic tube's unset stiffness names the tube and the column" begin
+        unset = Tube(; name=:unset, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+                     material=:breukels2011,
+                     model=ElasticTubeModel(; stiffness_shear=1.0, stiffness_torsion=1.0,
+                                            stiffness_bending=1.0))
+        unset_sys = system_definition("joint_test", set; materials, bodies=[body1, body2],
+                                      tubes=[unset])
+        @test_throws "tube unset: stiffness_axial is unset" SymbolicAWEModel(set, unset_sys)
     end
 
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
-    b1 = sam.state.bodies[:b1]
-    b2 = sam.state.bodies[:b2]
-    jt = sam.sys_struct.tubes[:j1].model
+    b1, b2 = sam.definition.bodies[:b1], sam.definition.bodies[:b2]
+    body_value(sam, name, quantity) = run_value(sam, :bodies, name, quantity)
+
+    # The tube's stiffnesses a fresh init! reads from its definition row.
+    function set_stiffness!(; axial, shear, torsion, bending)
+        element = sam.definition.tubes[:j1].model
+        element.stiffness_axial = axial
+        element.stiffness_shear = shear
+        element.stiffness_torsion = torsion
+        element.stiffness_bending = bending
+    end
 
     # Reset the initial pose that place! puts the bodies back at.
     function reset_bodies!()
-        for (b, x) in ((b1, 0.0), (b2, 1.0))
-            b.pos_ENU .= [x, 0.0, 0.0]
-            b.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
-            b.vel_w .= 0.0
-            b.ω_b .= 0.0
+        for (name, x) in ((:b1, 0.0), (:b2, 1.0))
+            row = sam.definition.bodies[name]
+            row.Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
+            SymbolicAWEModels.set_origin_ENU!(row, [x, 0.0, 0.0])
+            set_run_value!(sam, :bodies, name, :vel_w, zeros(3))
+            set_run_value!(sam, :bodies, name, :ω_b, zeros(3))
         end
     end
 
     @testset "Axial oscillation frequency" begin
-        jt.stiffness_axial = 100.0
-        jt.stiffness_shear = 0.0
-        jt.stiffness_torsion = 0.0
-        jt.stiffness_bending = 0.0
+        set_stiffness!(; axial=100.0, shear=0.0, torsion=0.0, bending=0.0)
         reset_bodies!()
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
-        b2.vel_w .= [0.5, 0.0, 0.0]
+        set_run_value!(sam, :bodies, :b2, :vel_w, [0.5, 0.0, 0.0])
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
@@ -151,46 +178,46 @@ end
         for _ in 1:n_steps
             next_step!(sam; dt, vsm_interval=0)
             push!(times, sam.integrator.t)
-            push!(rel_x, (b2.pos_w[1] - b1.pos_w[1]) - 1.0)
+            push!(rel_x, (body_value(sam, :b2, :pos_w)[1] -
+                          body_value(sam, :b1, :pos_w)[1]) - 1.0)
         end
         T_measured = period_from_crossings(times, rel_x)
         @test 2pi / T_measured ≈ ω_expected rtol=0.02
         # Transverse DOFs stay quiet
-        @test abs(b2.pos_w[2]) < 1e-6
-        @test abs(b2.pos_w[3]) < 1e-6
+        @test abs(body_value(sam, :b2, :pos_w)[2]) < 1e-6
+        @test abs(body_value(sam, :b2, :pos_w)[3]) < 1e-6
     end
 
     @testset "Momentum conservation (COM constant velocity)" begin
-        jt.stiffness_axial = 100.0
+        set_stiffness!(; axial=100.0, shear=0.0, torsion=0.0, bending=0.0)
         reset_bodies!()
         # No external force: a velocity kick conserves total momentum, so the COM
         # drifts at constant velocity while the bodies oscillate internally.
-        b2.vel_w .= [0.3, 0.0, 0.0]
+        set_run_value!(sam, :bodies, :b2, :vel_w, [0.3, 0.0, 0.0])
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
-        com0 = (b1.pos_w + b2.pos_w) / 2
-        vcom = (b1.vel_w + b2.vel_w) / 2
+        pair_mean(quantity) =
+            (body_value(sam, :b1, quantity) + body_value(sam, :b2, quantity)) / 2
+        com0 = pair_mean(:pos_w)
+        vcom = pair_mean(:vel_w)
         dt = 0.001
         n_steps = 200
         for _ in 1:n_steps
             next_step!(sam; dt, vsm_interval=0)
         end
-        com = (b1.pos_w + b2.pos_w) / 2
+        com = pair_mean(:pos_w)
         @test com ≈ com0 + vcom * (n_steps * dt) atol=1e-6
     end
 
     @testset "Torsional oscillation frequency" begin
         # Body A near-fixed via huge inertia: B is a torsional pendulum.
-        b1.extra_inertia_b .= Diagonal([1.0e4, 1.0e4, 1.0e4])
+        b1.extra_inertia_KA = Diagonal([1.0e4, 1.0e4, 1.0e4])
         Ixx = 0.1
-        b2.extra_inertia_b .= Diagonal([Ixx, 0.2, 0.3])
-        jt.stiffness_axial = 0.0
-        jt.stiffness_torsion = 5.0
-        jt.stiffness_bending = 0.0
-        jt.stiffness_shear = 0.0
+        b2.extra_inertia_KA = Diagonal([Ixx, 0.2, 0.3])
+        set_stiffness!(; axial=0.0, shear=0.0, torsion=5.0, bending=0.0)
         reset_bodies!()
         # CAD orientation is unstrained, so excite the torsional mode with a spin kick.
-        b2.ω_b .= [0.5, 0.0, 0.0]
+        set_run_value!(sam, :bodies, :b2, :ω_b, [0.5, 0.0, 0.0])
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
@@ -202,12 +229,12 @@ end
         for _ in 1:n_steps
             next_step!(sam; dt, vsm_interval=0)
             push!(times, sam.integrator.t)
-            push!(ωx, b2.ω_b[1])
+            push!(ωx, body_value(sam, :b2, :ω_b)[1])
         end
         T_measured = period_from_crossings(times, ωx)
         @test 2pi / T_measured ≈ ω_expected rtol=0.03
-        b1.extra_inertia_b .= Diagonal(inertia)
-        b2.extra_inertia_b .= Diagonal(inertia)
+        b1.extra_inertia_KA = Diagonal(inertia)
+        b2.extra_inertia_KA = Diagonal(inertia)
     end
 
     @testset "Interpolated (nonlinear) stiffness" begin
@@ -217,23 +244,24 @@ end
         EA = 100.0
         knots = collect(-0.6:0.05:0.6)
         f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
-        b1i = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        b2i = Body(:b2; extra_mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
-        tube_i = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
-            anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
-            model=ElasticTube(stiffness_axial=f_axial,       # interpolation ...
+        b1i = Body(; name=:b1, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                   extra_inertia_KA=Matrix(Diagonal(inertia)))
+        b2i = Body(; name=:b2, pos_ENU=[1.0, 0.0, 0.0], extra_mass=1.0,
+                   extra_inertia_KA=Matrix(Diagonal(inertia)))
+        tube_i = Tube(; name=:j1, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=ElasticTubeModel(; stiffness_axial=f_axial,  # interpolation ...
                 stiffness_shear=0.0, stiffness_torsion=0.0,
-                stiffness_bending=0.0))                     # ... mixed with floats
+                stiffness_bending=0.0,                         # ... mixed with floats
+                anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0]))
         @test tube_i.model.stiffness_axial === f_axial
-        sys_i = SystemStructure("joint_test", set;
+        sys_i = system_definition("joint_test", set; materials,
             bodies=[b1i, b2i], tubes=[tube_i])
         sam_i = SymbolicAWEModel(set, sys_i)
         test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
 
-        body1 = sam_i.state.bodies[:b1]
-        body2 = sam_i.state.bodies[:b2]
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
-        body2.vel_w .= [0.5, 0.0, 0.0]
+        set_run_value!(sam_i, :bodies, :b2, :vel_w, [0.5, 0.0, 0.0])
         place!(sam_i; reset_vel=false)
         test_init!(sam_i; prn=false)
 
@@ -245,7 +273,8 @@ end
         for _ in 1:n_steps
             next_step!(sam_i; dt, vsm_interval=0)
             push!(times, sam_i.integrator.t)
-            push!(rel_x, (body2.pos_w[1] - body1.pos_w[1]) - 1.0)
+            push!(rel_x, (body_value(sam_i, :b2, :pos_w)[1] -
+                          body_value(sam_i, :b1, :pos_w)[1]) - 1.0)
         end
         T_measured = period_from_crossings(times, rel_x)
         @test 2pi / T_measured ≈ ω_expected rtol=0.02
@@ -258,33 +287,36 @@ end
         # fling it.
         half = π / 12  # half-angle of 30°
         Q_rot = Float64[cos(half), 0.0, 0.0, sin(half)]
-        bodyA = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        bodyB = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
-                     pos=[1.0, 0.0, 0.0], Q_b_to_w=Q_rot)
-        tube_r = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
-            model=ElasticTube(stiffness_axial=1000.0, stiffness_shear=1000.0,
-                              stiffness_torsion=1000.0, stiffness_bending=1000.0,
-                              damping=0.05))
-        sys_r = SystemStructure("joint_test", set;
+        bodyA = Body(; name=:b1, pos_ENU=[0.0, 0.0, 0.0], extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        bodyB = Body(; name=:b2, pos_ENU=[1.0, 0.0, 0.0], Q_KA2ENU=Q_rot, extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        tube_r = Tube(; name=:j1, bodies=(:b1, :b2), diameter=0.1, pressure=3e4,
+            material=:breukels2011,
+            model=ElasticTubeModel(; stiffness_axial=1000.0, stiffness_shear=1000.0,
+                                   stiffness_torsion=1000.0, stiffness_bending=1000.0,
+                                   damping=0.05))
+        sys_r = system_definition("joint_test", set; materials,
             bodies=[bodyA, bodyB], tubes=[tube_r])
         sam_r = SymbolicAWEModel(set, sys_r)
         test_init!(sam_r; prn=false)
 
-        jr = sam_r.sys_struct.tubes[:j1].model
+        rest(quantity) = run_value(sam_r, :tubes, :j1, quantity)
         Rz30 = [cos(2half) -sin(2half) 0.0; sin(2half) cos(2half) 0.0; 0.0 0.0 1.0]
         @info "Rest captured from CAD: anchor offset and relative rotation."
-        @test jr.rest_offset_a ≈ [1.0, 0.0, 0.0] atol=1e-9
-        @test norm(jr.R_rel0 - Rz30) < 1e-9
+        @test rest(:rest_offset_a) ≈ [1.0, 0.0, 0.0] atol=1e-9
+        @test norm(rest(:R_rel0) - Rz30) < 1e-9
 
-        nodeB = sam_r.state.bodies[:b2]
-        pos0 = copy(nodeB.pos_w)
+        pos0 = body_value(sam_r, :b2, :pos_w)
         for _ in 1:50
             next_step!(sam_r; dt=0.01, vsm_interval=0)
         end
-        R_meas = SymbolicAWEModels.quaternion_to_rotation_matrix(nodeB.Q_b_to_w)
-        @info "Body B unmoved ⇒ wrench was zero at the placed config." drift=norm(nodeB.pos_w - pos0)
-        @test norm(nodeB.pos_w - pos0) < 1e-7
-        @test norm(nodeB.vel_w) < 1e-7
+        R_meas = SymbolicAWEModels.quaternion_to_rotation_matrix(
+            body_value(sam_r, :b2, :Q_b_to_w))
+        drift = norm(body_value(sam_r, :b2, :pos_w) - pos0)
+        @info "Body B unmoved ⇒ wrench was zero at the placed config." drift
+        @test drift < 1e-7
+        @test norm(body_value(sam_r, :b2, :vel_w)) < 1e-7
         @test norm(R_meas - Rz30) < 1e-6
     end
 
@@ -292,13 +324,15 @@ end
         reset_bodies!()
         place!(sam)
         Q_rot = Float64[cos(π / 12), 0.0, 0.0, sin(π / 12)]
-        b2.Q_KA_to_ENU .= Q_rot
+        origin = body_value(sam, :b2, :origin_ENU)
+        b2.Q_KA2ENU = Q_rot
+        SymbolicAWEModels.set_origin_ENU!(b2, origin)
         b2.extra_mass = 2.5
         test_init!(sam; prn=false)
-        @test b2.total_mass ≈ 2.5
-        @test norm(jt.R_rel0 -
+        @test body_value(sam, :b2, :total_mass) ≈ 2.5
+        @test norm(run_value(sam, :tubes, :j1, :R_rel0) -
                    SymbolicAWEModels.quaternion_to_rotation_matrix(Q_rot)) < 1e-12
-        @test b2.Q_b_to_w == [1.0, 0.0, 0.0, 0.0]
+        @test body_value(sam, :b2, :Q_b_to_w) == [1.0, 0.0, 0.0, 0.0]
     end
 
     rm(tmpdir; recursive=true)

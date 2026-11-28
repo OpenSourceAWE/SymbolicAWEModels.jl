@@ -1,3 +1,7 @@
+```@meta
+CurrentModule = SymbolicAWEModels
+```
+
 # Coordinate Frames
 
 ## Overview
@@ -24,15 +28,18 @@ Body frame ─────────────────────▶ Wo
 ## Initial Pose
 
 Every point and body holds an initial pose in the world frame: `pos_ENU`, and for a
-body `Q_KA_to_ENU`, its body→world orientation. It is where a run starts from, and
+body `Q_KA2ENU`, its body→world orientation. It is where a run starts from, and
 a run never changes it; what moves is `pos_w` and `Q_b_to_w`.
 
 - Everything derived from geometry is derived from the initial pose, by
   [`init!`](@ref) on every call: each body's mass properties and principal frame,
   each tube's rest geometry and each flap's rest deflection. A run restarted from a
   logged state therefore keeps the rest shape it started with.
-- A wing's `pos_ENU` is its centre of mass (RIGID_DYNAMICS without reference
-  points) or its weighted `origin` reference position.
+- A body's `pos_ENU`, a wing's body among them, is the centre of its own mass, which
+  is what placing moves; the origin of its frame is `origin_ENU(body)`.
+- A wing's row in `sys.wings` gives the origin of the wing's KA frame, the frame its
+  aerodynamic mesh is drawn in, as its `pos_ENU` and that frame's orientation as its
+  `Q_KA2ENU`.
 - [`reset_to_initial_pose!`](@ref) puts the structure back at it.
 
 ## Transform: Authoring Geometry to World
@@ -45,7 +52,10 @@ pose:
 
 1. **Translation**: the members move by `base_pos - curr_base_pos`
 2. **Rotation**: spherical repositioning using `elevation` and
-   `azimuth` angles around the base point
+   `azimuth` angles around the base point. Azimuth turns anti-clockwise seen from
+   above, from east towards north, as KiteUtils' `azimuth_east` does: a transform
+   with `azimuth: 30.0` places the rotated point 30° north of east, and a run reads
+   that wing's azimuth back as 30°.
 3. **Heading**: a turn about the radial until the transform's `body` has its
    `heading`
 
@@ -71,7 +81,7 @@ specified elevation and azimuth. Transforms can chain: use
 `rot_point`/`wing` position of another transform as the base.
 
 An authoring YAML is placed by its transforms when it is loaded
-([`load_sys_struct_from_yaml`](@ref) returns them beside the structure), and the model
+(`load_authoring` returns them beside the structure), and the model
 holds them, `sam.transforms`. After changing a transform, call `place!(sam)` before
 `init!`. Placing again starts from the initial pose, and the steps above land on the
 same pose whatever orientation they start from.
@@ -118,8 +128,8 @@ At runtime, the quaternion state gives ``R_{b \to w}``, and world
 positions are recovered as
 ``\mathbf{p}_w = \mathbf{wing.pos}_w + R_{b \to w} \, \mathbf{p}_b``.
 
-See `setup_wing_frame!` and [`update_mass_properties!`](@ref) in
-`system_structure_core.jl`.
+See [`body_mass_properties`](@ref) in `run_values.jl`: a model works them out from its
+definition whenever they are read.
 
 ## Principal Frame — RIGID_DYNAMICS
 
@@ -130,7 +140,7 @@ terms. It is a constant rotation off the body frame,
 ``R_{b \to p} = R_{p \to c}^\top R_{b \to c}``.
 
 The inertia it diagonalises is the body's with the points it carries
-([`update_mass_properties!`](@ref)), expressed in the body frame, and
+([`body_mass_properties`](@ref)), expressed in the body frame, and
 [`PrincipalFrameMethod`](@ref) selects how ``R_{b \to p}`` is found from it:
 
 - `EIGEN_DECOMP` (`principal_frame`) — full 3-axis eigendecomposition
@@ -191,13 +201,13 @@ Key points:
 - Different reference point choices produce different body frames —
   pick what makes physical sense for your model
 
-See `calc_particle_dynamics_wing_frame` in `wing.jl`.
+See [`wing_frame_columns`](@ref) and [`wing_kinematics_from_points!`](@ref).
 
 ## Aero Geometry to Body Transformation (VSM Panels)
 
 The VSM aero geometry is read in the frame it was authored in, the same one as the
 structure's authored geometry. Both wing types move it into the body frame during
-[`SystemStructure`](@ref) construction, from the wing's authored origin and
+`SystemDefinition` construction, from the wing's authored origin and
 orientation, which the VSM wing records as `T_cad_body` and `R_cad_body` so that a
 rebuilt aero geometry lands the same way:
 

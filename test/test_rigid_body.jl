@@ -18,7 +18,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, Point
+using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 
@@ -70,9 +70,9 @@ environment:
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body = Body(:body1; extra_mass=2.0, inertia_principal=inertia,
-                     pos=[0.0, 0.0, 10.0])
-    sys = SystemStructure("rigid_body_test", set; bodies=[body])
+    body = Body(; name=:body1, pos_ENU=[0.0, 0.0, 10.0], extra_mass=2.0,
+                extra_inertia_KA=Matrix(Diagonal(inertia)))
+    sys = system_definition("rigid_body_test", set; bodies=[body])
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
@@ -83,76 +83,78 @@ environment:
     test_init!(sam)
 
     @testset "Free fall acceleration = g" begin
-        rb = sam.state.bodies[:body1]
+        rb(quantity) = run_value(sam, :bodies, :body1, quantity)
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
         end
-        vel_before = copy(rb.vel_w)
+        vel_before = rb(:vel_w)
         t_before = sam.integrator.t
         for _ in 1:10
             next_step!(sam; dt, vsm_interval=0)
         end
         elapsed = sam.integrator.t - t_before
-        acc = (rb.vel_w - vel_before) / elapsed
+        acc = (rb(:vel_w) - vel_before) / elapsed
         @test acc[3] ≈ -9.81 atol=0.1
         @test abs(acc[1]) < 0.1
         @test abs(acc[2]) < 0.1
-        @test norm(rb.ω_b) < 1e-6   # no spurious rotation
+        @test norm(rb(:ω_b)) < 1e-6   # no spurious rotation
     end
 
     @testset "Spin-up under applied moment" begin
-        rb = sam.state.bodies[:body1]
-        rb.pos_ENU .= [0.0, 0.0, 10.0]
-        rb.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
-        rb.vel_w .= 0.0
-        rb.ω_b .= 0.0
+        rb(quantity) = run_value(sam, :bodies, :body1, quantity)
+        sam.definition.bodies[:body1].Q_KA2ENU = [1.0, 0.0, 0.0, 0.0]
+        SymbolicAWEModels.set_origin_ENU!(sam.definition.bodies[:body1], [0.0, 0.0, 10.0])
+        set_run_value!(sam, :bodies, :body1, :vel_w, zeros(3))
+        set_run_value!(sam, :bodies, :body1, :ω_b, zeros(3))
         torque = 0.05
-        rb.ext_moment_b .= [torque, 0.0, 0.0]
         place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
+        set_run_value!(sam, :bodies, :body1, :ext_moment_b, [torque, 0.0, 0.0])
 
         dt = 0.005
         t_before = sam.integrator.t
-        ω_before = copy(rb.ω_b)
+        ω_before = rb(:ω_b)
         for _ in 1:20
             next_step!(sam; dt, vsm_interval=0)
         end
         elapsed = sam.integrator.t - t_before
-        α_measured = (rb.ω_b[1] - ω_before[1]) / elapsed
+        α_measured = (rb(:ω_b)[1] - ω_before[1]) / elapsed
         @test α_measured ≈ torque / inertia[1] atol=0.02
-        @test abs(rb.ω_b[2]) < 1e-3
-        @test abs(rb.ω_b[3]) < 1e-3
-        rb.ext_moment_b .= 0.0
+        @test abs(rb(:ω_b)[2]) < 1e-3
+        @test abs(rb(:ω_b)[3]) < 1e-3
+        set_run_value!(sam, :bodies, :body1, :ext_moment_b, zeros(3))
     end
 
     @testset "COM-offset body-frame output" begin
         offset = [0.5, 0.0, 0.0]
-        body2 = Body(:body2; extra_mass=1.0, inertia_principal=inertia,
-                          pos=[1.0, 2.0, 5.0], com_offset_b=offset)
-        sys2 = SystemStructure("rigid_body_test", set; bodies=[body2])
+        # identity orientation: the own-mass centre lies `offset` from the origin
+        body2 = Body(; name=:body2, pos_ENU=[1.0, 2.0, 5.0] + offset, extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)),
+                     model=BodyModel(; com_offset_b=offset))
+        sys2 = system_definition("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
         test_init!(sam2)
-        rb = sam2.state.bodies[:body2]
+        rb(quantity) = run_value(sam2, :bodies, :body2, quantity)
         # identity orientation: com_w = pos_w + offset
-        @test rb.com_w ≈ rb.pos_w .+ offset atol=1e-6
+        @test rb(:com_w) ≈ rb(:pos_w) .+ offset atol=1e-6
         for _ in 1:10
             next_step!(sam2; dt=0.01, vsm_interval=0)
         end
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
-        @test rb.com_w ≈ rb.pos_w .+ R_b_to_w * offset atol=1e-5
-        @test norm(rb.ω_b) < 1e-6
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb(:Q_b_to_w))
+        @test rb(:com_w) ≈ rb(:pos_w) .+ R_b_to_w * offset atol=1e-5
+        @test norm(rb(:ω_b)) < 1e-6
     end
 
     # A transform must reposition AND reorient a rigid body, like a wing.
-    # Tested at the SystemStructure level (reinit!), no ODE compilation.
+    # Tested at the SystemDefinition level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
-        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC)
-        body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
-                          pos=[100.0, 0.0, 0.0])
-        tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
-                    body=:body3, anchor_b=[0.0, 0.0, 0.0])
-        sys3 = SystemStructure("rigid_body_transform_test", set;
+        ground = Point(; name=:ground, pos_ENU=[0.0, 0.0, 0.0], fixed=true)
+        body3 = Body(; name=:body3, pos_ENU=[100.0, 0.0, 0.0], extra_mass=1.0,
+                     extra_inertia_KA=Matrix(Diagonal(inertia)))
+        tip = Point(; name=:tip, pos_ENU=[100.0, 0.0, 0.0], body=:body3,
+                    model=PointModel(; anchor_b=[0.0, 0.0, 0.0]))
+        sys3 = system_definition("rigid_body_transform_test", set;
             points=[ground, tip], bodies=[body3])
         tf = Transform(; name=:tf, elevation=deg2rad(45), azimuth=0.0, heading=0.0,
                        base_pos=[0.0, 0.0, 0.0], base_point=1, rot_point=[2 => 1.0],
@@ -161,45 +163,47 @@ environment:
         place!(sys3, [tf])
 
         rb = sys3.bodies[:body3]
+        origin(sys) = SymbolicAWEModels.origin_ENU(SymbolicAWEModel(nothing, sys), 1)
         r = 100.0 / sqrt(2)
-        @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test origin(sys3) ≈ KVec3(r, 0.0, r) atol=1e-6
         # body x-axis followed the radial from +x to the 45° elevation direction
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA_to_ENU)
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA2ENU)
         @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
         # the body-anchored point rides the rotated body
-        @test sys3.points[:tip].pos_ENU ≈ rb.pos_ENU atol=1e-6
+        @test sys3.points[:tip].pos_ENU ≈ origin(sys3) atol=1e-6
         # idempotent across a second reinit!
         place!(sys3, [tf])
-        @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test origin(sys3) ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     # A KCU-like point riding 1 m out moves the COM a third of the way to it, and
     # its weight acts there: the body falls at g without turning.
     @testset "A riding point's mass joins the body" begin
-        carrier = Body(:carrier; extra_mass=2.0, inertia_principal=inertia,
-                       pos=[0.0, 0.0, 10.0])
-        kcu = Point(:kcu, [1.0, 0.0, 10.0], BODY_STATIC; body=:carrier,
+        carrier = Body(; name=:carrier, pos_ENU=[0.0, 0.0, 10.0], extra_mass=2.0,
+                       extra_inertia_KA=Matrix(Diagonal(inertia)))
+        kcu = Point(; name=:kcu, pos_ENU=[1.0, 0.0, 10.0], body=:carrier,
                     extra_mass=1.0)
-        sys4 = SystemStructure("rigid_body_rider_test", set;
+        sys4 = system_definition("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])
-        rb = sys4.bodies[:carrier]
-        @test rb.extra_mass == 2.0
-        @test rb.total_mass ≈ 3.0
-        @test rb.com_offset_b ≈ [1/3, 0.0, 0.0] atol=1e-12
-        @test rb.inertia_principal ≈ inertia .+ [0.0, 2/3, 2/3] atol=1e-12
+        start(quantity) =
+            run_value(SymbolicAWEModel(nothing, sys4), :bodies, :carrier, quantity)
+        @test start(:extra_mass) == 2.0
+        @test start(:total_mass) ≈ 3.0
+        @test start(:total_com_offset_b) ≈ [1/3, 0.0, 0.0] atol=1e-12
+        @test start(:inertia_principal) ≈ inertia .+ [0.0, 2/3, 2/3] atol=1e-12
 
         sam4 = SymbolicAWEModel(set, sys4)
         test_init!(sam4)
-        rb = sam4.state.bodies[:carrier]
-        @test rb.com_w ≈ rb.pos_w .+ [1/3, 0.0, 0.0] atol=1e-6
-        vel_before = copy(rb.com_vel)
+        rb(quantity) = run_value(sam4, :bodies, :carrier, quantity)
+        @test rb(:com_w) ≈ rb(:pos_w) .+ [1/3, 0.0, 0.0] atol=1e-6
+        vel_before = rb(:com_vel)
         t_before = sam4.integrator.t
         for _ in 1:10
             next_step!(sam4; dt=0.01, vsm_interval=0)
         end
-        acc = (rb.com_vel - vel_before) / (sam4.integrator.t - t_before)
+        acc = (rb(:com_vel) - vel_before) / (sam4.integrator.t - t_before)
         @test acc ≈ [0.0, 0.0, -9.81] atol=0.1
-        @test norm(rb.ω_b) < 1e-6
+        @test norm(rb(:ω_b)) < 1e-6
     end
 
     rm(tmpdir; recursive=true)

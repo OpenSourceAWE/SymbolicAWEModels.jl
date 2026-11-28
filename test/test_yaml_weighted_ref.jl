@@ -6,7 +6,7 @@
 #
 # Verifies that nested weighted ref point specs like
 #   z_ref_points: [1, [[12, 0.7], [11, 0.3]]]
-# are correctly parsed into WeightedRefPoints with weights.
+# are correctly parsed into a wing frame's weighted reference points.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -16,8 +16,7 @@ end
 using Test
 using LinearAlgebra
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, WeightedRefPoints,
-    VortexStepMethod
+using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 
 # Minimal YAML with a PARTICLE_DYNAMICS wing using weighted z_ref_points
@@ -109,33 +108,36 @@ transforms:
 
     # This should not throw — the bug causes
     # MethodError: no method matching Int64(::Vector{Real})
-    sys, transforms = load_sys_struct_from_yaml(yaml_path;
-        system_name="weighted_ref_test", set, vsm_set)
+    sys, transforms = load_authoring(yaml_path;
+        name="weighted_ref_test", set)
 
-    wing = sys.bodies[1]
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+    frame = run_value(sam, :wings, 1, :wing_frame)
+    origin = run_value(sam, :wings, 1, :origin)
 
     # z_ref_points[1] should be a single point (idx 7, kcu)
-    z_p1, z_p2 = wing.z_ref_points
-    @test z_p1.ids == [7]
-    @test z_p1.weights == [1.0]
+    z_p1, z_p2 = frame.z_ref_points
+    @test first.(z_p1) == [7]
+    @test last.(z_p1) == [1.0]
 
     # z_ref_points[2] should be weighted: point 3 @ 0.7,
     # point 5 @ 0.3
-    @test z_p2.ids == [3, 5]
-    @test z_p2.weights ≈ [0.7, 0.3]
+    @test first.(z_p2) == [3, 5]
+    @test last.(z_p2) ≈ [0.7, 0.3]
 
     # y_ref_points should be simple single-point refs
-    y_p1, y_p2 = wing.y_ref_points
-    @test y_p1.ids == [1]
-    @test y_p2.ids == [5]
+    y_p1, y_p2 = frame.y_ref_points
+    @test first.(y_p1) == [1]
+    @test first.(y_p2) == [5]
 
     # Weighted origin_idx: point 7 @ 0.7, point 9 @ 0.3
-    @test wing.origin isa WeightedRefPoints
-    @test wing.origin.ids == [7, 9]
-    @test wing.origin.weights ≈ [0.7, 0.3]
+    @test origin == frame.origin
+    @test first.(origin) == [7, 9]
+    @test last.(origin) ≈ [0.7, 0.3]
 
     # The wing origin is the weighted centroid of points 7 and 9
-    @test wing.pos_ENU ≈ 0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
+    @test SymbolicAWEModels.origin_ENU(sam, SymbolicAWEModels.wing_body(sam, 1)) ≈
+          0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
 
     # N-point (4-point) weighted origin should also parse
     # and resolve correctly
@@ -144,30 +146,26 @@ transforms:
         "origin_idx: [[1, 0.1], [3, 0.2], [5, 0.3], [9, 0.4]]")
     yaml_path_4pt = joinpath(tmpdir, "geometry_4pt.yaml")
     write(yaml_path_4pt, yaml_4pt)
-    sys_4pt, _ = load_sys_struct_from_yaml(yaml_path_4pt;
-        system_name="weighted_ref_4pt_test", set, vsm_set)
-    wing_4pt = sys_4pt.bodies[1]
-    @test wing_4pt.origin.ids == [1, 3, 5, 9]
-    @test wing_4pt.origin.weights ≈ [0.1, 0.2, 0.3, 0.4]
+    sys_4pt, _ = load_authoring(yaml_path_4pt;
+        name="weighted_ref_4pt_test", set)
+    origin_4pt = run_value(SymbolicAWEModel(set, sys_4pt; vsm_set), :wings, 1, :origin)
+    @test first.(origin_4pt) == [1, 3, 5, 9]
+    @test last.(origin_4pt) ≈ [0.1, 0.2, 0.3, 0.4]
 
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
-    sam = SymbolicAWEModel(set, sys; transforms)
     integ = init!(sam; prn=false)
     @test integ !== nothing
 
     # The fitted pose read back after a step must use the
     # weights, not just the first point of each reference.
     next_step!(sam)
-    points = sam.state.points
-    wing = sam.state.bodies[1]
-    blend(ref) = sum(w * points[i].pos_w
-                     for (i, w) in zip(ref.ids, ref.weights))
-    @test wing.pos_w ≈ blend(wing.origin)
-    @test wing.vel_w ≈ sum(w * points[i].vel_w
-        for (i, w) in zip(wing.origin.ids, wing.origin.weights))
-    z_axis = normalize(blend(wing.z_ref_points[2]) -
-                       blend(wing.z_ref_points[1]))
-    @test wing.R_b_to_w[:, 3] ≈ z_axis
+    point(i, quantity) = run_value(sam, :points, i, quantity)
+    blend(ref) = sum(w * point(i, :pos_w) for (i, w) in ref)
+    @test run_value(sam, :wings, 1, :pos_w) ≈ blend(origin)
+    @test run_value(sam, :wings, 1, :vel_w) ≈
+          sum(w * point(i, :vel_w) for (i, w) in origin)
+    z_axis = normalize(blend(frame.z_ref_points[2]) - blend(frame.z_ref_points[1]))
+    @test run_value(sam, :wings, 1, :R_b_to_w)[:, 3] ≈ z_axis
 end
 nothing

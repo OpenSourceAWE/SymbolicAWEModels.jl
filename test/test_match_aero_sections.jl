@@ -18,7 +18,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
     PARTICLE_DYNAMICS, RIGID_DYNAMICS, SimFloat,
     match_aero_sections_to_structure!, update_vsm_wing_from_structure!,
-    transform_vsm_sections_to_body!
+    transform_vsm_sections_to_body!, wing_points, wing_body, initial_body_position
 using KiteUtils
 using LinearAlgebra
 
@@ -41,21 +41,21 @@ vsm_set_path = joinpath(data_path, "vsm_settings.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
+"""Where the point at `pos_ENU` sits in the frame of the body of wing 1 of `sam`."""
+wing_position_b(sam, pos_ENU) = initial_body_position(sam, wing_body(sam, 1), pos_ENU)
+
 # ─────────────────────────────────────────────────────────
 @testset "match_aero_sections — PARTICLE_DYNAMICS" begin
 
     @testset "geometry: LE/TE match structural points" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_geom", set, vsm_set)
-        wing = sys.wings[1]
-        points = sys.points
-        vsm_w = wing.vsm_wing
+            name="refine_geom", set)
+        sam = SymbolicAWEModel(set, sys; vsm_set)
+        mode, points = sam.aero[1], sam.definition.points
+        vsm_w = mode.vsm_wing
 
-        n_struct = count(
-            p -> p.is_wing_node &&
-                 p.wing_idx == wing.idx,
-            points) ÷ 2
+        n_struct = length(wing_points(sam, 1)) ÷ 2
 
         # Add extra section to create mismatch
         extra = deepcopy(vsm_w.unrefined_sections[1])
@@ -65,24 +65,19 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test vsm_w.n_unrefined_sections != n_struct
 
         vsm_w.use_prior_polar = true
-        wing.wing_segments = nothing
+        mode.wing_segments = nothing
 
-        match_aero_sections_to_structure!(
-            wing, points)
+        match_aero_sections_to_structure!(mode, sam, 1)
 
         @test vsm_w.n_unrefined_sections == n_struct
-        @test !isnothing(wing.wing_segments)
-        @test length(wing.wing_segments) == n_struct
+        @test !isnothing(mode.wing_segments)
+        @test length(mode.wing_segments) == n_struct
 
-        R = SymbolicAWEModels.initial_rotation(wing)
-        origin = wing.pos_ENU
         for (i, (le_idx, te_idx)) in
-                enumerate(wing.wing_segments)
+                enumerate(mode.wing_segments)
             sec = vsm_w.unrefined_sections[i]
-            le_body = R' * (points[le_idx].pos_ENU -
-                            origin)
-            te_body = R' * (points[te_idx].pos_ENU -
-                            origin)
+            le_body = wing_position_b(sam, points[le_idx].pos_ENU)
+            te_body = wing_position_b(sam, points[te_idx].pos_ENU)
             @test isapprox(Vector(sec.LE_point),
                            le_body; atol=1e-10)
             @test isapprox(Vector(sec.TE_point),
@@ -91,12 +86,12 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
 
     @testset "use_prior_polar preserves refined polars" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_polar", set, vsm_set)
-        wing = sys.wings[1]
-        points = sys.points
-        vsm_w = wing.vsm_wing
+            name="refine_polar", set)
+        sam = SymbolicAWEModel(set, sys; vsm_set)
+        mode = sam.aero[1]
+        vsm_w = mode.vsm_wing
 
         # Baseline refined polars from constructor
         n_refined = length(vsm_w.refined_sections)
@@ -109,10 +104,7 @@ vsm_set = VortexStepMethod.VSMSettings(
             for sec in vsm_w.refined_sections
         ]
 
-        n_struct = count(
-            p -> p.is_wing_node &&
-                 p.wing_idx == wing.idx,
-            points) ÷ 2
+        n_struct = length(wing_points(sam, 1)) ÷ 2
 
         # Set all unrefined polars to a scaled value so
         # re-interpolation would produce uniform output
@@ -141,10 +133,9 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test vsm_w.n_unrefined_sections != n_struct
 
         vsm_w.use_prior_polar = true
-        wing.wing_segments = nothing
+        mode.wing_segments = nothing
 
-        match_aero_sections_to_structure!(
-            wing, points)
+        match_aero_sections_to_structure!(mode, sam, 1)
 
         # Refined count unchanged (n_panels unchanged)
         @test length(vsm_w.refined_sections) == n_refined
@@ -183,25 +174,26 @@ vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_5.wings[1].use_prior_polar = true
         vsm_set_5.wings[1].n_panels = 8
 
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_solver_size", set, vsm_set=vsm_set_5)
-        wing = sys.wings[1]
-        @test length(wing.station_idxs) == 3
-        @test wing.vsm_wing.n_unrefined_sections == 3
-        @test length(wing.vsm_solver.sol.cm_unrefined_dist) == 3
-        VortexStepMethod.set_va!(wing.vsm_aero, [10.0, 0.0, 1.0])
-        @test VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero) isa
+            name="refine_solver_size", set)
+        sam = SymbolicAWEModel(set, sys; vsm_set=vsm_set_5)
+        mode = sam.aero[1]
+        @test length(SymbolicAWEModels.wing_station_idxs(sam, 1)) == 3
+        @test mode.vsm_wing.n_unrefined_sections == 3
+        @test length(mode.vsm_solver.sol.cm_unrefined_dist) == 3
+        VortexStepMethod.set_va!(mode.vsm_aero, [10.0, 0.0, 1.0])
+        @test VortexStepMethod.solve!(mode.vsm_solver, mode.vsm_aero) isa
             VortexStepMethod.VSMSolution
     end
 
     @testset "errors when use_prior_polar=false" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_err", set, vsm_set)
-        wing = sys.wings[1]
-        points = sys.points
-        vsm_w = wing.vsm_wing
+            name="refine_err", set)
+        sam = SymbolicAWEModel(set, sys; vsm_set)
+        mode = sam.aero[1]
+        vsm_w = mode.vsm_wing
 
         # Create mismatch
         push!(vsm_w.unrefined_sections,
@@ -210,31 +202,29 @@ vsm_set = VortexStepMethod.VSMSettings(
             Int16(length(vsm_w.unrefined_sections))
 
         vsm_w.use_prior_polar = false
-        wing.wing_segments = nothing
+        mode.wing_segments = nothing
 
-        @test_throws ErrorException match_aero_sections_to_structure!(
-            wing, points)
+        @test_throws ErrorException match_aero_sections_to_structure!(mode, sam, 1)
     end
 
     @testset "a wing whose sections run from -y to +y is refused" begin
-        sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys, _ = load_authoring(
             refine_yaml;
-            system_name="refine_span_order", set, vsm_set)
-        state = SystemState(sys)
-        wing = state.wings[1]
+            name="refine_span_order", set)
+        sam = SymbolicAWEModel(set, sys; vsm_set)
+        mode = sam.aero[1]
+        mirror_y = [1.0, -1.0, 1.0]
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
-        for point in state.points
-            point.is_wing_node || continue
-            point.pos_ENU[2] *= -1
-            point.pos_w[2] *= -1
+        for i in wing_points(sam, 1)
+            point = sam.definition.points[i]
+            point.pos_ENU = mirror_y .* point.pos_ENU
+            set_run_value!(sam, :points, i, :pos_w,
+                           mirror_y .* run_value(sam, :points, i, :pos_w))
         end
-        @test_throws "run from -y to +y" update_vsm_wing_from_structure!(
-            wing, state.points)
-        wing.wing_segments = nothing
-        @test_throws "run from -y to +y" match_aero_sections_to_structure!(
-            wing, sys.points)
-        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(
-            wing, wing.pos_ENU, SymbolicAWEModels.initial_rotation(wing))
+        @test_throws "run from -y to +y" update_vsm_wing_from_structure!(mode, sam, 1)
+        mode.wing_segments = nothing
+        @test_throws "run from -y to +y" match_aero_sections_to_structure!(mode, sam, 1)
+        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(mode, sam, 1)
     end
 end
 
@@ -242,31 +232,26 @@ end
 @testset "match_aero_sections — RIGID_DYNAMICS" begin
 
     @testset "geometry: LE/TE match structural points" begin
-        sys_q, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys_q, _ = load_authoring(
             struc_yaml;
-            system_name="quat_geom", set, vsm_set,
-            dynamics_type=RIGID_DYNAMICS)
-        wing = sys_q.wings[1]
-        points = sys_q.points
-        vsm_w = wing.vsm_wing
+            name="quat_geom", set)
+        sam = SymbolicAWEModel(set, sys_q; vsm_set)
+        mode, points = sam.aero[1], sam.definition.points
+        vsm_w = mode.vsm_wing
 
         # wing_segments populated by constructor
-        @test !isnothing(wing.wing_segments)
+        @test !isnothing(mode.wing_segments)
 
-        n_struct = length(wing.station_idxs)
-        @test length(wing.wing_segments) == n_struct
+        n_struct = length(SymbolicAWEModels.wing_station_idxs(sam, 1))
+        @test length(mode.wing_segments) == n_struct
         @test vsm_w.n_unrefined_sections == n_struct
 
         # Verify LE/TE positions match
-        R = SymbolicAWEModels.initial_rotation(wing)
-        origin = wing.pos_ENU
         for (i, (le_idx, te_idx)) in
-                enumerate(wing.wing_segments)
+                enumerate(mode.wing_segments)
             sec = vsm_w.unrefined_sections[i]
-            le_body = R' * (points[le_idx].pos_ENU -
-                            origin)
-            te_body = R' * (points[te_idx].pos_ENU -
-                            origin)
+            le_body = wing_position_b(sam, points[le_idx].pos_ENU)
+            te_body = wing_position_b(sam, points[te_idx].pos_ENU)
             @test isapprox(Vector(sec.LE_point),
                            le_body; atol=1e-10)
             @test isapprox(Vector(sec.TE_point),
@@ -279,15 +264,14 @@ end
         # (stations) than aero sections, the OBJ/VSM
         # geometry must stay intact — only the Voronoi
         # partition assigns sections to stations.
-        sys_q, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
+        sys_q, _ = load_authoring(
             struc_yaml;
-            system_name="quat_preserve", set, vsm_set,
-            dynamics_type=RIGID_DYNAMICS)
-        wing = sys_q.wings[1]
-        points = sys_q.points
-        vsm_w = wing.vsm_wing
+            name="quat_preserve", set)
+        sam = SymbolicAWEModel(set, sys_q; vsm_set)
+        mode = sam.aero[1]
+        vsm_w = mode.vsm_wing
 
-        n_struct = length(wing.station_idxs)
+        n_struct = length(SymbolicAWEModels.wing_station_idxs(sam, 1))
         n_refined = length(vsm_w.refined_sections)
 
         # Add extra section so n_aero > n_stations
@@ -307,10 +291,8 @@ end
             for sec in vsm_w.refined_sections
         ]
 
-        wing.wing_segments = nothing
-        match_aero_sections_to_structure!(
-            wing, points;
-            stations=collect(sys_q.stations))
+        mode.wing_segments = nothing
+        match_aero_sections_to_structure!(mode, sam, 1)
 
         # Aero geometry untouched
         @test vsm_w.n_unrefined_sections == n_aero_before
@@ -335,14 +317,14 @@ end
         end
 
         # wing_segments still populated — one per station
-        @test !isnothing(wing.wing_segments)
-        @test length(wing.wing_segments) == n_struct
+        @test !isnothing(mode.wing_segments)
+        @test length(mode.wing_segments) == n_struct
 
         # Aero arrays remain station-count-sized
-        n_stations = length(wing.station_idxs)
-        @test length(wing.aero_y) == 5 + n_stations
-        @test length(wing.aero_x) == 6 + n_stations
-        @test size(wing.aero_jac) ==
+        n_stations = n_struct
+        @test length(mode.aero_y) == 5 + n_stations
+        @test length(mode.aero_x) == 6 + n_stations
+        @test size(mode.aero_jac) ==
               (6 + n_stations, 5 + n_stations)
     end
 end

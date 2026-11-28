@@ -48,33 +48,32 @@ vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings");
     data_prefix=false)
 
-sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name=MODEL_NAME, set, vsm_set)
-sam = SymbolicAWEModel(set, sys; transforms)
+sys, transforms = load_authoring(struc_yaml;
+    name=MODEL_NAME, set)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
 
 # ─── Extract VSM objects ─────────────────────────────
-wing = sam.state.wings[1]
-solver = wing.vsm_solver
-body_aero = wing.vsm_aero
-vsm_wing = wing.vsm_wing
-stations = sam.state.stations
+mode = sam.aero[1]
+solver = mode.vsm_solver
+body_aero = mode.vsm_aero
+vsm_wing = mode.vsm_wing
+station_idxs = run_value(sam, :wings, 1, :station_idxs)
+station_sections(gidx) = run_value(sam, :spanwise_stations, gidx, :unrefined_section_idxs)
 
 @info "Solver" solver_type=solver.solver_type use_gamma_prev=solver.use_gamma_prev
 
-va_b_0 = copy(wing.va_b)
-omega_b_0 = copy(wing.ω_b)
+va_b_0 = run_value(sam, :wings, 1, :va_b)
+omega_b_0 = run_value(sam, :wings, 1, :ω_b)
 n_unrefined = vsm_wing.n_unrefined_sections
 
-moment_frac =
-    stations[first(wing.station_idxs)].moment_frac
+moment_frac = run_value(sam, :spanwise_stations, first(station_idxs), :moment_frac)
 
 # Current twist per unrefined section
 theta_0 = zeros(n_unrefined)
-for gidx in wing.station_idxs
-    g = stations[gidx]
-    for ui in g.unrefined_section_idxs
-        theta_0[ui] = g.twist
+for gidx in station_idxs
+    for ui in station_sections(gidx)
+        theta_0[ui] = run_value(sam, :spanwise_stations, gidx, :twist)
     end
 end
 
@@ -129,7 +128,7 @@ function coeffs_at_perturbation(d::AbstractVector{T},
         theta[i] = theta_0[i]
     end
     @inbounds for (gi, gidx) in enumerate(wing_grp_idxs)
-        for ui in stations[gidx].unrefined_section_idxs
+        for ui in station_sections(gidx)
             theta[ui] += d[6 + gi]
         end
     end
@@ -162,7 +161,7 @@ function coeffs_at_perturbation(d::AbstractVector{T},
     x[6] = cm_body[3]
     @inbounds for (gi, gidx) in enumerate(wing_grp_idxs)
         s = zero(T)
-        for ui in stations[gidx].unrefined_section_idxs
+        for ui in station_sections(gidx)
             s += cm_unr[ui]
         end
         x[6 + gi] = s
@@ -172,22 +171,22 @@ end
 
 # ─── Baseline + Jacobian via ForwardDiff ─────────────
 
-n_g = length(wing.station_idxs)
+n_g = length(station_idxs)
 n_inputs = 6 + n_g
 
-x0 = coeffs_at_perturbation(zeros(n_inputs), wing.station_idxs)
+x0 = coeffs_at_perturbation(zeros(n_inputs), station_idxs)
 
 @info "Baseline" CL=x0[1] CD=x0[2] CS=x0[3] CM=x0[4:6]
 
 @info "Computing ForwardDiff Jacobian at operating point …"
 J = ForwardDiff.jacobian(
-    d -> coeffs_at_perturbation(d, wing.station_idxs),
+    d -> coeffs_at_perturbation(d, station_idxs),
     zeros(n_inputs))
 
 # ─── Plot configuration ──────────────────────────────
 
 station_names = [
-    stations[gidx].name for gidx in wing.station_idxs]
+    sam.definition.spanwise_stations[gidx].name for gidx in station_idxs]
 
 input_labels = [
     "α", "β", "|va|",
