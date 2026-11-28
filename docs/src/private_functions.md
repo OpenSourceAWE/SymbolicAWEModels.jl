@@ -409,7 +409,7 @@ SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
 SymbolicAWEModels.point_frame_damping
-SymbolicAWEModels.flight_frame
+SymbolicAWEModels.flight_sources
 SymbolicAWEModels.broadcast_damping
 SymbolicAWEModels.assign_damping!
 SymbolicAWEModels.segment_rest_length_eqs
@@ -626,6 +626,12 @@ SymbolicAWEModels.param_descend
 SymbolicAWEModels.ParamView
 SymbolicAWEModels.PathView
 SymbolicAWEModels.param_unknowns
+SymbolicAWEModels.SourceRead
+SymbolicAWEModels.InputRegistry
+SymbolicAWEModels.InputView
+SymbolicAWEModels.SourceView
+SymbolicAWEModels.input_like
+SymbolicAWEModels.input_unknowns
 SymbolicAWEModels.ReaderGroup
 SymbolicAWEModels.group_readers
 SymbolicAWEModels.sync_readers!

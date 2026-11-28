@@ -52,8 +52,8 @@ function body_eqs!(
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
         parent = rigid_body.wing_idx
-        frame = flight_frame(state, idx, pos;
-            body_com_w, body_com_vel, body_R_b_to_w, body_ω_b)
+        frame = flight_frame(flight_sources(state, idx, pos;
+            body_com_w, body_com_vel, body_R_b_to_w, body_ω_b)...)
         (; ω_kinematic, d_ω_p, d_com_w, d_com_vel) = body_integration(
             params, idx, body_com_w[:, idx], body_com_vel[:, idx],
             body_ω_p[:, idx], body_α_p[:, idx], body_com_acc[:, idx],

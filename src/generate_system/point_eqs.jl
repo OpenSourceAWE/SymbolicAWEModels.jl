@@ -4,21 +4,23 @@
 # Point dynamics equation generation
 
 """
-    flight_frame(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
-                 body_ω_b)
+    flight_sources(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
+                   body_ω_b) -> (wing, base)
 
-The [`small_earth_frame`](@ref) body `body_idx` of `state` damps against: that of the
-wing it flies with ([`damping_base`](@ref)), on the monolith's point positions `pos` and
-body state.
+The outputs of the wing body `body_idx` of `state` flies with and of its tether's base
+point ([`damping_base`](@ref)), from the monolith's point positions `pos` and body state,
+as the [`flight_frame`](@ref) it damps against reads them.
 """
-function flight_frame(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
-                      body_ω_b)
+function flight_sources(state, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
+                        body_ω_b)
     parent = state.bodies[body_idx].wing_idx
     wing = parent == 0 ? body_idx : parent
-    base_w = damping_base_position(damping_base(state, body_idx), point -> pos[:, point])
     R_b_to_w = collect(body_R_b_to_w[:, :, wing])
-    return small_earth_frame(base_w, body_com_w[:, wing], body_com_vel[:, wing],
-                             R_b_to_w[:, 2], R_b_to_w * collect(body_ω_b[:, wing]))
+    base_w = damping_base_position(damping_base(state, body_idx), point -> pos[:, point])
+    return ((; frame = vec(R_b_to_w), com = body_com_w[:, wing],
+             com_velocity = body_com_vel[:, wing],
+             omega_w = R_b_to_w * collect(body_ω_b[:, wing])),
+            isnothing(base_w) ? nothing : (; pos = base_w))
 end
 
 """
@@ -26,14 +28,15 @@ end
                         body_R_b_to_w, body_ω_b)
 
 The axes and frame a DYNAMIC point's body-frame damping acts on: a wing node's wing
-axes and [`flight_frame`](@ref), a damped tether point's world axes and
-[`tether_frame`](@ref) ([`damped_tether_ends`](@ref)); `nothing` for any other point.
+axes and [`flight_frame`](@ref) on its [`flight_sources`](@ref), a damped tether point's
+world axes and [`tether_frame`](@ref) ([`damped_tether_ends`](@ref)); `nothing` for any
+other point.
 """
 function point_frame_damping(state, point, pos, vel; R_b_to_w, body_com_w, body_com_vel,
                              body_R_b_to_w, body_ω_b)
     point.wing_idx > 0 && return (; axes = collect(R_b_to_w[:, :, point.wing_idx]),
-        frame = flight_frame(state, point.wing_idx, pos; body_com_w, body_com_vel,
-                             body_R_b_to_w, body_ω_b))
+        frame = flight_frame(flight_sources(state, point.wing_idx, pos; body_com_w,
+                                            body_com_vel, body_R_b_to_w, body_ω_b)...))
     ends = damped_tether_ends(state, point.idx)
     isnothing(ends) && return nothing
     anchor, free = ends
