@@ -212,6 +212,78 @@ function Base.getproperty(view::PathView, sym::Symbol)
     return leaf_param!(reg, path, leaf_reader(path, value), value)
 end
 
+"""
+    SourceRead(role, output, input)
+
+One read a component made from another: its `input` variable takes the `output` of the
+component it names `role`.
+"""
+struct SourceRead
+    role::Symbol
+    output::Symbol
+    input::Symbol
+end
+
+"""
+    InputRegistry(sources)
+
+The reads an [`InputView`](@ref) recorded: `sources` maps each role to the output
+variables of the component that fills it, `reads` and `vars` hold what was read.
+"""
+struct InputRegistry
+    sources::NamedTuple
+    reads::Vector{SourceRead}
+    vars::Dict{Symbol, Any}
+end
+
+InputRegistry(sources::NamedTuple) = InputRegistry(sources, SourceRead[], Dict())
+
+"""
+Top-level `inputs` view wrapping an [`InputRegistry`](@ref): `inputs.wing.com` declares
+the input `wing_com` and records that it takes the `com` output of the component in the
+role `wing`. A role the component has no source for is `nothing` (build-time only).
+"""
+struct InputView
+    reg::InputRegistry
+end
+
+"""The component in one role, on its way to an input."""
+struct SourceView
+    reg::InputRegistry
+    role::Symbol
+end
+
+function Base.getproperty(view::InputView, role::Symbol)
+    reg = getfield(view, :reg)
+    return haskey(reg.sources, role) ? SourceView(reg, role) : nothing
+end
+
+function Base.getproperty(view::SourceView, output::Symbol)
+    reg, role = getfield(view, :reg), getfield(view, :role)
+    input = Symbol(role, :_, output)
+    haskey(reg.vars, input) && return reg.vars[input]
+    reg.vars[input] = input_like(input, getproperty(reg.sources[role], output))
+    push!(reg.reads, SourceRead(role, output, input))
+    return reg.vars[input]
+end
+
+"""An input variable named `name`, shaped like the output `source` it takes."""
+input_like(name, source::Symbolics.Arr) =
+    only(@variables $name(t)[1:length(source)] [input = true])
+input_like(name, source) = only(@variables $name(t) [input = true])
+
+"""
+    input_unknowns(inputs)
+
+The input variables an `inputs` view declared, in the order they were read; none for
+`inputs = nothing`.
+"""
+function input_unknowns(inputs::InputView)
+    reg = getfield(inputs, :reg)
+    return Any[reg.vars[read.input] for read in reg.reads]
+end
+input_unknowns(::Nothing) = Any[]
+
 """The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
 buffer of its own a vector built on read — one a run's state holds in its columns, or
 one a definition row holds as one number per axis."""

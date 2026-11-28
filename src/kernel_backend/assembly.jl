@@ -9,15 +9,12 @@
 
 const PARTICLE_INPUTS = [:force_in, :mass_in, :drag_in]
 const PARTICLE_OUTPUTS = [:pos, :vel]
-const TETHER_NODE_INPUTS = [PARTICLE_INPUTS; :anchor_pos; :anchor_vel; :free_pos; :free_vel]
 const PULLEY_POINT_INPUTS = [PARTICLE_INPUTS; :tension_in; :line_in]
 const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out, :pulley_vel_out]
 const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
-const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_com; :wing_velocity;
-                              :wing_spin]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
 const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
                      :pose_omega]
@@ -32,8 +29,6 @@ const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
 const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :z1_vel, :z2_vel,
                           :y1_vel, :y2_vel, :origin_pos, :origin_vel]
-const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame, :wing_com,
-                          :wing_velocity, :wing_spin]
 """A flap's two frames, nine scalars each rather than two vectors: a hinge axis
 leaves some entries unread, and `mtkcompile` will not take part of a declared
 array."""
@@ -212,33 +207,49 @@ function classify_segments(sys_struct)
 end
 
 """
-    KernelEntry(index, registry, source)
+    KernelEntry(index, registry, source, source_reads)
 
 A compiled component type: its position in the runtime's kernel table, the
-`ParamRegistry` its build filled, and the component index it was built from — the
-index every instance's parameter paths are remapped away from.
+`ParamRegistry` its build filled, the component index it was built from — the
+index every instance's parameter paths are remapped away from — and the
+[`SourceRead`](@ref)s its build made from other components.
 """
 struct KernelEntry
     index::Int
     registry::ParamRegistry
     source::Int
+    source_reads::Vector{SourceRead}
 end
 
+"""The output variables of each kind of component another one can read by role."""
+const SOURCE_OUTPUTS = (; bodies = body_variables, points = point_variables)
+
 """
-    kernel!(builder, table, sam, key, source, make, inputs, outputs) -> KernelEntry
+    kernel!(builder, table, sam, key, source, make, inputs, outputs; sources = nothing)
+        -> KernelEntry
 
 Return the kernel registered under `key`, compiling it on first use.
 `make(params)` builds the component `System` from a fresh parameter view, so every
 field the component reads is recorded against `source` and can be remapped to each
-instance.
+instance. Given `sources`, the roles of the components it reads from, each
+`container => index` ([`wire_links!`](@ref)), it is `make(params, inputs)` with an
+[`InputView`](@ref) on them, and every output it reads becomes one of its inputs.
 """
-function kernel!(builder, table, sam, key, source, make, inputs, outputs)
+function kernel!(builder, table, sam, key, source, make, inputs, outputs;
+                 sources = nothing)
     entry = get(table, key, nothing)
     entry === nothing || return entry
     registry = ParamRegistry(sam.state)
-    seconds = @elapsed kernel = compile_kernel(make(ParamView(registry)), inputs,
-                                               outputs; name = key)
-    fresh = KernelEntry(add_kernel!(builder, kernel, seconds), registry, source)
+    reads = InputRegistry(map(origin -> SOURCE_OUTPUTS[first(origin)](),
+                              something(sources, (;))))
+    seconds = @elapsed begin
+        params = ParamView(registry)
+        system = isnothing(sources) ? make(params) : make(params, InputView(reads))
+        kernel = compile_kernel(system, [inputs; [read.input for read in reads.reads]],
+                                outputs; name = key)
+    end
+    fresh = KernelEntry(add_kernel!(builder, kernel, seconds), registry, source,
+                        reads.reads)
     builder.verbose && @printf("\t  compiled %-28s %7.2f s\n", key, seconds)
     table[key] = fresh
     return fresh
@@ -305,13 +316,15 @@ function assemble(sam; verbose = false)
     builder = SystemBuilder(; verbose)
     table = Dict{Symbol, KernelEntry}()
     bindings = Tuple{Int, KernelEntry, Dict{Symbol, Int}}[]
+    links = Tuple{Int, KernelEntry, NamedTuple}[]
 
-    body_instances = [add_body!(builder, table, bindings, sam, i)
+    body_instances = [add_body!(builder, table, bindings, links, sam, i)
                       for i in eachindex(sys_struct.bodies)]
     twist_instances = add_stations!(builder, table, bindings, sam)
     wrench_instances = zeros(Int, length(sys_struct.points))
-    point_instances = [add_point!(builder, table, bindings, sam, i, point_roles[i],
-                                  body_instances, wrench_instances, twist_instances)
+    point_instances = [add_point!(builder, table, bindings, links, sam, i,
+                                  point_roles[i], body_instances, wrench_instances,
+                                  twist_instances)
                        for i in eachindex(sys_struct.points)]
     segment_instances = [add_segment!(builder, table, bindings, sam, i,
                                       segment_roles[i])
@@ -325,22 +338,7 @@ function assemble(sam; verbose = false)
         wire_kinematic_body!(builder, sys_struct, idx, body_instances[idx],
                           point_instances)
     end
-    for (idx, role) in enumerate(point_roles)
-        role.kind === :wing_node || continue
-        wire_wing_frame!(builder, body_instances[role.body_idx], point_instances[idx])
-        wire_damping_base!(builder, sam, role.body_idx, point_instances,
-                           point_instances[idx])
-    end
-    for (idx, role) in enumerate(point_roles)
-        role.kind === :tether_node || continue
-        wire_tether_ends!(builder, sys_struct, idx, point_instances)
-    end
-    for (idx, body) in enumerate(sys_struct.bodies)
-        body.type == DYNAMIC || continue
-        body.wing_idx == 0 ||
-            wire_wing_frame!(builder, body_instances[body.wing_idx], body_instances[idx])
-        wire_damping_base!(builder, sam, idx, point_instances, body_instances[idx])
-    end
+    wire_links!(builder, links, (; bodies = body_instances, points = point_instances))
     for tube in sys_struct.tubes
         add_tube!(builder, table, bindings, sam, tube, body_instances)
     end
@@ -733,74 +731,65 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
 end
 
 """
-    wire_wing_frame!(builder, wing_instance, instance)
+    wire_links!(builder, links, instances)
 
-Wire a wing's frame, COM, COM velocity and spin into the `wing_frame`, `wing_com`,
-`wing_velocity` and `wing_spin` inputs of an instance that damps against the wing's
-[`small_earth_frame`](@ref).
+Wire every [`SourceRead`](@ref) of each `(instance, entry, sources)` in `links` from
+the output of the instance `instances[container][index]` that `sources` names its role
+by. Index `0` is the world origin, which is left unwired and so reads zero.
 """
-function wire_wing_frame!(builder, wing_instance, instance)
-    connect!(builder, wing_instance, :frame, instance, :wing_frame)
-    connect!(builder, wing_instance, :com, instance, :wing_com)
-    connect!(builder, wing_instance, :com_velocity, instance, :wing_velocity)
-    connect!(builder, wing_instance, :omega_w, instance, :wing_spin)
-    return nothing
-end
-
-"""
-    wire_tether_ends!(builder, sys_struct, idx, point_instances)
-
-Wire the position and velocity of the [`damped_tether_ends`](@ref) of point `idx` into
-its `anchor_pos`/`anchor_vel`/`free_pos`/`free_vel` inputs.
-"""
-function wire_tether_ends!(builder, sys_struct, idx, point_instances)
-    anchor, free = damped_tether_ends(sys_struct, idx)
-    for (end_idx, prefix) in ((anchor, :anchor), (free, :free)), field in (:pos, :vel)
-        connect!(builder, point_instances[end_idx], field, point_instances[idx],
-                 Symbol(prefix, :_, field))
+function wire_links!(builder, links, instances)
+    for (instance, entry, sources) in links, read in entry.source_reads
+        container, index = sources[read.role]
+        index == 0 && continue
+        connect!(builder, instances[container][index], read.output, instance, read.input)
     end
     return nothing
 end
 
 """
-    wire_damping_base!(builder, sam, body_idx, point_instances, instance)
+    damping_sources(sys_struct, wing, body_idx)
 
-Wire the tether base point of body `body_idx`'s [`damping_base`](@ref) into the
-`base_pos` input of `instance`; the world origin and no base leave it unwired.
+The roles of the components a body or wing node damps against: the `wing` body, unless
+`0`, and the tether base point of body `body_idx` ([`damping_base`](@ref)) as `base`,
+where a transform moves it.
 """
-function wire_damping_base!(builder, sam, body_idx, point_instances, instance)
-    base = damping_base(sam.state, body_idx)
-    isnothing(base) || base == 0 ||
-        connect!(builder, point_instances[base], :pos, instance, :base_pos)
-    return nothing
+function damping_sources(sys_struct, wing, body_idx)
+    base = damping_base(sys_struct, body_idx)
+    return (; (wing == 0 ? (;) : (; wing = :bodies => wing))...,
+            (isnothing(base) ? (;) : (; base = :points => base))...)
 end
 
 """
-    add_body!(builder, table, bindings, sam, idx) -> Int
+    add_body!(builder, table, bindings, links, sam, idx) -> Int
 
 Add the instance for body `idx`. Each of the three kinds is its own compiled type,
 because which one a body is, is topology: a `DYNAMIC` body integrates, a `STATIC`
 one is clamped, and a `KINEMATIC` one is fitted from reference points.
 """
-function add_body!(builder, table, bindings, sam, idx)
+function add_body!(builder, table, bindings, links, sam, idx)
     body = sam.state.bodies[idx]
     body.type == KINEMATIC && return add_kinematic_body!(builder, table, bindings,
                                                       sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
-    parented = body.type != STATIC && body.wing_idx != 0
-    based = !isnothing(damping_base(sam.state, idx))
-    key = body.type == STATIC ? :static_body :
-        Symbol(parented ? :parented_rigid_body : :rigid_body, based ? "" : :_unbased)
-    make = body.type == STATIC ?
-        (params -> StaticBody(sam, params, idx; name = key)) :
-        (params -> RigidBody(sam, params, idx; name = key, parented, based))
-    inputs = [parented ? PARENTED_BODY_INPUTS : BODY_INPUTS;
-              body.type != STATIC && based ? [:base_pos] : Symbol[]]
-    entry = kernel!(builder, table, sam, key, idx, make, inputs, BODY_OUTPUTS)
+    sources = nothing
+    if body.type == STATIC
+        entry = kernel!(builder, table, sam, :static_body, idx,
+                        params -> StaticBody(sam, params, idx; name = :static_body),
+                        BODY_INPUTS, BODY_OUTPUTS)
+    else
+        sources = damping_sources(sam.state, body.wing_idx, idx)
+        key = Symbol(haskey(sources, :wing) ? :parented_rigid_body : :rigid_body,
+                     haskey(sources, :base) ? "" : :_unbased)
+        entry = kernel!(builder, table, sam, key, idx,
+                        (params, inputs) -> RigidBody(sam, params, inputs, idx;
+                                                      name = key),
+                        BODY_INPUTS, BODY_OUTPUTS; sources)
+    end
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
+    isnothing(sources) || push!(links, (instance, entry, sources))
     return instance
 end
 
@@ -850,15 +839,15 @@ function wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_ins
 end
 
 """
-    add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches, twists)
-        -> Int
+    add_point!(builder, table, bindings, links, sam, idx, role, bodies, wrenches,
+               twists) -> Int
 
 Add the instance for point `idx` and record which container indices its parameters
 must be remapped to. A `:ride` point becomes two instances — the kinematics, whose
 index is returned so segments wire to it, and the wrench, recorded in `wrenches` and
 wired to its body here.
 """
-function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
+function add_point!(builder, table, bindings, links, sam, idx, role, bodies, wrenches,
                     twists)
     sys_struct = sam.state
     index_map = Dict(:points => idx)
@@ -870,21 +859,24 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
     role.kind === :hermite && return add_hermite_ride_point!(builder, table, bindings,
                                                              sam, idx, role, bodies,
                                                              wrenches)
+    sources = nothing
     entry = if role.kind === :wing_node
-        based = !isnothing(damping_base(sam.state, role.body_idx))
-        key = based ? :wing_node : :wing_node_unbased
+        sources = damping_sources(sys_struct, role.body_idx, role.body_idx)
+        key = haskey(sources, :base) ? :wing_node : :wing_node_unbased
         kernel!(builder, table, sam, key, idx,
-                params -> WingNodePoint(sam, params, idx; name = key, based),
-                [WING_NODE_INPUTS; based ? [:base_pos] : Symbol[]], PARTICLE_OUTPUTS)
+                (params, inputs) -> WingNodePoint(sam, params, inputs, idx; name = key),
+                PARTICLE_INPUTS, PARTICLE_OUTPUTS; sources)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),
                 PARTICLE_INPUTS, PARTICLE_OUTPUTS)
     elseif role.kind === :tether_node
+        anchor, free = damped_tether_ends(sys_struct, idx)
+        sources = (; anchor = :points => anchor, free = :points => free)
         kernel!(builder, table, sam, :tether_node, idx,
-                params -> Particle(sam, params, idx; name = :tether_node,
-                                   tether_damped = true),
-                TETHER_NODE_INPUTS, PARTICLE_OUTPUTS)
+                (params, inputs) -> Particle(sam, params, idx; name = :tether_node,
+                                             inputs),
+                PARTICLE_INPUTS, PARTICLE_OUTPUTS; sources)
     elseif role.kind === :anchor
         kernel!(builder, table, sam, :anchor, idx,
                 params -> Anchor(sam, params, idx; name = :anchor),
@@ -912,6 +904,7 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
     end
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, index_map))
+    isnothing(sources) || push!(links, (instance, entry, sources))
     return instance
 end
 

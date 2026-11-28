@@ -23,7 +23,9 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KernelBackend, MonolithBackend, sync_params!, sync_initial!,
                          body_integration, small_earth_frame, frame_velocity,
                          damping_base, damping_base_position, tether_frame,
-                         body_frame_damp_accel, damped_tether_ends, VortexStepMethod
+                         body_frame_damp_accel, damped_tether_ends, flight_frame,
+                         InputRegistry, InputView, SourceRead, input_unknowns,
+                         VortexStepMethod
 using KiteUtils
 
 """Rotation by `angle` [rad] about unit `axis`."""
@@ -193,6 +195,25 @@ tether_base(sam) = damping_base_position(damping_base(sam.state, sam.state.wings
         @test damped_tether_ends(line(STATIC), 2) == (1, 3)
         @test damped_tether_ends(line(STATIC), 3) === nothing
         @test_throws ErrorException damped_tether_ends(line(DYNAMIC), 2)
+    end
+
+    @testset "a component reads the frame it damps against from its sources by name" begin
+        registry = InputRegistry((; wing = SymbolicAWEModels.body_variables()))
+        inputs = InputView(registry)
+        @test isnothing(inputs.base)
+        frame = flight_frame(inputs.wing, inputs.base)
+        @test isequal(frame.pos, collect(inputs.wing.com))
+        @test registry.reads == [SourceRead(:wing, :com, :wing_com),
+                                 SourceRead(:wing, :com_velocity, :wing_com_velocity),
+                                 SourceRead(:wing, :frame, :wing_frame),
+                                 SourceRead(:wing, :omega_w, :wing_omega_w)]
+        @test length(input_unknowns(inputs)) == 4
+        @test_throws Exception inputs.wing.tension
+        @test length(registry.reads) == 4
+        wing = (; frame = vec(kite_axes), com = kite, com_velocity = kite_vel,
+                omega_w = kite_spin)
+        @test flight_frame(wing, (; pos = base)) ==
+              small_earth_frame(base, kite, kite_vel, kite_axes[:, 2], kite_spin)
     end
 
     data_path_before = get_data_path()
