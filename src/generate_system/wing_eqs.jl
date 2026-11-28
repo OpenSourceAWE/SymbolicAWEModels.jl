@@ -53,10 +53,9 @@ function wing_eqs!(
         xaxis, yaxis, zaxis = wing_frame_columns(pos_z1, pos_z2, pos_y1, pos_y2;
             torn_frame=R_wing)
 
-        # Diagnostic only: nothing in the KINEMATIC path consumes ω_b.
         frame_axes = (collect(R_wing[:, 1]), collect(R_wing[:, 2]),
                       collect(R_wing[:, 3]))
-        frame_rates = wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
+        omega_b = fitted_frame_omega(pos_z1, pos_z2, pos_y1, pos_y2,
             (collect(get_ref_position(vel, z_p1)),
              collect(get_ref_position(vel, z_p2)),
              collect(get_ref_position(vel, y_p1)),
@@ -74,7 +73,7 @@ function wing_eqs!(
             Q_b_to_w[2, body_idx] ~ q_wing[2]
             Q_b_to_w[3, body_idx] ~ q_wing[3]
             Q_b_to_w[4, body_idx] ~ q_wing[4]
-            ω_b[:, body_idx] ~ body_frame_omega(frame_axes, frame_rates)
+            ω_b[:, body_idx] ~ omega_b
             α_b[:, body_idx] ~ zeros(3)
             # Principal frame aliases/zeros (no rigid-body rotation)
             [R_p_to_w[:, i, body_idx] ~ R_b_to_w[:, i, body_idx] for i = 1:3]

@@ -48,7 +48,6 @@ SymbolicAWEModels.KernelCodegen._resolved_reads
 
 ```@docs
 SymbolicAWEModels.KernelParameter
-SymbolicAWEModels.parent_body
 SymbolicAWEModels.SlotMap
 SymbolicAWEModels.group_name
 SymbolicAWEModels.slots
@@ -167,6 +166,9 @@ SymbolicAWEModels.StaticBody
 SymbolicAWEModels.wing_frame_variables
 SymbolicAWEModels.KinematicBody
 SymbolicAWEModels.body_frame_damp_accel
+SymbolicAWEModels.small_earth_frame
+SymbolicAWEModels.frame_velocity
+SymbolicAWEModels.damping_base_position
 SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.wing_frame_damping
 SymbolicAWEModels.ParticleWingAero
@@ -220,6 +222,7 @@ SymbolicAWEModels.ElasticTubeComponent
 SymbolicAWEModels.TimoshenkoTubeComponent
 SymbolicAWEModels.PointRole
 SymbolicAWEModels.classify_points
+SymbolicAWEModels.point_wing_body
 SymbolicAWEModels.pulley_point_index
 SymbolicAWEModels.SegmentRole
 SymbolicAWEModels.classify_segments
@@ -234,8 +237,9 @@ SymbolicAWEModels.add_segment!
 SymbolicAWEModels.add_body!
 SymbolicAWEModels.add_kinematic_body!
 SymbolicAWEModels.wire_kinematic_body!
-SymbolicAWEModels.kinematic_wing_of
 SymbolicAWEModels.reads_wing_frame
+SymbolicAWEModels.wire_wing_frame!
+SymbolicAWEModels.wire_damping_base!
 SymbolicAWEModels.add_ride_point!
 SymbolicAWEModels.add_hermite_ride_point!
 SymbolicAWEModels.add_wing_aero!

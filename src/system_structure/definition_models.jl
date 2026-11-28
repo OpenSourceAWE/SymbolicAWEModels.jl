@@ -105,7 +105,8 @@ $(TYPEDFIELDS)
 @kwdef struct WingModel <: KiteGeometry.AbstractModel
     "Name of the aerodynamic model, such as `AeroLinearized`."
     aero_mode::Union{Nothing, String} = nothing
-    "Spin damping about the body axes [1/s], one value or one per axis."
+    "Damping of the spin relative to the wing's `small_earth_frame`, about the body axes
+    [1/s], one value or one per axis."
     angular_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Scale on the VSM panel chord."
     aero_scale_chord::Union{Nothing, Float64} = nothing

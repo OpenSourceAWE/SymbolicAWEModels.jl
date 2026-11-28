@@ -15,7 +15,8 @@ const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
-const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_velocity]
+const WING_FRAME_INPUTS = [:wing_frame, :wing_com, :wing_velocity, :wing_spin]
+const PARENTED_BODY_INPUTS = [BODY_INPUTS; WING_FRAME_INPUTS]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
 const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
                      :pose_omega]
@@ -28,10 +29,9 @@ const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
 const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
 const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
-const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
-                          :origin_vel]
-const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
-                          :wing_velocity]
+const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :z1_vel, :z2_vel,
+                          :y1_vel, :y2_vel, :origin_pos, :origin_vel]
+const WING_NODE_INPUTS = [PARTICLE_INPUTS; WING_FRAME_INPUTS]
 """A flap's two frames, nine scalars each rather than two vectors: a hinge axis
 leaves some entries unread, and `mtkcompile` will not take part of a declared
 array."""
@@ -114,7 +114,7 @@ function classify_points(sam)
         point_type(point) in (STATIC, DYNAMIC) || error(
             "KernelBackend: point $(point.name) has type $(point_type(point)); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
-        body_idx = kinematic_wing_of(sam, i)
+        body_idx = point_wing_body(sam, i)
         kind = point_type(point) == STATIC ? :anchor :
             body_idx == 0 ? :particle : :wing_node
         roles[i] = PointRole(kind, 0, 0, 0, body_idx, 0)
@@ -125,7 +125,7 @@ function classify_points(sam)
             "only DYNAMIC pulleys exist.")
         point = pulley_point_index(sys, i)
         roles[point] = PointRole(:pulley, i, pulley.segments[1], 0,
-                                 kinematic_wing_of(sam, point), 0)
+                                 point_wing_body(sam, point), 0)
     end
     for (i, winch) in enumerate(sys.winches)
         point_type(sys.points[winch.winch_point]) == STATIC || error(
@@ -166,25 +166,20 @@ function station_of(sam, i)
 end
 
 """
-    kinematic_wing_of(sam, i) -> Int
+    point_wing_body(sam, i) -> Int
 
-The body of the fitted (`KINEMATIC`) wing whose frame point `i` of `sam` needs, or
-`0`. `point_eqs!` damps *any* DYNAMIC point against its wing's frame, not only
-aerodynamic surface nodes, so a steering or pulley point with `body_frame_damping`
-needs it too.
+The body of the wing point `i` of `sam` flies with, or `0` where it has none.
 """
-function kinematic_wing_of(sam, i)
+function point_wing_body(sam, i)
     wing_idx = point_wing(sam, i)
-    isnothing(wing_idx) && return 0
-    body_idx = wing_body(sam, wing_idx)
-    return body_type(sam, body_idx) == KINEMATIC ? body_idx : 0
+    return isnothing(wing_idx) ? 0 : wing_body(sam, wing_idx)
 end
 
 """
     reads_wing_frame(sys, i, role) -> Bool
 
-Whether point `i` of definition `sys`, realised as `role`, reads its fitted wing's
-frame: every wing node does, and a pulley point on such a wing when it damps in it.
+Whether point `i` of definition `sys`, realised as `role`, reads its wing's frame:
+every wing node does, and a pulley point on a wing when it damps in it.
 """
 reads_wing_frame(sys, i, role) = role.kind === :wing_node ||
     (role.kind === :pulley && role.body_idx != 0 &&
@@ -375,18 +370,18 @@ function assemble(sam; verbose = false)
     end
     for (i, role) in enumerate(point_roles)
         reads_wing_frame(sys, i, role) || continue
-        connect!(builder, body_instances[role.body_idx], :frame,
-                 point_instances[i], :wing_frame)
-        connect!(builder, body_instances[role.body_idx], :vel,
-                 point_instances[i], :wing_velocity)
+        wire_wing_frame!(builder, body_instances[role.body_idx], point_instances[i])
+        sys.points[i].body_frame_damping === nothing && continue
+        wire_damping_base!(builder, sam, role.body_idx, point_instances,
+                           point_instances[i])
     end
     for body_idx in eachindex(sys.bodies)
+        body_type(sam, body_idx) == DYNAMIC || continue
         parent = parent_body(sam, body_idx)
-        (body_type(sam, body_idx) == DYNAMIC && parent != 0) || continue
-        connect!(builder, body_instances[parent], :frame,
-                 body_instances[body_idx], :wing_frame)
-        connect!(builder, body_instances[parent], :vel,
-                 body_instances[body_idx], :wing_velocity)
+        parent == 0 ||
+            wire_wing_frame!(builder, body_instances[parent], body_instances[body_idx])
+        wire_damping_base!(builder, sam, body_idx, point_instances,
+                           body_instances[body_idx])
     end
     for tube_idx in eachindex(sys.tubes)
         add_tube!(builder, table, bindings, sam, tube_idx, body_instances)
@@ -412,18 +407,6 @@ function assemble(sam; verbose = false)
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
                           twist_instances, inflow_instances, aero_force_outputs)
-end
-
-"""
-    parent_body(sam, body_idx) -> Int
-
-The body of the wing whose frame the damping of body `body_idx` of `sam` acts in, its
-`wing` column, or `0` where it names none.
-"""
-function parent_body(sam, body_idx)
-    parent_wing = sam.definition.bodies[body_idx].wing
-    return isnothing(parent_wing) ? 0 :
-        wing_body(sam, item_index(sam, :wings, parent_wing))
 end
 
 """
@@ -800,6 +783,34 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing_idx, bodies, t
 end
 
 """
+    wire_wing_frame!(builder, wing_instance, instance)
+
+Wire a wing's frame, COM, COM velocity and spin into the `wing_frame`, `wing_com`,
+`wing_velocity` and `wing_spin` inputs of an instance that damps against the wing's
+[`small_earth_frame`](@ref).
+"""
+function wire_wing_frame!(builder, wing_instance, instance)
+    connect!(builder, wing_instance, :frame, instance, :wing_frame)
+    connect!(builder, wing_instance, :com, instance, :wing_com)
+    connect!(builder, wing_instance, :com_velocity, instance, :wing_velocity)
+    connect!(builder, wing_instance, :omega_w, instance, :wing_spin)
+    return nothing
+end
+
+"""
+    wire_damping_base!(builder, sam, body_idx, point_instances, instance)
+
+Wire the tether base point of body `body_idx`'s [`damping_base`](@ref) into the
+`base_pos` input of `instance`; the world origin and no base leave it unwired.
+"""
+function wire_damping_base!(builder, sam, body_idx, point_instances, instance)
+    base = damping_base(sam, body_idx)
+    isnothing(base) || base == 0 ||
+        connect!(builder, point_instances[base], :pos, instance, :base_pos)
+    return nothing
+end
+
+"""
     add_body!(builder, table, bindings, sam, body_idx) -> Int
 
 Add the instance for body `body_idx`. Each of the three kinds is its own compiled
@@ -814,13 +825,15 @@ function add_body!(builder, table, bindings, sam, body_idx)
         "KernelBackend: body $(sam.definition.bodies[body_idx].name) has type $kind; " *
         "only DYNAMIC, STATIC and KINEMATIC are supported so far.")
     parented = kind != STATIC && parent_body(sam, body_idx) != 0
+    based = !isnothing(damping_base(sam, body_idx))
     key = kind == STATIC ? :static_body :
-        parented ? :parented_rigid_body : :rigid_body
+        Symbol(parented ? :parented_rigid_body : :rigid_body, based ? "" : :_unbased)
     make = kind == STATIC ?
         (params -> StaticBody(sam, params, body_idx; name = key)) :
-        (params -> RigidBody(sam, params, body_idx; name = key, parented))
-    entry = kernel!(builder, table, sam, key, body_idx, make,
-                    parented ? PARENTED_BODY_INPUTS : BODY_INPUTS, BODY_OUTPUTS)
+        (params -> RigidBody(sam, params, body_idx; name = key, parented, based))
+    inputs = [parented ? PARENTED_BODY_INPUTS : BODY_INPUTS;
+              kind != STATIC && based ? [:base_pos] : Symbol[]]
+    entry = kernel!(builder, table, sam, key, body_idx, make, inputs, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => body_idx)))
     return instance
@@ -848,7 +861,7 @@ end
     wire_kinematic_body!(builder, sam, body_idx, body_instance, point_instances)
 
 Wire the reference points of the fitted wing whose body is `body_idx` into it: the
-four frame references and the origin's position and velocity, each a weighted blend
+four frame references' positions and velocities and the origin's, each a weighted blend
 of point outputs.
 """
 function wire_kinematic_body!(builder, sam, body_idx, body_instance, point_instances)
@@ -857,6 +870,10 @@ function wire_kinematic_body!(builder, sam, body_idx, body_instance, point_insta
                   (frame.z_ref_points[2], :z2_pos, :pos),
                   (frame.y_ref_points[1], :y1_pos, :pos),
                   (frame.y_ref_points[2], :y2_pos, :pos),
+                  (frame.z_ref_points[1], :z1_vel, :vel),
+                  (frame.z_ref_points[2], :z2_vel, :vel),
+                  (frame.y_ref_points[1], :y1_vel, :vel),
+                  (frame.y_ref_points[2], :y2_vel, :vel),
                   (frame.origin, :origin_pos, :pos),
                   (frame.origin, :origin_vel, :vel))
     for (reference, target, source) in references, (point, weight) in reference
@@ -886,11 +903,13 @@ function add_point!(builder, table, bindings, sam, i, role, bodies, wrenches, tw
                                                              wrenches)
     with_damping = sys.points[i].body_frame_damping !== nothing
     entry = if role.kind === :wing_node
-        key = with_damping ? :wing_node : :wing_node_undamped
+        based = with_damping && !isnothing(damping_base(sam, role.body_idx))
+        key = !with_damping ? :wing_node_undamped :
+            based ? :wing_node : :wing_node_unbased
         index_map[:bodies] = role.body_idx
         kernel!(builder, table, sam, key, i,
-                params -> WingNodePoint(sam, params, i; name = key, with_damping),
-                WING_NODE_INPUTS, PARTICLE_OUTPUTS)
+                params -> WingNodePoint(sam, params, i; name = key, with_damping, based),
+                [WING_NODE_INPUTS; based ? [:base_pos] : Symbol[]], PARTICLE_OUTPUTS)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, i,
                 params -> Particle(sam, params, i; name = :particle),
@@ -903,13 +922,15 @@ function add_point!(builder, table, bindings, sam, i, role, bodies, wrenches, tw
         index_map[:pulleys] = role.pulley_idx
         index_map[:segments] = role.segment_idx
         damped = reads_wing_frame(sys, i, role)
-        key = damped ? :pulley_point_wing : :pulley_point
-        inputs = damped ? [PULLEY_POINT_INPUTS; :wing_frame; :wing_velocity] :
-            PULLEY_POINT_INPUTS
+        based = damped && !isnothing(damping_base(sam, role.body_idx))
+        key = !damped ? :pulley_point : based ? :pulley_point_wing :
+            :pulley_point_wing_unbased
+        inputs = [PULLEY_POINT_INPUTS; damped ? WING_FRAME_INPUTS : Symbol[];
+                  based ? [:base_pos] : Symbol[]]
         kernel!(builder, table, sam, key, i,
                 params -> PulleyParticle(sam, params, i, role.pulley_idx,
                                          role.segment_idx; name = key,
-                                         with_damping = damped),
+                                         with_damping = damped, based),
                 inputs, PULLEY_POINT_OUTPUTS)
     elseif role.kind === :winch
         tethers = sys.winches[role.winch_idx].tethers

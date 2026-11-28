@@ -174,7 +174,7 @@ function create_sys!(s::SymbolicAWEModel; prn=true, tunable_params::Bool=false)
     eqs, defaults = point_eqs!(
         s, eqs, defaults, params, initial;
         R_b_to_w, com_w,
-        wing_vel, wind_vec_gnd, twist_angle,
+        wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
         spring_sum_force, point_aero_drag, total_drag,
         disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
@@ -280,7 +280,7 @@ function create_sys!(s::SymbolicAWEModel; prn=true, tunable_params::Bool=false)
     # Build standalone rigid body dynamics equations
     eqs, defaults = body_eqs!(
         s, eqs, defaults, params, initial;
-        body_force, body_moment,
+        pos, body_force, body_moment,
         body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
         body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
         body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,

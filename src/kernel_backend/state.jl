@@ -399,7 +399,8 @@ function (getter::KernelStateGetter)(integrator, sam)
     for readout in getter.kinematic
         wing_kinematics_from_points!(sam, readout.wing, readout.frame,
             readout.aero_points;
-            base_point = transform_base_point(sam.transforms, readout.body))
+            base_point = transform_base_point(sam.transforms, readout.body),
+            frame_base = damping_base(sam, readout.body))
     end
     for readout in getter.rigid
         alpha_b = getter.alpha_b

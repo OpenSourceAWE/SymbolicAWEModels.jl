@@ -773,7 +773,8 @@ end
 SHA1 hash of the topology of the run `sam`, to check a cached compiled model: the
 connectivity and types of its points (with a `BODY_STATIC` point's beam joint), segments,
 stations, pulleys, tethers, winches, bodies and tubes, each wing's dynamics type, aero mode
-and transform base point, and [`PerPointWind`](@ref); no mass, length or stiffness value.
+and transform base point, the base point each body damps against
+([`damping_base`](@ref)), and [`PerPointWind`](@ref); no mass, length or stiffness value.
 """
 function structure_hash(sam)
     sys = sam.definition
@@ -825,7 +826,7 @@ function structure_hash(sam)
     per_point_wind(sam) && push!(data_parts, ("wind_mode", :per_point))
     for (idx, body) in enumerate(sys.bodies)
         push!(data_parts, ("rigid_body", idx, Int(body_type(sam, idx)),
-                           something(body.wing, 0)))
+                           something(body.wing, 0), damping_base(sam, idx)))
     end
     for (idx, tube) in enumerate(sys.tubes)
         columns = tube_columns(tube)

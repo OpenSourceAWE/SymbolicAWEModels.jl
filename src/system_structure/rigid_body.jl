@@ -24,7 +24,8 @@ $(TYPEDFIELDS)
 @kwdef mutable struct BodyModel <: KiteGeometry.AbstractModel
     "The wing whose body frame the body's damping acts in, by name or index."
     wing::Union{Nothing, KiteGeometry.NameRef} = nothing
-    "Spin damping about the body axes [1/s], one value or one per axis."
+    "Damping of the spin relative to its wing's `small_earth_frame`, about the body axes
+    [1/s], one value or one per axis."
     angular_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Damping per unit mass on the world axes [1/s], one value or one per axis."
     world_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing

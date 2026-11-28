@@ -102,6 +102,7 @@ SymbolicAWEModels.wing_frame_columns
 SymbolicAWEModels.wing_frame_rates
 SymbolicAWEModels.unit_vector_rate
 SymbolicAWEModels.body_frame_omega
+SymbolicAWEModels.fitted_frame_omega
 ```
 
 ## Equations and system management
@@ -228,6 +229,7 @@ SymbolicAWEModels.validate_station_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
+SymbolicAWEModels.flight_frame
 SymbolicAWEModels.assign_damping!
 SymbolicAWEModels.segment_rest_length_eqs
 ```
@@ -415,6 +417,9 @@ SymbolicAWEModels.turn_velocities!
 SymbolicAWEModels.turn_rotation
 SymbolicAWEModels.fit_body_frames!
 SymbolicAWEModels.transform_base_point
+SymbolicAWEModels.transform_base
+SymbolicAWEModels.parent_body
+SymbolicAWEModels.damping_base
 ```
 
 ## Flat parameters

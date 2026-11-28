@@ -1086,38 +1086,43 @@ function sync_aero_density!(mode::AbstractVSMAero, sam, wing_idx)
 end
 
 """
-    point_acceleration_w(sam, i, R_b_to_w, wing_vel) -> SVector
+    point_acceleration_w(sam, i, R_b_to_w, frame) -> SVector
 
 The world-frame acceleration of free point `i` of `sam`, rebuilt from its run: its net
-force per unit mass less the world-frame damping and the body-frame damping against its
-wing's frame `R_b_to_w` moving at `wing_vel`. The same expression `point_eqs!` binds to
-`acc`, which is where the monolith's fitted wing reads its own `acc_w` from.
+force per unit mass less the world-frame damping and the body-frame damping on its wing's
+axes `R_b_to_w` against the wing's [`small_earth_frame`](@ref) `frame`. The same
+expression `point_eqs!` binds to `acc`, which is where the monolith's fitted wing reads
+its own `acc_w` from.
 """
-function point_acceleration_w(sam, i, R_b_to_w, wing_vel)
+function point_acceleration_w(sam, i, R_b_to_w, frame)
+    pos_w = run_value(sam, Val(:points), i, Val(:pos_w))
     vel_w = run_value(sam, Val(:points), i, Val(:vel_w))
     damping = run_value(sam, Val(:points), i, Val(:world_frame_damping)) .* vel_w .+
         body_frame_damp_accel(vel_w,
                               run_value(sam, Val(:points), i, Val(:body_frame_damping)),
-                              R_b_to_w, wing_vel)
+                              R_b_to_w, frame, pos_w)
     return run_value(sam, Val(:points), i, Val(:force)) ./
         run_value(sam, Val(:points), i, Val(:total_mass)) .- damping
 end
 
 """
-    wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_point=0)
+    wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_point=0,
+                                 frame_base=nothing)
 
 Recompute the kinematic state of `PARTICLE_DYNAMICS` wing `wing_idx` of `sam` from the
 current point positions and velocities, for a backend that does not carry these quantities
 as state. `frame` is the wing's KiteGeometry `WingFrame`, each of whose references is the
 weighted blend of its points. Writes its body's orientation
 ([`wing_frame_columns`](@ref)), origin `pos_w`/`vel_w`, the frame's own `ω_b`
-([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
-([`point_acceleration_w`](@ref)), the reported scalars ([`write_wing_scalars!`](@ref))
-and, from the height profile, the wind of the body and of each of `aero_points`; under
-[`PerPointWind`](@ref) those winds are the caller's. The same quantities the monolith's
-`get_all_state` copies out of the integrator.
+([`fitted_frame_omega`](@ref)), the origin's acceleration `acc_w`
+([`point_acceleration_w`](@ref), damped against the [`small_earth_frame`](@ref) about
+the [`transform_base`](@ref) `frame_base`), the reported scalars
+([`write_wing_scalars!`](@ref)) and, from the height profile, the wind of the body and
+of each of `aero_points`; under [`PerPointWind`](@ref) those winds are the caller's. The
+same quantities the monolith's `get_all_state` copies out of the integrator.
 """
-function wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_point=0)
+function wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_point=0,
+                                      frame_base=nothing)
     body_idx = wing_body(sam, wing_idx)
     positions, velocities = run_positions(sam), run_velocities(sam)
     (zp1, zp2), (yp1, yp2), origin = frame.z_ref_points, frame.y_ref_points, frame.origin
@@ -1134,11 +1139,12 @@ function wing_kinematics_from_points!(sam, wing_idx, frame, aero_points; base_po
     pos_w = SVec3(KiteGeometry.ref_position(positions, origin))
     vel_w = SVec3(KiteGeometry.ref_position(velocities, origin))
     axes = (collect(x), collect(y), collect(z))
-    ω_b = body_frame_omega(axes, wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2, rates,
-                                                  axes))
+    ω_b = fitted_frame_omega(pos_z1, pos_z2, pos_y1, pos_y2, rates, axes)
+    base_w = damping_base_position(frame_base, point -> positions[point])
+    flight = small_earth_frame(base_w, pos_w, vel_w, R_b_to_w[:, 2], R_b_to_w * ω_b)
     acc_w = zero(SVec3)
     for (i, weight) in origin
-        acc_w += weight .* point_acceleration_w(sam, i, R_b_to_w, vel_w)
+        acc_w += weight .* point_acceleration_w(sam, i, R_b_to_w, flight)
     end
     set_run_value!(sam, Val(:bodies), body_idx, Val(:Q_b_to_w),
                    rotation_matrix_to_quaternion(R_b_to_w))
@@ -1998,8 +2004,9 @@ end
 
 Run one VSM solve of a wing flown with the VSM aero `mode` at operating-point input
 `y = [α, β, ω₁, ω₂, ω₃, θ_twist…]` and return the wind-axis coefficient vector
-`[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`, one twist and one `cm` per station, mapped
-onto the sections and panels of the engine's `station_sections` and `station_panels`.
+`[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`, normalised by the dynamic pressure of `va_mag`,
+one twist and one `cm` per station, mapped onto the sections and panels of the engine's
+`station_sections` and `station_panels`.
 `ForwardDiff.Dual`-aware via `vsm_solve_objects`: for a Dual eltype it solves on a
 cached dual shadow of the VSM solver, so the same routine yields the Jacobian
 under AD.
@@ -2035,10 +2042,11 @@ function vsm_aero_coeffs(mode, y::AbstractVector{T}, va_mag, moment_frac,
     set_va!(body_aero_c, va_b_local, ω)
     safe_vsm_solve!(solver_c, body_aero_c, gamma_init; moment_frac)
 
+    # VSM's own coefficients are scaled by the panel inflow, which carries ω × r.
     sol = solver_c.sol
-    force_coeffs = sol.force_coeffs
-    cm_body = sol.moment_coeffs
-    moment_coeff_dist = sol.moment_coeff_dist
+    q_area = 0.5 * solver_c.density * va_mag^2 * body_aero_c.projected_area
+    force_coeffs = sol.force ./ q_area
+    cm_body = sol.moment ./ (q_area * body_aero_c.c_ref)
 
     # Wind-axis basis (VSM): drag∥va, lift=norm(drag×span), side=lift×drag.
     span = SVector(zero(T), one(T), zero(T))
@@ -2054,8 +2062,8 @@ function vsm_aero_coeffs(mode, y::AbstractVector{T}, va_mag, moment_frac,
     x[5] = cm_body[2]
     x[6] = cm_body[3]
     for (k, panels) in enumerate(station_panels)
-        x[6 + k] = sum(moment_coeff_dist[panel_idx] for panel_idx in panels;
-                       init=zero(T))
+        x[6 + k] = sum(sol.moment_dist[panel_idx] for panel_idx in panels;
+                       init=zero(T)) / (q_area * body_aero_c.c_ref)
     end
     return x
 end

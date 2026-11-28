@@ -4,21 +4,36 @@
 # Point dynamics equation generation
 
 """
-    point_damping_accel(sam, i, params, R_b_to_w, wing_vel, vel_w)
+    flight_frame(sam, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
+                 body_ω_b)
 
-Per-mass damping acceleration for DYNAMIC point `i` of `sam`: a world-frame term against
-its world velocity `vel_w`, plus, for a point that belongs to a wing, a body-frame term
-in the frame of that wing's body against the point's velocity relative to it.
+The [`small_earth_frame`](@ref) body `body_idx` of the run `sam` damps against: that of
+the wing it flies with ([`damping_base`](@ref)), on the monolith's point positions `pos`
+and body state.
 """
-function point_damping_accel(sam, i, params, R_b_to_w, wing_vel, vel_w)
+function flight_frame(sam, body_idx, pos; body_com_w, body_com_vel, body_R_b_to_w,
+                      body_ω_b)
+    parent = parent_body(sam, body_idx)
+    wing = parent == 0 ? body_idx : parent
+    base_w = damping_base_position(damping_base(sam, body_idx), point -> pos[:, point])
+    R_b_to_w = collect(body_R_b_to_w[:, :, wing])
+    return small_earth_frame(base_w, body_com_w[:, wing], body_com_vel[:, wing],
+                             R_b_to_w[:, 2], R_b_to_w * collect(body_ω_b[:, wing]))
+end
+
+"""
+    point_damping_accel(i, params, R_b_to_w, body_idx, frame, pos_w, vel_w)
+
+Per-mass damping acceleration for DYNAMIC point `i` at `pos_w`: a world-frame term
+against its world velocity `vel_w`, plus, for a point on the wing of body `body_idx`
+(`0` for none), the [`body_frame_damp_accel`](@ref) on that body's axes against the
+wing's [`small_earth_frame`](@ref) `frame`.
+"""
+function point_damping_accel(i, params, R_b_to_w, body_idx, frame, pos_w, vel_w)
     accel = collect(params.points[i].world_frame_damping .* vel_w)
-    wing_idx = point_wing(sam, i)
-    isnothing(wing_idx) && return accel
-    body_idx = wing_body(sam, wing_idx)
-    R = R_b_to_w[:, :, body_idx]
-    coeff = params.points[i].body_frame_damping
-    vel_diff_w = vel_w - wing_vel[:, body_idx]
-    return accel + R * (coeff .* (R' * vel_diff_w))
+    body_idx == 0 && return accel
+    return accel .+ body_frame_damp_accel(vel_w, params.points[i].body_frame_damping,
+        collect(R_b_to_w[:, :, body_idx]), frame, pos_w)
 end
 
 """
@@ -90,7 +105,7 @@ end
 
 """
     point_eqs!(s, eqs, defaults, params, initial;
-               R_b_to_w, com_w, wing_vel, wind_vec_gnd, twist_angle,
+               R_b_to_w, com_w, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_aero_drag, total_drag,
                disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
@@ -114,8 +129,7 @@ from its body's COM.
 # Arguments
 - `s::SymbolicAWEModel`: The run.
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
-- `R_b_to_w`, `com_w`, `wing_vel`: Symbolic body rotation, centre of mass and velocity,
-  by body.
+- `R_b_to_w`, `com_w`: Symbolic body rotation and centre of mass, by body.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `twist_angle`: Symbolic station twist angle.
 - `pos`, `vel`, `acc`: Pre-declared point state variables.
@@ -131,7 +145,7 @@ from its body's COM.
 """
 function point_eqs!(s, eqs, defaults, params, initial;
                     R_b_to_w, com_w,
-                    wing_vel, wind_vec_gnd, twist_angle,
+                    wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                     spring_sum_force, point_aero_drag, total_drag,
                     disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
@@ -272,7 +286,10 @@ function point_eqs!(s, eqs, defaults, params, initial;
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, i)
-            damp_accel = point_damping_accel(s, i, params, R_b_to_w, wing_vel, vel[:, i])
+            frame = body_idx == 0 ? nothing : flight_frame(s, body_idx, pos;
+                body_com_w, body_com_vel, body_R_b_to_w, body_ω_b)
+            damp_accel = point_damping_accel(i, params, R_b_to_w, body_idx, frame,
+                pos[:, i], vel[:, i])
             velocity, acceleration = confined_derivatives(
                 pos[:, i], vel[:, i], collect(acc[:, i]),
                 (; fix_sphere = fix_point_sphere[i], fix_static = fix_static[i]))
