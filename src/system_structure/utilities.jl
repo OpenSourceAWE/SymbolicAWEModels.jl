@@ -1002,16 +1002,59 @@ end
 
 Turn the points and bodies of a running `state` to the current elevation, azimuth and
 heading of each of `transforms` about its base where it stands, with KiteGeometry's
-`reposition!`, keeping their velocities. `update_vel` sets them to the transforms' rates
-instead ([`set_transform_velocities!`](@ref)).
+`reposition!`, and their velocities with them ([`turn_velocities!`](@ref)). `update_vel`
+sets the velocities to the transforms' rates instead ([`set_transform_velocities!`](@ref)).
 """
 function KiteGeometry.reposition!(state::SystemState, transforms=state.transforms;
                                   update_vel::Bool=false)
     fit_body_frames!(state.points, state.bodies)
-    set_pose!(state, reposition!(Pose(state), transforms))
-    update_vel && set_transform_velocities!(state, transforms)
+    before = Pose(state)
+    after = reposition!(copy(before), transforms)
+    set_pose!(state, after)
+    if update_vel
+        set_transform_velocities!(state, transforms)
+    else
+        turn_velocities!(state, transforms, before, after)
+    end
     fit_body_frames!(state.points, state.bodies)
     return state
+end
+
+"""
+    turn_velocities!(state::SystemState, transforms, before, after)
+
+Rotate the velocity of each point and body of `state` that one of `transforms` moves as
+its members turned from the pose `before` to `after` ([`turn_rotation`](@ref)). A body's
+`ω_b` is in its own axes, which turn with it, and is left alone.
+"""
+function turn_velocities!(state::SystemState, transforms, before, after)
+    for transform in transforms
+        R = turn_rotation(transform, transforms, before, after)
+        for index in transform.points
+            state.points[index].vel_w .= R * state.points[index].vel_w
+        end
+        for index in transform.bodies
+            state.bodies[index].vel_w .= R * state.bodies[index].vel_w
+        end
+    end
+    return state
+end
+
+"""
+    turn_rotation(transform, transforms, before, after)
+
+The rotation KiteGeometry's `reposition!` gave the members of `transform`, one of
+`transforms`, from the pose `before` to `after`: that of the frame of its `body`, else the
+smallest rotation of what it turns about its base.
+"""
+function turn_rotation(transform, transforms, before, after)
+    (; body) = transform
+    isnothing(body) || return after.body_R[body] * before.body_R[body]'
+    base_pos = KiteGeometry.base_position(after, transforms, transform)
+    axis, angle = KiteGeometry.min_rotation(
+        normalize(KiteGeometry.turned_position(before, transform) - base_pos),
+        normalize(KiteGeometry.turned_position(after, transform) - base_pos))
+    return KiteGeometry.rotate_frame(KiteGeometry.Mat3(I), axis, angle)
 end
 
 """
@@ -1057,17 +1100,37 @@ function fit_body_frames!(points, bodies)
 end
 
 """
-    transform_base_point(transforms, body_idx) -> Int
+    transform_base(transforms, body_idx) -> Union{Int, Nothing}
 
-The base point of the transform among `transforms` moving body `body_idx`, from which its
-elevation and azimuth are measured; 0 for none.
+The base point of the transform among `transforms` moving body `body_idx`: 0 for the
+world origin, `nothing` where no transform moves the body.
 """
-function transform_base_point(transforms, body_idx)
+function transform_base(transforms, body_idx)
     for transform in transforms
         body_idx in transform.bodies && return something(transform.base_point, 0)
     end
-    return 0
+    return nothing
 end
+
+"""
+    damping_base(state, body_idx) -> Union{Int, Nothing}
+
+The [`transform_base`](@ref) of the wing body `body_idx` flies with in `state`: its
+parent wing's, or its own where it has none.
+"""
+function damping_base(state, body_idx)
+    wing_idx = state.bodies[body_idx].wing_idx
+    return transform_base(state.transforms, wing_idx == 0 ? body_idx : wing_idx)
+end
+
+"""
+    transform_base_point(transforms, body_idx) -> Int
+
+The point among the [`transform_base`](@ref) of body `body_idx` from which its
+elevation and azimuth are measured; 0 for the world origin.
+"""
+transform_base_point(transforms, body_idx) =
+    something(transform_base(transforms, body_idx), 0)
 
 """
     carry_body_points!(sys_struct::SystemState)
@@ -1458,13 +1521,11 @@ set_body_frame_damping(components::AbstractVector, damping::Union{Real, Abstract
 """
     set_angular_damping(bodies::AbstractVector, damping[, idxs])
 
-Set the angular damping coefficient of rigid bodies: the spin is resolved on the
-body's own axes and damped per axis, `dω/dt -= c .* ω`, so `[0, 20, 0]` resists
-rotation about the body `y` axis alone. Coefficients are [1/s]; a scalar applies
-to all three axes.
-
-Unlike the tube Rayleigh damping this resists the body's *absolute* spin, so it
-brakes rigid rotation of whatever the body belongs to as well as deformation.
+Set the angular damping coefficient of rigid bodies: the spin relative to the
+[`small_earth_frame`](@ref) of the wing a body flies with is resolved on the body's own
+axes and damped per axis, `dω/dt -= c .* (ω - Rᵀ·Ω)`, so `[0, 20, 0]` resists rotation
+about the body `y` axis alone. Coefficients are [1/s]; a scalar applies to all three
+axes.
 """
 set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector},
                     idxs=eachindex(bodies)) =
