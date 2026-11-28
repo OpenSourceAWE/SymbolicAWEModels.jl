@@ -25,6 +25,7 @@
 
 ### Fixed
 
+- BREAKING: `SysState.turn_rates` holds the wing's angular velocity in its body frame (KA when the wing's reference points give aft-right-up), as KiteUtils defines it, instead of in the view frame. The linear-simulation log writes the body-frame yaw rate `body_ω_b[3, 1]` to `turn_rates[3]`, where it threw a `BoundsError` before. The `plot_turn_rates` panel and the heading-rate panel's yaw rate are labelled `ω_b`. `Wing.turn_rate` stays in the view frame, and `update_from_sysstate!` rebuilds it from the logged body rate.
 - `reposition!(state)` turns each point and body velocity with the pose, so a re-posed run keeps the motion it had; it left them pointing where they did before. Runs that reposition, such as `sim_reposition!`, give different results.
 
 ## SymbolicAWEModels v0.20.0 2026-10-08
