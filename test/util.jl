@@ -213,12 +213,14 @@ function test_init!(
 end
 
 """
-    load_2plate_particle_sys(system_name) -> (sys, set)
+    load_2plate_sys(system_name; geometry="particle_structural_geometry.yaml")
+        -> (sys, set, transforms)
 
-The 2plate kite's particle `SystemStructure` and its settings, loaded from a scratch
-copy of `data/2plate_kite`; the global data path is left as it was.
+The 2plate kite's `SystemStructure` of the structural `geometry` file, its settings
+and its transforms, loaded from a scratch copy of `data/2plate_kite`; the global data
+path is left as it was.
 """
-function load_2plate_particle_sys(system_name)
+function load_2plate_sys(system_name; geometry = "particle_structural_geometry.yaml")
     data_path = joinpath(mktempdir(), "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
     data_path_before = get_data_path()
@@ -226,12 +228,48 @@ function load_2plate_particle_sys(system_name)
     set = Settings("system.yaml")
     vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys, _ = load_sys_struct_from_yaml(
-        joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name, set, vsm_set)
+    sys, transforms = load_sys_struct_from_yaml(joinpath(data_path, geometry);
+                                                 system_name, set, vsm_set)
     set_data_path(data_path_before)
-    return sys, set
+    return sys, set, transforms
 end
+
+"""
+    kernel_2plate(geometry) -> SymbolicAWEModel
+
+The 2plate kite of the structural `geometry` file on the `KernelBackend`.
+"""
+function kernel_2plate(geometry)
+    sys, set, transforms = load_2plate_sys("2plate_kite"; geometry)
+    return SymbolicAWEModel(set, sys; transforms,
+                            backend = SymbolicAWEModels.KernelBackend())
+end
+
+"""
+    start_at!(sam; elevation, v_wind) -> SymbolicAWEModel
+
+`sam` placed at `elevation` [deg], azimuth and heading zero, in a wind of `v_wind`
+[m/s], with its winches braked.
+"""
+function start_at!(sam; elevation, v_wind)
+    sam.set.v_wind = v_wind
+    transform = sam.state.transforms[1]
+    transform.elevation = deg2rad(elevation)
+    transform.azimuth = 0.0
+    transform.heading = 0.0
+    place!(sam)
+    init!(sam; prn = false)
+    foreach(winch -> winch.brake = 1.0, sam.state.winches)
+    return sam
+end
+
+"""The free point positions of `sam`'s ODE state, one column per point."""
+point_positions(sam) =
+    reshape(sam.integrator.u[SymbolicAWEModels.EquilibriumProblem(sam).layout.position],
+            3, :)
+
+"""The largest distance between matching columns of `a` and `b`."""
+largest_distance(a, b) = maximum(norm.(eachcol(a .- b)))
 
 """
     scalar_equation_pairs(eq) -> Vector{Tuple}

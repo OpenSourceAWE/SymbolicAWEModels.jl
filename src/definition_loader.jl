@@ -117,7 +117,17 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
         bodies=Body[definition_body(definition.bodies[b])
                     for b in n_wings+1:length(definition.bodies)],
         tubes=Tube[definition_tube(definition, tube) for tube in definition.tubes],
+        membranes=Membrane[definition_membrane(face) for face in definition.canopy_faces
+                           if face.model isa MembraneModel],
         placed=true, vsm_set, prn, definition)
+end
+
+"""The membrane a `sam_membrane` canopy face of a definition is: the row itself, refusing
+one that is not a triangle."""
+function definition_membrane(face)
+    length(face.points) == 3 ||
+        error("membrane $(face.name) has $(length(face.points)) corners; it needs three")
+    return face
 end
 
 """A row's name as a `Symbol`, or its index where the authoring YAML gave it none."""

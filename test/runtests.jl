@@ -35,6 +35,8 @@ KERNEL_SKIP_FILES = Dict(
                        "zero-allocation RHS through test_init!",
     "test_backend_parity.jl" => "builds both backends itself, so the " *
                                 "monolith run already covers it",
+    "test_membrane.jl" => "builds both backends itself, so the monolith run " *
+                          "already covers it",
 )
 
 backend_name = lowercase(strip(get(ENV, "SYMAWE_TEST_BACKEND", "")))

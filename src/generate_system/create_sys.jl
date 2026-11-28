@@ -24,7 +24,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     defaults = Pair{Num, Any}[]
 
     (; points, stations, segments, pulleys, tethers, winches, wings,
-       bodies, tubes) = system
+       bodies, tubes, membranes) = system
 
     validate_station_modes(stations, bodies)
 
@@ -156,6 +156,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
         aero_force_point_b = nothing
     end
 
+    # Force on each corner of each membrane
+    if isempty(membranes)
+        membrane_force = nothing
+    else
+        @variables membrane_force(t)[1:3, 1:3, eachindex(membranes)]
+    end
+
     # Pulley and tether length state variables
     @variables begin
         pulley_len(t)[eachindex(pulleys)]
@@ -184,8 +191,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
         aero_force_point_b,
         station_y_airf,
         body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w,
-        body_com_vel, body_ω_b
+        body_com_vel, body_ω_b, membranes, membrane_force
     )
+    eqs = membrane_eqs!(eqs, membranes, params; pos, vel, membrane_force)
 
     # 2. Station equations (deformable wing sections with twist dynamics)
     eqs, defaults = station_eqs!(

@@ -155,6 +155,9 @@ SymbolicAWEModels.segment_eqs
 SymbolicAWEModels.SpringSegment
 SymbolicAWEModels.PulleySegment
 SymbolicAWEModels.TetherSegment
+SymbolicAWEModels.membrane_variables
+SymbolicAWEModels.MembraneTriangle
+SymbolicAWEModels.add_membrane!
 SymbolicAWEModels.body_variables
 SymbolicAWEModels.remove_along
 SymbolicAWEModels.keep_along
@@ -290,6 +293,16 @@ SymbolicAWEModels.KernelControlSetter
 SymbolicAWEModels.write_total_mass!
 SymbolicAWEModels.segment_load_terms
 SymbolicAWEModels.segment_nonlinear_force
+SymbolicAWEModels.MEMBRANE_STRAIN_FLOOR
+SymbolicAWEModels.membrane_rest_metric
+SymbolicAWEModels.membrane_rest_area
+SymbolicAWEModels.membrane_strain_energy
+SymbolicAWEModels.membrane_dissipation
+SymbolicAWEModels.membrane_corner_forces
+SymbolicAWEModels.init_membrane_rest_lengths!
+SymbolicAWEModels.MembraneModel
+SymbolicAWEModels.definition_membrane
+SymbolicAWEModels.membrane_eqs!
 SymbolicAWEModels.workload_fixture
 SymbolicAWEModels.workload_model
 SymbolicAWEModels.run_workload

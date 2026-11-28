@@ -23,6 +23,7 @@ function system_definition(sys::SystemStructure)
         wings=[wing_row(sys, wing) for wing in sys.wings],
         bodies=[body_row(sys, body) for body in sys.bodies],
         tubes=[tube_row!(materials, sys, tube) for tube in sys.tubes],
+        canopy_faces=collect(sys.membranes),
         materials)
 end
 
@@ -30,8 +31,8 @@ end
     attach_definition!(sys::SystemStructure)
 
 Give `sys` the definition [`system_definition`](@ref) writes from its components, each
-point, segment, station, pulley, tether, winch, body and wing of `sys` then being its
-row there.
+point, segment, station, pulley, tether, winch, body, wing and membrane of `sys` then being
+its row there.
 """
 function attach_definition!(sys::SystemStructure)
     definition = sys.definition = system_definition(sys)
@@ -42,7 +43,8 @@ function attach_definition!(sys::SystemStructure)
                                (sys.tethers, definition.tethers),
                                (sys.winches, definition.winches),
                                (sys.bodies, definition.bodies),
-                               (sys.wings, definition.bodies))
+                               (sys.wings, definition.bodies),
+                               (sys.membranes, definition.canopy_faces))
         replace_with_rows!(components.items, rows)
     end
     for (wing, row) in zip(sys.wings, definition.wings)

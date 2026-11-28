@@ -69,6 +69,7 @@ export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
 export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
+export Membrane
 export segment_role
 export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
@@ -100,7 +101,7 @@ export WindMode, ProfileWind, PerPointWind, per_point_wind
 export sim!, sim_reposition!
 
 # --- Low-Level Simulation Functions ---
-export find_steady_state!
+export find_steady_state!, find_equilibrium!
 export linearize!
 export set_world_frame_damping
 export set_body_frame_damping
@@ -219,6 +220,7 @@ include("backends.jl")
 include("kernel_backend/codegen/mtk_codegen.jl")
 include("components/kernels.jl")
 include("components/components.jl")
+include("components/membrane.jl")
 include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
@@ -250,6 +252,7 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
+include("equilibrium.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
 function rotate_around_x(vec, angle::T) where T

@@ -112,18 +112,18 @@ end
                fix_point_sphere, fix_static,
                va_point_b, va_point_w, wind_at_point, height,
                aero_force_point_b,
-               station_y_airf)
+               station_y_airf, membranes, membrane_force)
 
 Generate equations for all point types (STATIC, DYNAMIC, BODY_STATIC).
 
 Each point's net force is the shared [`point_net_force`](@ref): the structural load
 gathered from its incident segments (their spring force with the endpoint sign and
-half their drag), plus per-node aero, its own drag and gravity. A point a rigid body
-carries ([`carrier_body_idx`](@ref)) has zero gravitational mass here, since its mass
-is part of the body's `total_mass` and weighs at the body's COM. Free particles
-integrate through [`confined_derivatives`](@ref), which applies `fix_static` and
-`fix_sphere`; a rigid wing node is placed instead by [`twist_deformed_offset`](@ref)
-from its body's COM.
+half their drag) and the membranes it is a corner of, plus per-node aero, its own drag
+and gravity. A point a rigid body carries ([`carrier_body_idx`](@ref)) has zero
+gravitational mass here, since its mass is part of the body's `total_mass` and weighs at
+the body's COM. Free particles integrate through [`confined_derivatives`](@ref), which
+applies `fix_static` and `fix_sphere`; a rigid wing node is placed instead by
+[`twist_deformed_offset`](@ref) from its body's COM.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
@@ -136,6 +136,7 @@ from its body's COM.
 - `point_force`, `point_mass`: Pre-declared point force and mass variables.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `spring_sum_force`: Pre-declared accumulated spring/drag forces variable.
+- `membranes`, `membrane_force`: The membranes and the pre-declared force on each corner.
 - Other variables: Various point-specific symbolic variables.
 - `body_force`, `body_moment`: Mutable arrays to accumulate wing-node loads onto bodies.
 
@@ -154,7 +155,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
                     aero_force_point_b,
                     station_y_airf,
                     body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w,
-                    body_com_vel, body_ω_b)
+                    body_com_vel, body_ω_b, membranes, membrane_force)
 
     wind_gnd = collect(wind_vec_gnd)
     for point in points
@@ -176,6 +177,10 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
                 F .+= half_seg_drag
                 seg_drag .+= half_seg_drag
             end
+        end
+        for membrane in membranes
+            corner = findfirst(==(point.idx), membrane.point_idxs)
+            isnothing(corner) || (F .+= membrane_force[:, corner, membrane.idx])
         end
 
         eqs = [
