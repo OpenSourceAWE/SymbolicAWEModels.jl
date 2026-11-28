@@ -190,7 +190,7 @@ aero_poses = [
             reference=:vsm,
             force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0,
             drag_rtol=0.001, lift_rtol=0.01, side_atol=0.01,
-            yaw_rtol=0.08, motion_rtol=0.01, motion_drag_rtol=0.01),
+            yaw_rtol=0.08, motion_rtol=0.001, motion_drag_rtol=0.001),
         (name="continuous particle", make=() -> ContinuousAero(),
             yaml=particle_yaml, data=data_path, vsm_set=vsm_set_billow,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
@@ -214,7 +214,7 @@ aero_poses = [
             reference=:vsm,
             force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0,
             drag_rtol=0.001, lift_rtol=0.01, side_atol=0.01,
-            yaw_rtol=0.08, motion_rtol=0.05, motion_drag_rtol=0.05),
+            yaw_rtol=0.08, motion_rtol=0.001, motion_drag_rtol=0.001),
     ]
 
     for (idx, case) in enumerate(cases)

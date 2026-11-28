@@ -854,7 +854,8 @@ Includes all structural properties that affect the symbolic equations:
 - Tether topology
 - Winch configuration
 - Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
-- The transform base point each wing's elevation and azimuth are measured from
+- The transform base point each wing's elevation and azimuth are measured from, and
+  the one each body damps against ([`damping_base`](@ref))
 - The wind mode, which decides whether the wind is a height profile or a per-point
   parameter. Only [`PrescribedWind`](@ref) enters the hash, as one entry: its modes
   build identical equations, and structures on the default [`ProfileWind`](@ref) keep
@@ -921,7 +922,7 @@ function get_sys_struct_hash(state::SystemState)
     per_point_wind(state) && push!(data_parts, ("wind_mode", :per_point))
     for rigid_body in bodies
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
-                           rigid_body.wing_idx))
+                           rigid_body.wing_idx, damping_base(state, rigid_body.idx)))
     end
     for tube in tubes
         # Rigidity type selects the generated law (scalar vs callable of strain).

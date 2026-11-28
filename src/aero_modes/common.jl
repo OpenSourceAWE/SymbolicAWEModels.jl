@@ -1113,17 +1113,19 @@ function sync_aero_density!(wing, am)
 end
 
 """
-    point_acceleration_w(point, wing_frame, wing_vel) -> KVec3
+    point_acceleration_w(point, wing_frame, frame) -> KVec3
 
 A free particle's world-frame acceleration, rebuilt from what the struct already
-carries: its net force per unit mass less the world-frame and body-frame damping.
+carries: its net force per unit mass less the world-frame damping and the body-frame
+damping on the wing's axes `wing_frame` against its [`small_earth_frame`](@ref)
+`frame`.
 The same expression `point_eqs!` binds to `acc`, which is where the monolith's
 fitted wing reads its own `acc_w` from.
 """
-function point_acceleration_w(point, wing_frame, wing_vel)
+function point_acceleration_w(point, wing_frame, frame)
     damping = collect(point.world_frame_damping) .* collect(point.vel_w) .+
         body_frame_damp_accel(point.vel_w, point.body_frame_damping, wing_frame,
-                              collect(wing_vel))
+                              frame, point.pos_w)
     return collect(point.force) ./ point.total_mass .- damping
 end
 
@@ -1136,8 +1138,9 @@ positions/velocities, for a backend that does not carry these quantities as stat
 `zp1`, `zp2`, `yp1`, `yp2` and `origin` are [`WeightedRefPoints`](@ref), so each
 reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
-`ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
-([`point_acceleration_w`](@ref)), the reported scalars
+`ω_b` ([`fitted_frame_omega`](@ref)), the origin's acceleration `acc_w`
+([`point_acceleration_w`](@ref), damped against the [`small_earth_frame`](@ref) about
+the [`transform_base`](@ref) `frame_base`), the reported scalars
 ([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
 `va_b = R'·(wind − vel)`, the wind coming from the height profile or, under a
 [`PrescribedWind`](@ref) mode, from `point.wind_vec` and `wing.wind_vec` — the same
@@ -1145,7 +1148,7 @@ quantities the monolith's `get_all_state` copies out of the integrator.
 """
 function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode;
         zp1, zp2, yp1, yp2, origin, aero_points,
-        base_point = 0, stations = nothing)
+        base_point = 0, frame_base = nothing, stations = nothing)
     pos_z1 = get_ref_position_from_points(points, zp1)
     pos_z2 = get_ref_position_from_points(points, zp2)
     pos_y1 = get_ref_position_from_points(points, yp1)
@@ -1160,12 +1163,13 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
     wing.pos_w .= get_ref_position_from_points(points, origin)
     wing.vel_w .= get_ref_position_from_points(points, origin; field = :vel_w)
     axes = (collect(x), collect(y), collect(z))
-    wing.ω_b .= body_frame_omega(axes,
-        wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
-            (vel_z1, vel_z2, vel_y1, vel_y2), axes))
+    wing.ω_b .= fitted_frame_omega(pos_z1, pos_z2, pos_y1, pos_y2,
+        (vel_z1, vel_z2, vel_y1, vel_y2), axes)
+    base_w = damping_base_position(frame_base, point -> points[point].pos_w)
+    frame = small_earth_frame(base_w, wing.pos_w, wing.vel_w, R[:, 2], R * wing.ω_b)
     fill!(wing.acc_w, 0.0)
     for (idx, weight) in zip(origin.ids, origin.weights)
-        wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w)
+        wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, frame)
     end
     profile = wind_mode isa PrescribedWind ? nothing : WindFactor(am, set.profile_law)
     isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)
@@ -2057,7 +2061,8 @@ end
                      gamma_init=nothing) -> Vector
 
 Run one VSM solve at operating-point input `y = [α, β, ω₁, ω₂, ω₃, θ_twist…]` and
-return the wind-axis coefficient vector `[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`.
+return the wind-axis coefficient vector `[CL, CD, CS, CM₁, CM₂, CM₃, cm_twist…]`,
+normalised by the dynamic pressure of `va_mag`.
 `ForwardDiff.Dual`-aware via `vsm_solve_objects`: for a Dual eltype it solves on a
 cached dual shadow of the VSM solver, so the same routine yields the Jacobian
 under AD.
@@ -2098,10 +2103,11 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     set_va!(body_aero_c, va_b_local, ω)
     safe_vsm_solve!(solver_c, body_aero_c, gamma_init; moment_frac)
 
+    # VSM's own coefficients are scaled by the panel inflow, which carries ω × r.
     sol = solver_c.sol
-    force_coeffs = sol.force_coeffs
-    cm_body = sol.moment_coeffs
-    moment_coeff_dist = sol.moment_coeff_dist
+    q_area = 0.5 * solver_c.density * va_mag^2 * body_aero_c.projected_area
+    force_coeffs = sol.force ./ q_area
+    cm_body = sol.moment ./ (q_area * body_aero_c.c_ref)
 
     # Wind-axis basis (VSM): drag∥va, lift=norm(drag×span), side=lift×drag.
     span = SVector(zero(T), one(T), zero(T))
@@ -2118,9 +2124,9 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     x[6] = cm_body[3]
     for (station_index, gidx) in enumerate(station_idxs)
         x[6 + station_index] = sum(
-            moment_coeff_dist[panel_idx]
+            sol.moment_dist[panel_idx]
             for panel_idx in stations[gidx].panel_idxs;
-            init = zero(T))
+            init = zero(T)) / (q_area * body_aero_c.c_ref)
     end
     return x
 end
