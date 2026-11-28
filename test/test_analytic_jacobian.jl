@@ -14,6 +14,8 @@
 # 5. It stays finite on a `ContinuousAero` wing, whose `aero_panel` kernel is the
 #    widest one the composition differentiates
 # 6. A plan that is not finite errors instead of reaching the solver
+# 7. The solver gets the right-hand side behind a function wrapper, and a Jacobian
+#    that matches forward mode
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -24,7 +26,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, ForwardDiff, VortexStepMethod,
+using SymbolicAWEModels: KernelBackend, ForwardDiff, SciMLBase, VortexStepMethod,
     check_jacobian_finite
 using KiteUtils
 using LinearAlgebra
@@ -167,14 +169,19 @@ function continuous_wing_model()
     return sam
 end
 
-"""The composed Jacobian and a global forward-mode one, at the model's state."""
-function jacobian_pair(sam)
-    jacobian = sam.prob.prob.f.jac
-    rhs = jacobian.rhs
+"""
+The Jacobian `f` holds, the composed problem's by default, filled into `f`'s prototype
+and made dense, and a global forward-mode one, at the state.
+"""
+function jacobian_pair(sam, f = sam.prob.prob.f)
+    rhs = sam.prob.prob.f.jac.rhs
     integrator = sam.integrator
     u, p, t = copy(integrator.u), integrator.p, integrator.t
-    composed = zeros(length(u), length(u))
-    jacobian(composed, u, p, t)
+    prototype = f.jac_prototype
+    filled = isnothing(prototype) ? zeros(length(u), length(u)) :
+             fill!(similar(prototype), 0)
+    f.jac(filled, u, p, t)
+    composed = Matrix(filled)
     reference = ForwardDiff.jacobian((du, x) -> rhs(du, x, p, t), similar(u), copy(u))
     return composed, reference, rhs
 end
@@ -225,6 +232,13 @@ end
         plain = jacobian_test_model(; analytic_jacobian=false)
         @test isnothing(plain.prob.prob.f.jac)
         @test plain.integrator.t > 0.0
+    end
+
+    @testset "Reaches the solver behind a wrapper, with its Jacobian" begin
+        handed = sam.integrator.f
+        @test handed.f isa SciMLBase.FunctionWrappersWrappers.FunctionWrappersWrapper
+        composed, reference, _ = jacobian_pair(sam, handed)
+        @test maximum(abs, composed .- reference) < 1e-8 * maximum(abs, reference)
     end
 
     @testset "Errors on a plan that is not finite" begin
