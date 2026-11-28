@@ -7,6 +7,8 @@
 # - the quarter-chord strut couple: each panel's load reaches its bounding
 #   struts as 0.75·force + couple at the LE station and 0.25·force − couple at
 #   the TE station, so the force splits 3:1 and the couple cancels
+# - the model bin name and hash tell apart builds whose polar interpolant or winch
+#   model types differ, which the compiled problem bakes in
 #
 # The contract ContinuousAero shares with AeroPressure is in
 # test_continuous_modes.jl, and the one it shares with every aero mode in
@@ -27,25 +29,35 @@ using KiteUtils
 using LinearAlgebra
 
 """
-    load_continuous_sys(data_path, set; billowing)
+    load_continuous_sys(data_path, set; billowing, remove_nan=true)
 
 `SystemStructure` for the particle 2plate kite carrying [`ContinuousAero`](@ref),
 with the VSM spanwise distribution either left at the file's `SPLIT_PROVIDED` or
-switched to `BILLOWING`.
+switched to `BILLOWING`, and the polars extrapolated (`remove_nan`) or not.
 """
-function load_continuous_sys(data_path, set; billowing)
+function load_continuous_sys(data_path, set; billowing, remove_nan=true)
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    if billowing
-        for vsm_wing_settings in vsm_set.wings
-            vsm_wing_settings.spanwise_panel_distribution =
-                VortexStepMethod.BILLOWING
-            vsm_wing_settings.billowing_percentage = 8.0
-        end
+    for vsm_wing_settings in vsm_set.wings
+        vsm_wing_settings.remove_nan = remove_nan
+        billowing || continue
+        vsm_wing_settings.spanwise_panel_distribution = VortexStepMethod.BILLOWING
+        vsm_wing_settings.billowing_percentage = 8.0
     end
     return first(load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero()))
+end
+
+"""
+    model_key(set, sys)
+
+The model bin name and structure hash a build of `sys` is cached under.
+"""
+function model_key(set, sys)
+    state = SystemState(sys)
+    return (SymbolicAWEModels.get_model_name(set, state),
+            SymbolicAWEModels.get_sys_struct_hash(state))
 end
 
 @testset "ContinuousAero" begin
@@ -82,6 +94,23 @@ end
             @test isapprox(te_force, 0.25; atol=1e-10)
             @test isapprox(sum(e[4] for e in reached), 0.0; atol=1e-10)
         end
+    end
+
+    @testset "model bin name and hash follow the polar and winch-model types" begin
+        rebuilt = load_continuous_sys(data_path, set; billowing=true)
+        @test model_key(set, rebuilt) == model_key(set, sys)
+        unextrapolated = load_continuous_sys(
+            data_path, set; billowing=true, remove_nan=false)
+        @test typeof(unextrapolated.wings[1].aero) != typeof(mode)
+        @test all(model_key(set, unextrapolated) .!= model_key(set, sys))
+        torque_winch = rebuilt.winches[1]
+        cascaded_winch = Winch(torque_winch.name, set, torque_winch.tethers;
+            winch_point=torque_winch.winch_point, model=CascadedLengthWinch(;
+                v_max=8.0, position_gain=1.0, velocity_gain=1.0))
+        cascaded_winch.idx = torque_winch.idx
+        cascaded_winch.tether_idxs = torque_winch.tether_idxs
+        rebuilt.winches[1] = cascaded_winch
+        @test all(model_key(set, rebuilt) .!= model_key(set, sys))
     end
 
     rm(tmpdir; recursive=true, force=true)
