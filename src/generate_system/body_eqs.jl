@@ -4,23 +4,23 @@
 # Body loads assembly + integration overrides; delegates to `rigid_body_eqs!`.
 
 """
-    body_eqs!(eqs, defaults, bodies, params, initial; kwargs...)
+    body_eqs!(eqs, defaults, state, params, initial; pos, kwargs...)
 
-Generate the differential equations for each plain `Body` (no aero). Loads are
-the accumulated tube wrench (`body_force`/`body_moment`, filled by the tube equations)
-plus gravity (`-g·total_mass` at the COM) and the external wrench (`ext_force_w` world,
-`ext_force_b`/`ext_moment_b` body). `STATIC` bodies are frozen; `fix_sphere`
-confines the COM to a sphere about the world origin; `damping` is per-axis
-angular damping.
+Generate the differential equations for each body of `state`, whose points are at
+`pos`. Loads are the accumulated tube wrench (`body_force`/`body_moment`, filled by the
+tube equations) plus gravity (`-g·total_mass` at the COM) and the external wrench
+(`ext_force_w` world, `ext_force_b`/`ext_moment_b` body). `STATIC` bodies are frozen;
+the rest integrate through [`body_integration`](@ref), damped against the
+[`small_earth_frame`](@ref) of the wing they fly with.
 """
 function body_eqs!(
-    eqs, defaults, bodies, params, initial;
-    body_force, body_moment,
+    eqs, defaults, state, params, initial;
+    pos, body_force, body_moment,
     body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
     body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
     body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
 )
-    for rigid_body in bodies
+    for rigid_body in state.bodies
         idx = rigid_body.idx
         # Bind body-frame outputs for every body (mtkcompile may integrate them, not principal).
         defaults = [
@@ -52,14 +52,14 @@ function body_eqs!(
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
         parent = rigid_body.wing_idx
+        frame = flight_frame(state, idx, pos;
+            body_com_w, body_com_vel, body_R_b_to_w, body_ω_b)
         (; ω_kinematic, d_ω_p, d_com_w, d_com_vel) = body_integration(
             params, idx, body_com_w[:, idx], body_com_vel[:, idx],
             body_ω_p[:, idx], body_α_p[:, idx], body_com_acc[:, idx],
-            collect(body_R_p_to_w[:, :, idx]);
-            frozen=(rigid_body.type == STATIC),
+            collect(body_R_p_to_w[:, :, idx]); frame, frozen=(rigid_body.type == STATIC),
             wing_frame = parent == 0 ? nothing :
-                collect(body_R_b_to_w[:, :, parent]),
-            wing_vel = parent == 0 ? nothing : body_com_vel[:, parent])
+                collect(body_R_b_to_w[:, :, parent]))
 
         eqs, defaults = rigid_body_eqs!(
             eqs, defaults, idx;

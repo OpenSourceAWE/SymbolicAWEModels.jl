@@ -1100,17 +1100,37 @@ function fit_body_frames!(points, bodies)
 end
 
 """
-    transform_base_point(transforms, body_idx) -> Int
+    transform_base(transforms, body_idx) -> Union{Int, Nothing}
 
-The base point of the transform among `transforms` moving body `body_idx`, from which its
-elevation and azimuth are measured; 0 for none.
+The base point of the transform among `transforms` moving body `body_idx`: 0 for the
+world origin, `nothing` where no transform moves the body.
 """
-function transform_base_point(transforms, body_idx)
+function transform_base(transforms, body_idx)
     for transform in transforms
         body_idx in transform.bodies && return something(transform.base_point, 0)
     end
-    return 0
+    return nothing
 end
+
+"""
+    damping_base(state, body_idx) -> Union{Int, Nothing}
+
+The [`transform_base`](@ref) of the wing body `body_idx` flies with in `state`: its
+parent wing's, or its own where it has none.
+"""
+function damping_base(state, body_idx)
+    wing_idx = state.bodies[body_idx].wing_idx
+    return transform_base(state.transforms, wing_idx == 0 ? body_idx : wing_idx)
+end
+
+"""
+    transform_base_point(transforms, body_idx) -> Int
+
+The point among the [`transform_base`](@ref) of body `body_idx` from which its
+elevation and azimuth are measured; 0 for the world origin.
+"""
+transform_base_point(transforms, body_idx) =
+    something(transform_base(transforms, body_idx), 0)
 
 """
     carry_body_points!(sys_struct::SystemState)
@@ -1501,13 +1521,11 @@ set_body_frame_damping(components::AbstractVector, damping::Union{Real, Abstract
 """
     set_angular_damping(bodies::AbstractVector, damping[, idxs])
 
-Set the angular damping coefficient of rigid bodies: the spin is resolved on the
-body's own axes and damped per axis, `dω/dt -= c .* ω`, so `[0, 20, 0]` resists
-rotation about the body `y` axis alone. Coefficients are [1/s]; a scalar applies
-to all three axes.
-
-Unlike the tube Rayleigh damping this resists the body's *absolute* spin, so it
-brakes rigid rotation of whatever the body belongs to as well as deformation.
+Set the angular damping coefficient of rigid bodies: the spin relative to the
+[`small_earth_frame`](@ref) of the wing a body flies with is resolved on the body's own
+axes and damped per axis, `dω/dt -= c .* (ω - Rᵀ·Ω)`, so `[0, 20, 0]` resists rotation
+about the body `y` axis alone. Coefficients are [1/s]; a scalar applies to all three
+axes.
 """
 set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector},
                     idxs=eachindex(bodies)) =
