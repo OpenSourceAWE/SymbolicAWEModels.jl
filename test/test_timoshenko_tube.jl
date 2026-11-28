@@ -12,8 +12,9 @@
 # 2. Axial load: δ = PL/EA.
 # 3. Torsion moment: φ = TL/GJ.
 # 4. Nonlinear rigidities: callable EA(ε)/EIy(κ) softening laws, compared to the
-#    self-consistent closed-form equilibrium (proves the strain/curvature argument
-#    is passed and the effective-rigidity convention is right).
+#    self-consistent closed-form minimum of the element energy (proves the
+#    strain/curvature argument is passed and the effective-rigidity convention is
+#    right).
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -98,7 +99,6 @@ end
         bodies=[nodeA, nodeB], tubes=[tube])
 
     @testset "Model setup" begin
-        @info "Structure wiring: one tube resolved, rest length from geometry."
         @test length(sys.tubes) == 1
         @test sys.tubes[:tube].body_a_idx == 1
         @test sys.tubes[:tube].body_b_idx == 2
@@ -118,7 +118,6 @@ end
         timoshenko = load * beam_length^3 / (3 * EI) +
                      load * beam_length / (kshear * GA)
         euler = load * beam_length^3 / (3 * EI)
-        @info "Cantilever transverse: δ = PL³/3EI + PL/(kGA), shear term active." measured=rb.pos_w[3] expected=timoshenko
         @test rb.pos_w[3] ≈ timoshenko rtol=0.002  # floor: corotational nonlinearity
         @test rb.pos_w[3] > euler + 0.5 * (timoshenko - euler)  # shear active
         @test norm(ra.pos_w) < 1e-9                              # clamped end fixed
@@ -131,7 +130,6 @@ end
         test_init!(sam; prn=false)
         settle!(sam, rb)
         expected = load * beam_length / EA
-        @info "Axial stretch: δ = PL/EA." measured=(rb.pos_w[1] - beam_length) expected=expected
         @test rb.pos_w[1] - beam_length ≈ expected rtol=1e-4
         @test abs(rb.pos_w[3]) < 1e-6
     end
@@ -144,7 +142,6 @@ end
         settle!(sam, rb)
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         twist = asin(clamp(R_b_to_w[3, 2], -1.0, 1.0))
-        @info "Torsion: φ = TL/GJ." measured=twist expected=(torque * beam_length / GJ)
         @test twist ≈ torque * beam_length / GJ rtol=5e-4
         rb.ext_moment_b .= 0.0
     end
@@ -184,7 +181,6 @@ end
         # P = EA_eff·ε with EA_eff = EA0 - axial_slope·ε ⇒ quadratic, larger root.
         EA_eff = (EA0 + sqrt(EA0^2 - 4 * axial_slope * load)) / 2
         expected = load / EA_eff
-        @info "Softening axial: P=EA(ε)·ε self-consistent." measured=(rb_nl.pos_w[1] - beam_length) expected=expected
         @test rb_nl.pos_w[1] - beam_length ≈ expected rtol=1e-3
         @test expected > load / EA0                              # softer than linear
     end
@@ -195,14 +191,16 @@ end
         rb_nl.ext_moment_b .= 0.0
         test_init!(sam_nl; prn=false)
         settle!(sam_nl, rb_nl)
-        # κ = PL/(2·EI_eff), EI_eff = EI0 - bend_slope·κ ⇒ quadratic, larger root.
+        # κ = PL/(2·EI_eff), EI_eff = EI0 - bend_slope·κ ⇒ quadratic, larger root. The
+        # mean rotation carries PL/kγ at the zero-curvature rigidity, kγ⁻¹ =
+        # L²/12EI0 + 1/kGA, so δ = κL²/2 + PL³/12EI0 + PL/kGA.
         EI_eff = (EI0 + sqrt(EI0^2 - 2 * bend_slope * load * beam_length)) / 2
-        expected = load * beam_length^3 / (3 * EI_eff) +
+        curvature = load * beam_length / (2 * EI_eff)
+        expected = curvature * beam_length^2 / 2 + load * beam_length^3 / (12 * EI0) +
                    load * beam_length / (kshear * GA)
         linear = load * beam_length^3 / (3 * EI0) +
                  load * beam_length / (kshear * GA)
-        @info "Softening bending: κ=PL/2EI(κ) self-consistent." measured=rb_nl.pos_w[3] expected=expected
-        @test rb_nl.pos_w[3] ≈ expected rtol=5e-3
+            @test rb_nl.pos_w[3] ≈ expected rtol=5e-3
         @test rb_nl.pos_w[3] > linear                            # softer than linear
     end
 

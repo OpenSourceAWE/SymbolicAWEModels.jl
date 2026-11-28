@@ -447,33 +447,169 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
 end
 
 """
-    timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
+    rotation_vector(D) -> Vector
 
-Consistent Timoshenko end wrench `(F_a, M_a, F_b, M_b)` in element-frame
-coordinates for one set of generalized deformations. `rigidities` is
-`(EA, GAy, GAz, GJ, EIy, EIz)`, already evaluated at the current strain. Linear in
-`(δ, θ_a, θ_b)`, so passing β times the deformation *rates* yields the Rayleigh
-stiffness-proportional damping wrench from the same assembly.
+Rotation vector `vee((D − Dᵀ)/2)` of a near-identity rotation matrix `D`.
 """
-function timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
-    EA_eff, GAy_eff, GAz_eff, GJ_eff, EIy_eff, EIz_eff = rigidities
-    Φy = 12 * EIy_eff / (kshear * GAy_eff * L0^2)
-    Φz = 12 * EIz_eff / (kshear * GAz_eff * L0^2)
-    by = EIy_eff / (L0 * (1 + Φy))
-    bz = EIz_eff / (L0 * (1 + Φz))
-    shy = 6 * EIy_eff / (L0^2 * (1 + Φy))
-    shz = 6 * EIz_eff / (L0^2 * (1 + Φz))
-    Mt = GJ_eff / L0
-    f_axial = EA_eff * δ / L0
-    F_a = [f_axial, -shz * (θ_a[3] + θ_b[3]), shy * (θ_a[2] + θ_b[2])]
-    M_a = [-Mt * (θ_a[1] - θ_b[1]),
-           -by * ((4 + Φy) * θ_a[2] + (2 - Φy) * θ_b[2]),
-           -bz * ((4 + Φz) * θ_a[3] + (2 - Φz) * θ_b[3])]
-    F_b = [-f_axial, shz * (θ_a[3] + θ_b[3]), -shy * (θ_a[2] + θ_b[2])]
-    M_b = [-Mt * (θ_b[1] - θ_a[1]),
-           -by * ((2 - Φy) * θ_a[2] + (4 + Φy) * θ_b[2]),
-           -bz * ((2 - Φz) * θ_a[3] + (4 + Φz) * θ_b[3])]
-    return (F_a, M_a, F_b, M_b)
+rotation_vector(D) = [0.5 * (D[3, 2] - D[2, 3]), 0.5 * (D[1, 3] - D[3, 1]),
+                      0.5 * (D[2, 1] - D[1, 2])]
+
+"""
+    rotation_vector_jacobian(D) -> Matrix
+
+Change of [`rotation_vector`](@ref)`(D)` per spin `ψ` of `D` (`δD = ψ×·D`):
+`½·(tr D·I − D)`.
+"""
+rotation_vector_jacobian(D) =
+    0.5 .* ((D[1, 1] + D[2, 2] + D[3, 3]) .* Matrix(I, 3, 3) .- D)
+
+"""
+    cross_matrix(v) -> Matrix
+
+The matrix `v×` with `cross_matrix(v) * w == v × w`.
+"""
+cross_matrix(v) = [0 -v[3] v[2]; v[3] 0 -v[1]; -v[2] v[1] 0]
+
+"""
+    node_misalignment(frame, R, R_rel0) -> Matrix
+
+Rotation of a node of world rotation `R` away from its rest orientation `R_rel0` in an
+element `frame` (columns `e1`, `e2`, `e3`): `frameᵀ·R·R_rel0ᵀ`, the identity at rest.
+"""
+node_misalignment(frame, R, R_rel0) = (frame' * R) * R_rel0'
+
+"""
+    timoshenko_node_rotations(model, frame, R_a, R_b) -> (theta_a, theta_b)
+
+Each node's [`rotation_vector`](@ref) relative to the element `frame` of a
+[`TimoshenkoTube`](@ref) `model`, for body rotations `R_a`, `R_b`.
+"""
+timoshenko_node_rotations(model, frame, R_a, R_b) =
+    (rotation_vector(node_misalignment(frame, R_a, collect(model.R_a_rel0))),
+     rotation_vector(node_misalignment(frame, R_b, collect(model.R_b_rel0))))
+
+"""
+    timoshenko_strain_map(L0) -> Matrix
+
+Linear map from a Timoshenko element's deformation `(len − L0, θ_a, θ_b)` to its strains
+`(ε, κx, κy, κz, γy, γz)`: axial strain, twist rate and the two curvatures
+`(θ_b − θ_a)/L0`, and the two mean chord-relative rotations `(θ_a + θ_b)/2`.
+"""
+timoshenko_strain_map(L0) = [
+    1/L0 0 0 0 0 0 0
+    0 -1/L0 0 0 1/L0 0 0
+    0 0 -1/L0 0 0 1/L0 0
+    0 0 0 -1/L0 0 0 1/L0
+    0 0 0.5 0 0 0.5 0
+    0 0 0 0.5 0 0 0.5]
+
+"""
+    mean_rotation_rigidity(L0, shear_coeff, EI, GA) -> Real
+
+Rigidity per length of a Timoshenko element's mean chord-relative rotation: the bending
+`12·EI/L0²` and the shear `k·GA` in series. With it the element energy is the exact
+two-node Timoshenko stiffness.
+"""
+mean_rotation_rigidity(L0, shear_coeff, EI, GA) =
+    1 / (L0^2 / (12 * EI) + 1 / (shear_coeff * GA))
+
+"""
+    small_strain_rigidity(rigidity) -> Real
+
+A mode's rigidity at zero strain: the constant itself, or a callable rigidity at zero.
+"""
+small_strain_rigidity(rigidity::Real) = rigidity
+small_strain_rigidity(rigidity) = rigidity(0.0)
+
+"""
+    timoshenko_strain_energy(model, deformation) -> Real
+
+Strain energy [J] of a [`TimoshenkoTube`](@ref) `model` at `deformation = (len − L0, θ_a,
+θ_b)`: `L0` times the [`strain_energy`](@ref) of each strain of
+[`timoshenko_strain_map`](@ref), the mean rotations at their
+[`mean_rotation_rigidity`](@ref). The element's restoring wrench is minus its gradient.
+"""
+function timoshenko_strain_energy(model, deformation)
+    L0 = model.rest_length
+    strains = timoshenko_strain_map(L0) * deformation
+    GA = small_strain_rigidity(model.GA)
+    shear_y = mean_rotation_rigidity(L0, model.shear_coeff,
+                                     small_strain_rigidity(model.EIy), GA)
+    shear_z = mean_rotation_rigidity(L0, model.shear_coeff,
+                                     small_strain_rigidity(model.EIz), GA)
+    rigidities = (model.EA, model.GJ, model.EIy, model.EIz, shear_y, shear_z)
+    return L0 * sum(strain_energy.(rigidities, strains))
+end
+
+"""
+    timoshenko_kinematic_map(frame, len, y_a, D_a, D_b) -> Matrix
+
+Jacobian (7×12) of a Timoshenko element's deformation `(len, θ_a, θ_b)` with respect to
+its anchors' motion `(v_a, ω_a, v_b, ω_b)` (world). The element `frame` follows the chord
+and body A's y-axis `y_a`; `D_a`, `D_b` are the nodes' [`node_misalignment`](@ref)s.
+"""
+function timoshenko_kinematic_map(frame, len, y_a, D_a, D_b)
+    e1 = frame[:, 1]
+    e2 = frame[:, 2]
+    e3 = frame[:, 3]
+    y_axial = y_a ⋅ e1
+    y_transverse = sqrt(1 - y_axial^2)
+    # Frame spin, element axes: chord_spin·(v_a − v_b) + roll_spin·ω_a.
+    chord_spin = [(y_axial / y_transverse) .* e3'; e3'; -e2'] ./ len
+    roll_spin = [(y_a × e3)' ./ y_transverse; zeros(2, 3)]
+    blank = zeros(3, 3)
+    node_a = rotation_vector_jacobian(D_a) *
+             [-chord_spin (frame' .- roll_spin) chord_spin blank]
+    node_b = rotation_vector_jacobian(D_b) *
+             [-chord_spin -roll_spin chord_spin frame']
+    return [-e1' zeros(1, 3) e1' zeros(1, 3); node_a; node_b]
+end
+
+"""
+    timoshenko_generalized_forces(rigidities, L0, deformation) -> Vector
+
+Gradient of the Timoshenko element energy with respect to `deformation = (len − L0,
+θ_a, θ_b)` for the six `rigidities` of the strains of [`timoshenko_strain_map`](@ref),
+held at their current values. Linear in `deformation`, so β times the deformation rates
+gives the Rayleigh damping forces.
+"""
+function timoshenko_generalized_forces(rigidities, L0, deformation)
+    strain_map = timoshenko_strain_map(L0)
+    return L0 .* (strain_map' * (rigidities .* (strain_map * deformation)))
+end
+
+"""
+    timoshenko_nodal_wrench(tube, params, frame, len, R_a, R_b, theta_a, theta_b,
+                            node_velocity) -> Vector
+
+Restoring wrench `(force_a, moment_a, force_b, moment_b)` (world, at the anchors) of
+`tube`'s [`TimoshenkoTube`](@ref): minus the gradient of
+[`timoshenko_strain_energy`](@ref), plus Rayleigh damping β times its generalized forces
+at the deformation rates. `node_velocity` stacks the anchors' `(v_a, ω_a, v_b, ω_b)`.
+"""
+function timoshenko_nodal_wrench(tube, params, frame, len, R_a, R_b, theta_a, theta_b,
+                                 node_velocity)
+    tube_model = params.tubes[tube.idx].model
+    L0 = tube_model.rest_length
+    kinematic_map = timoshenko_kinematic_map(frame, len, R_a[:, 2],
+        node_misalignment(frame, R_a, collect(tube_model.R_a_rel0)),
+        node_misalignment(frame, R_b, collect(tube_model.R_b_rel0)))
+    deformation = [len - L0; theta_a; theta_b]
+    strains = timoshenko_strain_map(L0) * deformation
+    GA = timoshenko_rigidity(tube, params, :GA, 0.0)
+    shear_coeff = tube_model.shear_coeff
+    rigidities = [timoshenko_rigidity(tube, params, :EA, strains[1]),
+        timoshenko_rigidity(tube, params, :GJ, strains[2]),
+        timoshenko_rigidity(tube, params, :EIy, strains[3]),
+        timoshenko_rigidity(tube, params, :EIz, strains[4]),
+        mean_rotation_rigidity(L0, shear_coeff,
+                               timoshenko_rigidity(tube, params, :EIy, 0.0), GA),
+        mean_rotation_rigidity(L0, shear_coeff,
+                               timoshenko_rigidity(tube, params, :EIz, 0.0), GA)]
+    rates = kinematic_map * node_velocity
+    generalized = timoshenko_generalized_forces(rigidities, L0,
+        deformation .+ tube_model.damping .* rates)
+    return -(kinematic_map' * generalized)
 end
 
 """
@@ -481,85 +617,38 @@ end
         moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Corotational Timoshenko element wrench. Given the two nodes' world poses (`pos`,
-`R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the tube's rest
-geometry/rigidities, it builds the
-element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
-(axial, torsion, two bending planes with shear reduction `Φ`) and damping, and returns
-`(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the restoring wrench on
-each node (world frame, transported to each COM). `frame`/`theta_a`/`theta_b`/`force_a`/
-`force_b`/`moment_a`/`moment_b` are caller-supplied **torn** variables, array slices or
-standalone ones as the caller binds them, so the reused frame/force subtrees are not
-re-embedded; `tear_eqs` binds them.
+Corotational Timoshenko element wrench ([`timoshenko_nodal_wrench`](@ref)) from the two
+nodes' world poses (`pos`, `R_b_to_w`, `com`, `com_vel`, world spin `omega_w`). Returns
+`(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)`, the wrench on each node
+transported to its COM. `frame`/`theta_a`/`theta_b`/`force_a`/`force_b`/`moment_a`/
+`moment_b` are caller-supplied **torn** variables, array slices or standalone ones, so
+the reused frame/force subtrees are not re-embedded; `tear_eqs` binds them.
 """
 function timoshenko_element_wrench(tube, params;
         frame, theta_a, theta_b, force_a, force_b, moment_a, moment_b,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
     tp = params.tubes[tube.idx]
-    tube_model = tp.model
-    anchor_a = collect(tp.anchor_a_b)
-    anchor_b = collect(tp.anchor_b_b)
     Ra = collect(R_a)
     Rb = collect(R_b)
-    x_a = collect(pos_a) .+ Ra * anchor_a
-    x_b = collect(pos_b) .+ Rb * anchor_b
-    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, Ra)
-    frame_expr = [e1[1] e2[1] e3[1];
-                  e1[2] e2[2] e3[2];
-                  e1[3] e2[3] e3[3]]
-    element_frame = collect(frame)
-    L0 = tube_model.rest_length
-    R_a_rel0 = collect(tube_model.R_a_rel0)
-    R_b_rel0 = collect(tube_model.R_b_rel0)
-    Da = (element_frame' * Ra) * R_a_rel0'
-    Db = (element_frame' * Rb) * R_b_rel0'
-    θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]),
-                0.5 * (Da[1, 3] - Da[3, 1]),
-                0.5 * (Da[2, 1] - Da[1, 2])]
-    θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]),
-                0.5 * (Db[1, 3] - Db[3, 1]),
-                0.5 * (Db[2, 1] - Db[1, 2])]
-    θ_a = collect(theta_a)
-    θ_b = collect(theta_b)
-    δ = len - L0
-    kshear = tube_model.shear_coeff
-    ε = δ / L0
-    κt = (θ_b[1] - θ_a[1]) / L0
-    κy = (θ_b[2] - θ_a[2]) / L0
-    κz = (θ_b[3] - θ_a[3]) / L0
-    γy = 0.5 * (θ_a[2] + θ_b[2])
-    γz = 0.5 * (θ_a[3] + θ_b[3])
-    rigidities = (timoshenko_rigidity(tube, params, :EA, ε),
-                  timoshenko_rigidity(tube, params, :GA, γy),
-                  timoshenko_rigidity(tube, params, :GA, γz),
-                  timoshenko_rigidity(tube, params, :GJ, κt),
-                  timoshenko_rigidity(tube, params, :EIy, κy),
-                  timoshenko_rigidity(tube, params, :EIz, κz))
-    stiff = timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
+    x_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
+    x_b = collect(pos_b) .+ Rb * collect(tp.anchor_b_b)
+    frame_expr, len = element_frame_matrix(x_a, x_b, Ra)
+    θ_a_expr, θ_b_expr = timoshenko_node_rotations(tp.model, collect(frame), Ra, Rb)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
     vel_a = collect(com_vel_a) .+ (ω_a_w × (x_a .- collect(com_a)))
     vel_b = collect(com_vel_b) .+ (ω_b_w × (x_b .- collect(com_b)))
-    Δv = vel_b .- vel_a
-    axis = element_frame[:, 1]
-    stretch_vel = Δv ⋅ axis
-    # Element-frame spin: roll follows node A, tilt is the chord's own rotation
-    # rate. Subtracting it leaves deformation rate only, so rigid motion is mute.
-    frame_spin = (axis ⋅ ω_a_w) .* axis .+ (axis × Δv) ./ len
-    beta = tube_model.damping
-    rate_a = element_frame' * (ω_a_w .- frame_spin)
-    rate_b = element_frame' * (ω_b_w .- frame_spin)
-    damp = timoshenko_local_wrench(rigidities, L0, kshear, beta * stretch_vel,
-                                   beta .* rate_a, beta .* rate_b)
+    wrench = timoshenko_nodal_wrench(tube, params, collect(frame), len, Ra, Rb,
+        collect(theta_a), collect(theta_b), [vel_a; ω_a_w; vel_b; ω_b_w])
     tear_eqs = [
         vec(collect(frame)) ~ vec(frame_expr)
         collect(theta_a) ~ θ_a_expr
         collect(theta_b) ~ θ_b_expr
-        collect(force_a) ~ element_frame * (stiff[1] .+ damp[1])
-        collect(force_b) ~ element_frame * (stiff[3] .+ damp[3])
-        collect(moment_a) ~ element_frame * (stiff[2] .+ damp[2])
-        collect(moment_b) ~ element_frame * (stiff[4] .+ damp[4])
+        collect(force_a) ~ wrench[1:3]
+        collect(moment_a) ~ wrench[4:6]
+        collect(force_b) ~ wrench[7:9]
+        collect(moment_b) ~ wrench[10:12]
     ]
     force_on_a = collect(force_a)
     force_on_b = collect(force_b)
@@ -569,16 +658,55 @@ function timoshenko_element_wrench(tube, params;
 end
 
 """
+    elastic_tube_deformation(model, x_a, R_a, x_b, R_b) -> (offset, rotation)
+
+Deformation of an [`ElasticTube`](@ref) `model` whose anchors sit at `x_a`, `x_b` on
+bodies of rotation `R_a`, `R_b`: the anchor offset from its rest value in body A's frame,
+and the [`rotation_vector`](@ref) of the relative rotation from its rest value.
+"""
+elastic_tube_deformation(model, x_a, R_a, x_b, R_b) =
+    (R_a' * (x_b .- x_a) .- collect(model.rest_offset_a),
+     rotation_vector(collect(model.R_rel0)' * (R_a' * R_b)))
+
+"""
+    elastic_tube_strain_energy(model, deformation) -> Real
+
+Strain energy [J] of an [`ElasticTube`](@ref) `model` with constant stiffnesses at
+`deformation = (offset, rotation)` ([`elastic_tube_deformation`](@ref)): the
+[`strain_energy`](@ref) of each of its six springs. The tube's restoring wrench is minus
+its gradient.
+"""
+function elastic_tube_strain_energy(model, deformation)
+    stiffnesses = (model.stiffness_axial, model.stiffness_shear, model.stiffness_shear,
+                   model.stiffness_torsion, model.stiffness_bending,
+                   model.stiffness_bending)
+    return sum(strain_energy.(stiffnesses, deformation))
+end
+
+"""
+    elastic_tube_kinematic_map(R_a, R_rel0, R_b, chord) -> Matrix
+
+Jacobian (6×12) of an [`ElasticTube`](@ref)'s deformation (anchor offset in body A's
+frame, rotation vector) with respect to its anchors' motion `(v_a, ω_a, v_b, ω_b)`
+(world), for the anchor-to-anchor `chord` and the rest relative rotation `R_rel0`.
+"""
+function elastic_tube_kinematic_map(R_a, R_rel0, R_b, chord)
+    to_rest = R_rel0' * R_a'
+    spin = rotation_vector_jacobian(to_rest * R_b) * to_rest
+    blank = zeros(3, 3)
+    return [-R_a' (R_a' * cross_matrix(chord)) R_a' blank
+            blank -spin blank spin]
+end
+
+"""
     elastic_tube_wrench(tube, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Lumped 6-DOF [`ElasticTube`](@ref) restoring wrench. From the relative
-pose of the two anchors (in body A's frame) it builds the per-DOF restoring
-force/torque (axial,
-shear, torsion, bending stiffness + damping) and returns
-`(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the equal-and-opposite
-wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
-wrench variables, array slices or standalone ones as the caller binds them.
+Lumped 6-DOF [`ElasticTube`](@ref) restoring wrench: minus the gradient of its six
+springs' energy in the anchors' relative pose, plus Rayleigh damping. Returns
+`(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)`, the equal-and-opposite
+wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world
+wrench on body B, array slices or standalone ones as the caller binds them.
 """
 function elastic_tube_wrench(tube, params; force_w, torque_w,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
@@ -587,49 +715,33 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
     tube_model = tp.model
     Ra = collect(R_a)
     Rb = collect(R_b)
-    anchor_a = collect(tp.anchor_a_b)
-    anchor_b = collect(tp.anchor_b_b)
     ca = collect(com_a)
     cb = collect(com_b)
-    pos_anchor_a = collect(pos_a) .+ Ra * anchor_a
-    pos_anchor_b = collect(pos_b) .+ Rb * anchor_b
-    rest_offset = collect(tube_model.rest_offset_a)
-    R_rel0 = collect(tube_model.R_rel0)
-    Δr_a = Ra' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
-    R_rel = R_rel0' * (Ra' * Rb)
-    Δθ_a = [0.5 * (R_rel[3, 2] - R_rel[2, 3]),
-            0.5 * (R_rel[1, 3] - R_rel[3, 1]),
-            0.5 * (R_rel[2, 1] - R_rel[1, 2])]
+    pos_anchor_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
+    pos_anchor_b = collect(pos_b) .+ Rb * collect(tp.anchor_b_b)
+    chord = pos_anchor_b .- pos_anchor_a
+    offset, rotation = elastic_tube_deformation(tube_model, pos_anchor_a, Ra,
+                                                pos_anchor_b, Rb)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
     vel_anchor_a = collect(com_vel_a) .+ (ω_a_w × (pos_anchor_a .- ca))
     vel_anchor_b = collect(com_vel_b) .+ (ω_b_w × (pos_anchor_b .- cb))
-    # Corotational rate of Δr_a: subtracting body A's spin keeps a rigid rotation
-    # of the pair from registering as a relative anchor velocity.
-    Δv_a = Ra' * ((vel_anchor_b .- vel_anchor_a) .-
-                  (ω_a_w × (pos_anchor_b .- pos_anchor_a)))
-    Δω_a = Ra' * (ω_b_w .- ω_a_w)
+    kinematic_map = elastic_tube_kinematic_map(Ra, collect(tube_model.R_rel0), Rb, chord)
+    rates = kinematic_map * [vel_anchor_a; ω_a_w; vel_anchor_b; ω_b_w]
+    deformation = [offset; rotation]
     beta = tube_model.damping
-    elastic(kind, Δ, rate) =
-        -tube_stiffness_term(tube, params, kind, Δ) -
-        tube_rayleigh_term(tube, params, kind, Δ, rate, beta)
-    force_a = [elastic(1, Δr_a[1], Δv_a[1]),
-               elastic(2, Δr_a[2], Δv_a[2]),
-               elastic(2, Δr_a[3], Δv_a[3])]
-    torque_a = [elastic(3, Δθ_a[1], Δω_a[1]),
-                elastic(4, Δθ_a[2], Δω_a[2]),
-                elastic(4, Δθ_a[3], Δω_a[3])]
-    tear_eqs = [collect(force_w) ~ Ra * force_a; collect(torque_w) ~ Ra * torque_a]
+    generalized = [tube_stiffness_term(tube, params, kind, deformation[i]) +
+                   tube_rayleigh_term(tube, params, kind, deformation[i], rates[i], beta)
+                   for (i, kind) in enumerate((1, 2, 2, 3, 4, 4))]
+    wrench_b = -(kinematic_map[:, 7:12]' * generalized)
+    tear_eqs = [collect(force_w) ~ wrench_b[1:3]; collect(torque_w) ~ wrench_b[4:6]]
     force_on_b = collect(force_w)
     torque_on_b = collect(torque_w)
-    arm_a = pos_anchor_a .- ca
-    arm_b = pos_anchor_b .- cb
     force_on_a = .-force_on_b
     # The massless element spans the anchor offset, so body A also carries the
     # transport couple of the transmitted force; without it the pair is a net torque.
-    moment_on_a = arm_a × force_on_a .- torque_on_b .-
-                  (pos_anchor_b .- pos_anchor_a) × force_on_b
-    moment_on_b = arm_b × force_on_b .+ torque_on_b
+    moment_on_a = (pos_anchor_a .- ca) × force_on_a .- torque_on_b .- chord × force_on_b
+    moment_on_b = (pos_anchor_b .- cb) × force_on_b .+ torque_on_b
     return (; tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)
 end
 
@@ -657,17 +769,9 @@ function beam_hermite_ride_expressions(tube, params, point_idx;
     Rb = collect(R_b)
     x_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
     x_b = collect(pos_b) .+ Rb * collect(tp.anchor_b_b)
-    e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, Ra)
-    frame_expr = [e1[1] e2[1] e3[1];
-                  e1[2] e2[2] e3[2];
-                  e1[3] e2[3] e3[3]]
+    frame_expr, beam_len = element_frame_matrix(x_a, x_b, Ra)
     element_frame = frame === nothing ? frame_expr : collect(frame)
-    Da = (element_frame' * Ra) * collect(tube_model.R_a_rel0)'
-    Db = (element_frame' * Rb) * collect(tube_model.R_b_rel0)'
-    θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
-                0.5 * (Da[2, 1] - Da[1, 2])]
-    θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
-                0.5 * (Db[2, 1] - Db[1, 2])]
+    θ_a_expr, θ_b_expr = timoshenko_node_rotations(tube_model, element_frame, Ra, Rb)
     θ_a = theta_a === nothing ? θ_a_expr : collect(theta_a)
     θ_b = theta_b === nothing ? θ_b_expr : collect(theta_b)
     sfrac = params.points[point_idx].beam_frac

@@ -266,7 +266,9 @@ same panels for comparison.
 ## Inflated-tube rigidity laws
 
 Rigidities for the [`TimoshenkoTube`](@ref)s of a beam wing whose leading edge
-and struts are pressurised fabric tubes. [`tube_bending_law`](@ref) and
+and struts are pressurised fabric tubes. Each law is a strain energy
+([`TubeRigidityLaw`](@ref)), and a tube's forces in the model are minus the gradient
+of its element's energy. [`tube_bending_law`](@ref) and
 [`tube_torsion_law`](@ref) come from the empirical Breukels correlations;
 [`comer_levy_bending_law`](@ref) is the analytical alternative that stays valid
 past collapse but needs the fabric membrane stiffness `E·t`, which

@@ -14,7 +14,8 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: breukels_tip_force_coefficients, check_tube_geometry
+using SymbolicAWEModels: breukels_tip_force_coefficients, check_tube_geometry,
+    strain_energy, law_moment
 
 # (radius [m], pressure [bar]) with the kite_fem tip force at two deflections,
 # the collapse deflection, and the torsion factors c1 [N·m] and c2 [m].
@@ -103,54 +104,62 @@ end
     for case in TUBE_REFERENCE
         radius, pressure = case.radius, case.pressure
         EI0 = tube_linear_rigidities(radius, pressure)[3]
+        asymptote, _ = breukels_tip_force_coefficients(radius, pressure)
         law = tube_bending_law(radius, pressure)
 
-        @test law.mode === :bending
+        @test law.mode === :saturating
         @test law.EI0 ≈ EI0 rtol=1e-12
-        @test law.moment_collapse ≈ case.moment_collapse rtol=1e-9
-        @test law.moment_knee ≈ 0.5 * case.moment_collapse rtol=1e-9
-        @test law.curvature_knee ≈ law.moment_knee / EI0 rtol=1e-12
+        @test law.moment_collapse ≈ asymptote rtol=1e-12
 
-        # Constant below the knee, continuous across it.
-        @test law(0.0) == EI0
-        @test law(0.5 * law.curvature_knee) == EI0
-        @test law(law.curvature_knee) ≈ EI0 rtol=1e-12
-        @test law(1.001 * law.curvature_knee) ≈ EI0 rtol=1e-2
-
-        # Softening above the knee, moment approaching collapse from below.
-        curvatures = law.curvature_knee .* (1.5, 3.0, 10.0, 100.0)
-        rigidities = [law(κ) for κ in curvatures]
-        moments = [κ * law(κ) for κ in curvatures]
-        @test issorted(rigidities; rev=true)
+        # The rigidity at zero curvature is EI0, and the moment saturates at M_c.
+        @test law(0.0) ≈ EI0 rtol=1e-12
+        @test law(1e-4) ≈ EI0 rtol=1e-3
+        curvatures = (0.1, 0.5, 2.0, 10.0) .* (asymptote / EI0)
+        moments = [law_moment(law, κ) for κ in curvatures]
+        @test issorted([law(κ) for κ in curvatures]; rev=true)
         @test issorted(moments)
-        @test all(<(law.moment_collapse), moments)
-        @test moments[end] ≈ law.moment_collapse rtol=1e-2
+        @test all(<(asymptote), moments)
+        @test moments[end] ≈ asymptote rtol=1e-3
         @test law(-0.5) == law(0.5)
+        @test law_moment(law, -0.5) == -law_moment(law, 0.5)
     end
 end
 
-# The two-branch law (constant EI0, then a power-law approach to the collapse
-# moment) cannot follow the Breukels exponential saturation closely: it runs up
-# to 30% stiff just above the knee, where the real tube has already softened but
-# the law is still linear. The bound below pins that known gap, it is not a target.
+@testset "Laws are their energy's derivative" begin
+    laws = (tube_bending_law(0.075, 0.25), tube_torsion_law(0.075, 0.25),
+            comer_levy_bending_law(0.075, 25_000.0, 5.0e4))
+    for law in laws, curvature in (-1.5, -0.2, 0.01, 0.3, 4.0)
+        step = 1e-6
+        slope = (strain_energy(law, curvature + step) -
+                 strain_energy(law, curvature - step)) / (2 * step)
+        @test law_moment(law, curvature) ≈ slope rtol=1e-6
+        @test curvature * law(curvature) ≈ law_moment(law, curvature) rtol=1e-12
+    end
+    # A law differentiates inside, so a model's forward-mode Jacobian nests through it.
+    law = tube_bending_law(0.075, 0.25)
+    @test SymbolicAWEModels.ForwardDiff.derivative(law, 0.3) ≈
+        (law(0.3 + 1e-6) - law(0.3 - 1e-6)) / 2e-6 rtol=1e-5
+    # Breukels torsion in closed form, GJ = c1·atan(c2·κ)/κ.
+    torsion = tube_torsion_law(0.075, 0.25)
+    @test law_moment(torsion, 0.2) ≈ torsion.c1 * atan(torsion.c2 * 0.2) rtol=1e-12
+end
+
+# Breukels' tip-force curve is converted to curvature as in kite_fem, shear share
+# removed; the saturating law has the same EI0 and saturation moment, so they differ
+# only in how the shear share bends the curve between.
 @testset "Bending law tracks the Breukels curve" begin
     for case in TUBE_REFERENCE
         radius, pressure = case.radius, case.pressure
         _, GA, _, _ = tube_linear_rigidities(radius, pressure)
         law = tube_bending_law(radius, pressure)
-        errors = Tuple{Float64, Float64}[]
-        for frac in 0.35:0.025:0.975
+        worst = 0.0
+        for frac in 0.05:0.025:1.0
             deflection = frac * case.collapse
             moment = breukels_tip_force(deflection, radius, pressure)
-            moment > law.moment_knee || continue
             curvature = 3 * (deflection - moment / (TUBE_SHEAR_COEFF * GA))
-            push!(errors, (frac, abs(curvature * law(curvature) - moment) / moment))
+            worst = max(worst, abs(law_moment(law, curvature) - moment) / moment)
         end
-        worst = maximum(last, errors)
-        println("  r=$radius m p=$pressure bar: worst fit error " *
-            "$(round(100 * worst; digits=1))% at $(100 * first(argmax(last, errors)))% " *
-            "of the collapse deflection")
-        @test worst < 0.35
+        @test worst < 0.025
     end
 end
 
@@ -192,7 +201,7 @@ end
     @test comer_levy_bending_stiffness(radius, membrane) ≈ membrane * π * radius^3 rtol=1e-12
 
     law = comer_levy_bending_law(radius, pressure_pa, membrane)
-    @test law.mode === :bending
+    @test law.mode === :softening
     @test law.EI0 ≈ comer_levy_bending_stiffness(radius, membrane) rtol=1e-6
     @test law.moment_knee ≈ moment_wrinkle rtol=1e-12
     @test law.moment_collapse ≈ moment_collapse rtol=1e-12

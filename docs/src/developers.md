@@ -391,7 +391,8 @@ its own job on Ubuntu with Julia 1.12.
 | `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
 | `test_elastic_tube` | [`ElasticTube`](@ref) | Lumped 6-DOF spring between bodies |
 | `test_timoshenko_tube` | [`TimoshenkoTube`](@ref) | Beam bending, shear, axial, torsion vs closed form |
-| `test_tube_laws` | — | Breukels inflated-tube correlations and their fitted range |
+| `test_tube_laws` | — | Breukels inflated-tube correlations, their fitted range, and each law as its energy's derivative |
+| `test_tube_energy` | [`TimoshenkoTube`](@ref), [`ElasticTube`](@ref) | A tube's wrench is minus its energy's gradient, by automatic differentiation |
 | `test_aero_modes` | [`AbstractAeroModel`](@ref) | Mode dispatch and connector contract |
 | `test_continuous_aero` | [`ContinuousAero`](@ref) | Live symbolic force assembly |
 | `test_pressure_aero` | [`AeroPressure`](@ref) | Surface-traction scatter onto points |

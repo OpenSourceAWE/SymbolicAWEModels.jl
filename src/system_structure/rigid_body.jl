@@ -669,6 +669,17 @@ function timoshenko_element_frame(x_a, x_b, R_a)
 end
 
 """
+    element_frame_matrix(x_a, x_b, R_a) -> (frame, len)
+
+The [`timoshenko_element_frame`](@ref) as the matrix of its columns `e1`, `e2`, `e3`, and
+the chord length.
+"""
+function element_frame_matrix(x_a, x_b, R_a)
+    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
+    return [e1[1] e2[1] e3[1]; e1[2] e2[2] e3[2]; e1[3] e2[3] e3[3]], len
+end
+
+"""
     tube_initial_frames(tube, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
 
 World rotations of the two connected bodies and the world positions of the tube's
@@ -706,10 +717,7 @@ function init_rest!(model::ElasticTube, R_a, R_b, anchor_a_w, anchor_b_w)
 end
 
 function init_rest!(model::TimoshenkoTube, R_a, R_b, x_a, x_b)
-    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
-    element_frame = [e1[1] e2[1] e3[1];
-                     e1[2] e2[2] e3[2];
-                     e1[3] e2[3] e3[3]]
+    element_frame, len = element_frame_matrix(x_a, x_b, R_a)
     model.rest_length ≈ 0 && (model.rest_length = len)
     model.R_a_rel0 .= element_frame' * R_a
     model.R_b_rel0 .= element_frame' * R_b

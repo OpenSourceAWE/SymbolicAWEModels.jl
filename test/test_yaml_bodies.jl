@@ -5,8 +5,8 @@
 # body-anchored point from a struc_geometry YAML (the `bodies` and `tubes` blocks
 # and the point `body_idx`/`anchor_b` fields of load_sys_struct_from_yaml). A
 # clamped root body and a free tip body joined by one tube must load with
-# references resolved and sag under gravity to where the same beam settled when
-# it was written as a `timoshenko_joints` or `elastic_joints` row.
+# references resolved and sag under gravity to where the energy-derived tube
+# forces settle it.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -89,13 +89,13 @@ tubes:
        [-0.5, 0.0, 0.0], 10000.0, 1500.0, 50.0, 100.0, 0.05]
 """)
 
-# Where nodeB came to rest after 400 steps of 5 ms under v0.19.0, with the
-# same beam written as a `timoshenko_joints` or `elastic_joints` row.
+# Where nodeB comes to rest after 400 steps of 5 ms, recorded with the tube forces
+# derived from the tubes' strain energy.
 SETTLED_TIP = Dict(
-    "timoshenko" => (pos_w = [0.9992186305467761, 0.0, -0.04051691939002452],
-                     Q_b_to_w = [0.999699629386848, 0.0, 0.0245081823846388, 0.0]),
-    "elastic" => (pos_w = [0.9993996077904469, 0.0, -0.031035544080983943],
-                  Q_b_to_w = [0.999699758818729, 0.0, 0.024502902231676792, 0.0]))
+    "timoshenko" => (pos_w = [0.9992172485411126, 0.0, -0.04055183209065709],
+                     Q_b_to_w = [0.9996991113252223, 0.0, 0.024529305240078462, 0.0]),
+    "elastic" => (pos_w = [0.9993981624403822, 0.0, -0.03106499319209853],
+                  Q_b_to_w = [0.9996990359263122, 0.0, 0.024532377952454495, 0.0]))
 
 function load_beam(model_name)
     pkg_root = dirname(@__DIR__)
@@ -147,7 +147,7 @@ end
     end
 
     for model_name in ("timoshenko", "elastic")
-        @testset "$model_name tube settles where its joint row did" begin
+        @testset "$model_name tube settles where its energy puts it" begin
             set, sys, transforms = model_name == "timoshenko" ?
                 (set, sys, transforms) : load_beam(model_name)
             sam = SymbolicAWEModel(set, sys; transforms)
