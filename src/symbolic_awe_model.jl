@@ -626,13 +626,10 @@ end
     get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
                    sparse=false, analytic_jacobian=false, backend=MonolithBackend())
 
-Constructs a unique filename for the serialized model based on its configuration.
-The filename includes the SymbolicAWEModels version, Julia version, physical model,
-wing type, dynamics type, and component counts to ensure that the correct cached
-model is loaded. `sparse`, `analytic_jacobian` and `backend` are part of the name
-because the cached `ODEProblem` carries its Jacobian prototype, its Jacobian and its
-backend's assembly, so those builds are different artefacts; naming them apart keeps
-all of them on disk rather than invalidating one with the other.
+The filename of the serialized model: the SymbolicAWEModels and Julia versions, the
+physical model, the wing and dynamics types, the component counts, the number of
+tether points damped against their tether's frame, and the `sparse`,
+`analytic_jacobian` and `backend` choices.
 """
 function get_model_name(set::Settings, sys_struct::SystemState; precompile=false,
                         sparse=false, analytic_jacobian=false,
@@ -675,10 +672,17 @@ function get_model_name(set::Settings, sys_struct::SystemState; precompile=false
     n_winches = length(sys_struct.winches)
     n_bodies = length(sys_struct.bodies)
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
+    n_damped = count(idx -> !isnothing(damped_tether_ends(sys_struct, idx)),
+                     eachindex(sys_struct.points))
+    damped_tag = n_damped > 0 ? "_$(n_damped)tdmp" : ""
     sparse_tag = sparse ? "_sparse" : ""
     jacobian_tag = analytic_jacobian ? "_analytic" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
+    counts = "$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_" *
+        "$(n_winches)wch"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_" *
+        "$(aero_mode_str)_$(dynamics_type)_$(counts)$(body_tag)$(damped_tag)" *
+        "$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end
 
 """

@@ -408,6 +408,7 @@ SymbolicAWEModels.validate_station_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
+SymbolicAWEModels.point_frame_damping
 SymbolicAWEModels.flight_frame
 SymbolicAWEModels.broadcast_damping
 SymbolicAWEModels.assign_damping!
@@ -598,6 +599,9 @@ SymbolicAWEModels.fit_body_frames!
 SymbolicAWEModels.transform_base_point
 SymbolicAWEModels.transform_base
 SymbolicAWEModels.damping_base
+SymbolicAWEModels.damped_tether_ends
+SymbolicAWEModels.tether_damping_ends
+SymbolicAWEModels.world_fixed_points
 ```
 
 ## Flat parameters

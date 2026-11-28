@@ -248,18 +248,22 @@ function confined_derivatives(pos, vel, accel, pars)
 end
 
 """
-    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force;
+                           body_damping = zeros(3))
 
 Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
-`D(vel)=point_acceleration(...)` from the shared kernel, and the point's observed
-`net_force`, reading its drag/damping/wind parameters `pars` (a
-[`point_particle_params`](@ref) named tuple).
+`D(vel)=point_acceleration(...) - body_damping` from the shared kernel, and the
+point's observed `net_force`, reading its drag/damping/wind parameters `pars` (a
+[`point_particle_params`](@ref) named tuple). `body_damping` is a
+[`body_frame_damp_accel`](@ref) [m/s²].
 """
-function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force;
+                                body_damping = zeros(3))
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
         pars.wind_source, pars.g_earth; pars.apparent_mass)
-    velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
+    velocity, acceleration = confined_derivatives(pos, vel,
+                                                  motion.accel .- body_damping, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
 end
@@ -951,21 +955,33 @@ function point_wind_eqs(s, params, idx, io)
 end
 
 """
-    Particle(s, params, idx; name)
+    Particle(s, params, idx; name, tether_damped = false)
 
 A free point mass: integrates `pos`/`vel` under the force gathered from its incident
 segments, its own drag, gravity and world-frame damping, through the shared
 [`point_acceleration`](@ref). Its translational mass is `extra_mass` plus the
-incident segments' half-masses (`mass_in`).
+incident segments' half-masses (`mass_in`). `tether_damped` adds the body-frame
+damping against the [`tether_frame`](@ref) of the tether ends wired to its
+`anchor_pos`/`anchor_vel`/`free_pos`/`free_vel` inputs.
 """
-function Particle(s, params, idx; name)
+function Particle(s, params, idx; name, tether_damped = false)
     io = point_variables()
+    ends = @variables begin
+        anchor_pos(t)[1:3], [input = true]
+        anchor_vel(t)[1:3], [input = true]
+        free_pos(t)[1:3], [input = true]
+        free_vel(t)[1:3], [input = true]
+    end
     pars = point_particle_params(params, idx)
+    body_damping = tether_damped ? body_frame_damp_accel(io.vel,
+        params.points[idx].body_frame_damping, I, tether_frame(collect.(ends)...),
+        io.pos) : zeros(3)
     eqs = [dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
-                                  pars.extra_mass + io.mass_in, pars, io.net_force);
+                                  pars.extra_mass + io.mass_in, pars, io.net_force;
+                                  body_damping);
            point_wind_eqs(s, params, idx, io)]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force]
+            io.wind_vec, io.net_force, (tether_damped ? ends : ())...]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -2581,6 +2597,22 @@ function small_earth_frame(base_w, kite_pos, kite_vel, kite_span, kite_spin)
 end
 
 """
+    tether_frame(anchor_pos, anchor_vel, free_pos, free_vel)
+
+The frame that carries the straight line from a tether's anchor to its free end [m]:
+it sits at `anchor_pos`, moves at `anchor_vel` [m/s], turns at `spin = r × v / |r|²`
+[rad/s] and stretches at `stretch = r ⋅ v / |r|²` [1/s], with `r` and `v` the free
+end's position and velocity relative to the anchor.
+"""
+function tether_frame(anchor_pos, anchor_vel, free_pos, free_vel)
+    radius = collect(free_pos) .- collect(anchor_pos)
+    vel = collect(free_vel) .- collect(anchor_vel)
+    radius_sq = radius ⋅ radius
+    return (; pos = collect(anchor_pos), vel = collect(anchor_vel),
+            spin = (radius × vel) ./ radius_sq, stretch = (radius ⋅ vel) / radius_sq)
+end
+
+"""
     damping_base_position(base, position_of)
 
 The position [m] of the [`transform_base`](@ref) `base`, `position_of(base)` for a
@@ -2592,9 +2624,9 @@ damping_base_position(base, position_of) =
 """
     frame_velocity(frame, pos)
 
-The velocity [m/s] at `pos` [m] of a point fixed in the [`small_earth_frame`](@ref)
-`frame`, which stretches radially with the tether: `vel + spin × d + stretch · d` with
-`d = pos − frame.pos`.
+The velocity [m/s] at `pos` [m] of a point fixed in the [`small_earth_frame`](@ref) or
+[`tether_frame`](@ref) `frame`, which stretches radially with the tether:
+`vel + spin × d + stretch · d` with `d = pos − frame.pos`.
 """
 function frame_velocity(frame, pos)
     offset = collect(pos) .- frame.pos
@@ -2612,7 +2644,7 @@ body_frame_damp_accel(vel, body_damp, orientation, frame, pos) =
         (orientation' * (collect(vel) .- frame_velocity(frame, pos))))
 
 """
-    WingNodePoint(s, params, idx; name, with_damping=true, based=true)
+    WingNodePoint(s, params, idx; name, based=true)
 
 A free particle tied to a wing: the shared [`Particle`](@ref) motion plus the
 body-frame damping `point_eqs!` adds for a point that damps against its wing's
@@ -2620,10 +2652,9 @@ body-frame damping `point_eqs!` adds for a point that damps against its wing's
 `wing_frame`/`wing_com`/`wing_velocity`/`wing_spin` the wing's body supplies and the
 `base_pos` of its tether, dropped with `based = false` where no transform moves the
 wing. Its aerodynamic force arrives at `force_in` from [`ParticleWingAero`](@ref), like
-any other load. `with_damping = false` drops the damping term whose coefficient the
-struct leaves unset, so no zero-valued parameter is generated, matching the monolith.
+any other load.
 """
-function WingNodePoint(s, params, idx; name, with_damping = true, based = true)
+function WingNodePoint(s, params, idx; name, based = true)
     io = point_variables()
     extra = @variables begin
         wing_frame(t)[1:9], [input = true]
@@ -2637,21 +2668,12 @@ function WingNodePoint(s, params, idx; name, with_damping = true, based = true)
     frame = small_earth_frame(based ? collect(base_pos) : nothing, extra[2], extra[3],
                               orientation[:, 2], extra[4])
     pars = point_particle_params(params, idx)
-    mass = pars.extra_mass + io.mass_in
-    motion = point_acceleration(s, collect(io.pos), collect(io.vel),
-        collect(io.force_in), mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), pars.wind_source, pars.g_earth;
-        pars.apparent_mass)
-    accel = motion.accel
-    with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
-        point.body_frame_damping, orientation, frame, io.pos))
-    velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
-    eqs = [
-        D.(collect(io.pos)) .~ velocity
-        D.(collect(io.vel)) .~ acceleration
-        collect(io.net_force) .~ motion.net_force
-        point_wind_eqs(s, params, idx, io)
-    ]
+    body_damping = body_frame_damp_accel(io.vel, point.body_frame_damping, orientation,
+                                         frame, io.pos)
+    eqs = [dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
+                                  pars.extra_mass + io.mass_in, pars, io.net_force;
+                                  body_damping);
+           point_wind_eqs(s, params, idx, io)]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
             io.wind_vec, io.net_force, extra..., (based ? (base_pos,) : ())...]
     return System(eqs, t, vars, param_unknowns(params); name)

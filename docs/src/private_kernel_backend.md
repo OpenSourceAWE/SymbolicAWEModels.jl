@@ -166,6 +166,7 @@ SymbolicAWEModels.KinematicBody
 SymbolicAWEModels.body_frame_damp_accel
 SymbolicAWEModels.small_earth_frame
 SymbolicAWEModels.frame_velocity
+SymbolicAWEModels.tether_frame
 SymbolicAWEModels.damping_base_position
 SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.ParticleWingAero
@@ -235,6 +236,7 @@ SymbolicAWEModels.add_kinematic_body!
 SymbolicAWEModels.wire_kinematic_body!
 SymbolicAWEModels.wire_wing_frame!
 SymbolicAWEModels.wire_damping_base!
+SymbolicAWEModels.wire_tether_ends!
 SymbolicAWEModels.add_ride_point!
 SymbolicAWEModels.add_hermite_ride_point!
 SymbolicAWEModels.add_wing_aero!

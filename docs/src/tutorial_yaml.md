@@ -308,6 +308,7 @@ how a plain line is split into several segments.
 | `init_stretched_length` | Float/nothing | Placed (stretched) standoff [m]; [`place!`](@ref) moves the free end to span it. `nothing` = keep the point geometry |
 | `init_tether_force` | Float/nothing | Target initial spring force [N], default 0 |
 | `init_stretch_frac` | Float/nothing | Initial unstretched/stretched ratio; 1.0 is untensioned, `> 1` slack. Excludes `init_tether_force` |
+| `body_frame_damping` | Float/[x,y,z]/nothing | Damping [1/s] of each inner point that sets none, against the frame that turns and stretches with the straight line from the tether's anchor to its free end, on the world axes. Needs exactly one end on a winch or a world-fixed point. `nothing` = off |
 
 ### Winches
 
