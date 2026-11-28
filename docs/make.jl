@@ -69,6 +69,7 @@ makedocs(;
         "Developer guide" => "developers.md",
         "Private API" => "private_functions.md",
         "Private API — kernel backend" => "private_kernel_backend.md",
+        "Private API — equilibrium solver" => "private_equilibrium.md",
     ],
 )
 
