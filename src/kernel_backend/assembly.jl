@@ -232,7 +232,7 @@ Return the kernel registered under `key`, compiling it on first use.
 `make(params)` builds the component `System` from a fresh parameter view, so every
 field the component reads is recorded against `source` and can be remapped to each
 instance. Given `sources`, the roles of the components it reads from, each
-`container => index` ([`link!`](@ref)), it is `make(params, inputs)` with an
+`container => index` ([`wire_links!`](@ref)), it is `make(params, inputs)` with an
 [`InputView`](@ref) on them, and every output it reads becomes one of its inputs.
 """
 function kernel!(builder, table, sam, key, source, make, inputs, outputs;
@@ -240,7 +240,7 @@ function kernel!(builder, table, sam, key, source, make, inputs, outputs;
     entry = get(table, key, nothing)
     entry === nothing || return entry
     registry = ParamRegistry(sam.state)
-    reads = InputRegistry(map(source -> SOURCE_OUTPUTS[first(source)](),
+    reads = InputRegistry(map(origin -> SOURCE_OUTPUTS[first(origin)](),
                               something(sources, (;))))
     seconds = @elapsed begin
         params = ParamView(registry)
@@ -731,19 +731,11 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
 end
 
 """
-    link!(links, instance, entry, sources)
-
-Record that `instance` of `entry` reads from the components `sources` names by role,
-each `container => index`, for [`wire_links!`](@ref) to wire once every instance exists.
-"""
-link!(links, instance, entry, sources) = push!(links, (instance, entry, sources))
-
-"""
     wire_links!(builder, links, instances)
 
-Wire every [`SourceRead`](@ref) of every linked instance from the output of the
-instance `instances[container][index]` its role names. Index `0` is the world origin,
-which is left unwired and so reads zero.
+Wire every [`SourceRead`](@ref) of each `(instance, entry, sources)` in `links` from
+the output of the instance `instances[container][index]` that `sources` names its role
+by. Index `0` is the world origin, which is left unwired and so reads zero.
 """
 function wire_links!(builder, links, instances)
     for (instance, entry, sources) in links, read in entry.source_reads
@@ -781,6 +773,7 @@ function add_body!(builder, table, bindings, links, sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
+    sources = nothing
     if body.type == STATIC
         entry = kernel!(builder, table, sam, :static_body, idx,
                         params -> StaticBody(sam, params, idx; name = :static_body),
@@ -796,7 +789,7 @@ function add_body!(builder, table, bindings, links, sam, idx)
     end
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
-    body.type == STATIC || link!(links, instance, entry, sources)
+    isnothing(sources) || push!(links, (instance, entry, sources))
     return instance
 end
 
@@ -911,7 +904,7 @@ function add_point!(builder, table, bindings, links, sam, idx, role, bodies, wre
     end
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, index_map))
-    isnothing(sources) || link!(links, instance, entry, sources)
+    isnothing(sources) || push!(links, (instance, entry, sources))
     return instance
 end
 

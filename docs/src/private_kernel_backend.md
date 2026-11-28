@@ -237,7 +237,6 @@ SymbolicAWEModels.add_body!
 SymbolicAWEModels.add_kinematic_body!
 SymbolicAWEModels.wire_kinematic_body!
 SymbolicAWEModels.SOURCE_OUTPUTS
-SymbolicAWEModels.link!
 SymbolicAWEModels.wire_links!
 SymbolicAWEModels.damping_sources
 SymbolicAWEModels.add_ride_point!
